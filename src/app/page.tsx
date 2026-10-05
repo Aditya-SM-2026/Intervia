@@ -1,69 +1,50 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+import Link from "next/link";
+
+const steps = [
+  {
+    actor: "Recruiter",
+    action: "creates an interview link and shares it with the candidate.",
+  },
+  {
+    actor: "Candidate",
+    action: "opens the link and grants camera + microphone access.",
+  },
+  {
+    actor: "AI agent",
+    action: "joins the LiveKit room and holds a voice conversation.",
+  },
+];
 
 export default function Home() {
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>
-            To get started, edit the{" "}
-            <code className={styles.code}>page.tsx</code> file.
-          </h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="grid min-h-dvh place-items-center p-6">
+      <div className="w-full max-w-xl rounded-xl border border-border bg-surface p-8 leading-relaxed">
+        <h1 className="mb-3 text-3xl font-semibold">AI Video Interview Platform</h1>
+        <p className="mb-4">
+          Recruiters create a shareable interview link. Candidates join from their
+          browser with camera and microphone and talk with an AI interviewer in a
+          real-time LiveKit room.
+        </p>
+        <ul className="mb-4 grid list-disc gap-2 pl-5">
+          {steps.map(({ actor, action }) => (
+            <li key={actor}>
+              <strong>{actor}</strong> {action}
+            </li>
+          ))}
+        </ul>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/recruiter"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
           >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            Create an interview
+          </Link>
         </div>
-      </main>
-    </div>
+        <p className="mt-4 text-sm text-muted">
+          Phases 1–3 complete: link creation, join flow and the live
+          camera/microphone room. The AI voice conversation arrives next.
+        </p>
+      </div>
+    </main>
   );
 }
