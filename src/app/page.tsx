@@ -17,18 +17,25 @@ const steps = [
 
 export default function Home() {
   return (
-    <main className="grid min-h-dvh place-items-center p-6">
-      <div className="w-full max-w-xl rounded-xl border border-border bg-surface p-8 leading-relaxed">
-        <h1 className="mb-3 text-3xl font-semibold">AI Video Interview Platform</h1>
-        <p className="mb-4">
-          Recruiters create a shareable interview link. Candidates join from their
-          browser with camera and microphone and talk with an AI interviewer in a
-          real-time LiveKit room.
+    <main className="grid min-h-dvh place-items-center bg-surface/40 p-6">
+      <div className="w-full max-w-3xl rounded-3xl border border-border bg-background p-8 leading-relaxed shadow-sm sm:p-12">
+        <Link href="/" className="mb-12 inline-flex items-center gap-2 font-semibold tracking-tight">
+          <span className="grid size-9 place-items-center rounded-xl bg-accent text-sm text-white">I</span>
+          Intervia
+        </Link>
+        <p className="mb-3 text-sm font-medium text-accent">AI-powered conversations for better hiring.</p>
+        <h1 className="mb-4 max-w-xl text-4xl font-semibold tracking-tight sm:text-5xl">
+          Better interviews start with a better conversation.
+        </h1>
+        <p className="mb-8 max-w-2xl text-muted">
+          Create a shareable interview link and let candidates meet your AI
+          interviewer in a live video conversation.
         </p>
-        <ul className="mb-4 grid list-disc gap-2 pl-5">
+        <ul className="mb-8 grid gap-3 sm:grid-cols-3">
           {steps.map(({ actor, action }) => (
-            <li key={actor}>
-              <strong>{actor}</strong> {action}
+            <li key={actor} className="rounded-xl border border-border bg-surface p-4 text-sm">
+              <strong className="mb-1 block">{actor}</strong>
+              <span className="text-muted">{action}</span>
             </li>
           ))}
         </ul>
@@ -40,10 +47,6 @@ export default function Home() {
             Create an interview
           </Link>
         </div>
-        <p className="mt-4 text-sm text-muted">
-          All four phases complete: link creation, join flow, the live
-          camera/microphone room and the AI voice conversation.
-        </p>
       </div>
     </main>
   );

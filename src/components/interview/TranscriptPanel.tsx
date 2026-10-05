@@ -27,7 +27,7 @@ export function TranscriptPanel({ entries, interim }: TranscriptPanelProps) {
     <div
       ref={scrollRef}
       aria-label="Interview transcript"
-      className="h-40 overflow-y-auto rounded-xl border border-border bg-surface p-3 text-sm leading-relaxed"
+      className="h-64 overflow-y-auto rounded-xl border border-border bg-surface p-4 text-sm leading-relaxed lg:h-auto lg:min-h-0 lg:flex-1"
     >
       {entries.length === 0 && !interim && (
         <p className="text-xs text-muted">
@@ -42,7 +42,7 @@ export function TranscriptPanel({ entries, interim }: TranscriptPanelProps) {
                 entry.role === "candidate" ? "text-muted" : "text-accent"
               }`}
             >
-              {entry.role === "candidate" ? "You" : "AI interviewer"}
+              {entry.role === "candidate" ? "You" : "Intervia AI"}
             </span>
             {entry.text}
           </li>

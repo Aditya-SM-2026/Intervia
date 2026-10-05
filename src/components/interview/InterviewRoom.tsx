@@ -19,9 +19,10 @@ import {
 import { cancelSpeech, isSpeechSynthesisSupported, speakText } from "@/lib/speech/browser-tts";
 import { JoinInterviewForm } from "./JoinInterviewForm";
 import { CandidateVideo } from "./CandidateVideo";
+import { AiAgentVideo } from "./AiAgentVideo";
 import { MediaControls } from "./MediaControls";
 import { ConnectionStatus, type ConnectionStage } from "./ConnectionStatus";
-import { AiStatus, type AiUiState } from "./AiStatus";
+import type { AiUiState } from "./AiStatus";
 import { TranscriptPanel, type TranscriptEntry } from "./TranscriptPanel";
 
 interface InterviewRoomProps {
@@ -307,34 +308,61 @@ export function InterviewRoom({ roomId, roomTitle, candidateName }: InterviewRoo
 
   if (stage === "connected") {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col gap-4 p-4 sm:p-6">
-        <header className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="text-lg font-semibold">{roomTitle}</h1>
-          <ConnectionStatus stage={connectionStage} />
-        </header>
+      <main className="mx-auto grid min-h-dvh w-full max-w-[1920px] grid-cols-1 gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <section className="flex min-w-0 flex-col gap-4">
+          <header className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <Link href="/" className="inline-flex items-center gap-2 text-sm font-semibold tracking-tight">
+                <span className="grid size-7 place-items-center rounded-lg bg-accent text-xs text-white">I</span>
+                Intervia
+              </Link>
+              <h1 className="mt-2 text-lg font-semibold">{roomTitle}</h1>
+            </div>
+            <ConnectionStatus stage={connectionStage} />
+          </header>
 
-        <CandidateVideo
-          track={cameraOff ? null : localTracks.video}
-          mirrored
-          label="Your camera"
-        />
+          <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+            <section className="min-w-0">
+              <AiAgentVideo state={aiState} detail={aiDetail} />
+            </section>
+            <section className="min-w-0">
+              <div className="relative">
+                <CandidateVideo
+                  track={cameraOff ? null : localTracks.video}
+                  mirrored
+                  label="Your camera"
+                />
+                <span className="absolute left-3 top-3 rounded-md border border-white/10 bg-black/50 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-white">
+                  {candidateName || "You"}
+                </span>
+              </div>
+            </section>
+          </div>
 
-        <div className="flex flex-col items-center gap-2">
-          <AiStatus state={aiState} detail={aiDetail} />
-          {voiceNotice && <p className="max-w-md text-xs text-muted">{voiceNotice}</p>}
-        </div>
+          {voiceNotice && (
+            <p role="status" className="text-xs text-muted">
+              {voiceNotice}
+            </p>
+          )}
 
-        <TranscriptPanel entries={transcript} interim={interimTranscript} />
+          <div className="mt-auto">
+            <MediaControls
+              muted={muted}
+              cameraOff={cameraOff}
+              onToggleMute={handleToggleMute}
+              onToggleCamera={handleToggleCamera}
+              onLeave={handleLeave}
+            />
+          </div>
+        </section>
 
-        <div className="mt-auto">
-          <MediaControls
-            muted={muted}
-            cameraOff={cameraOff}
-            onToggleMute={handleToggleMute}
-            onToggleCamera={handleToggleCamera}
-            onLeave={handleLeave}
-          />
-        </div>
+        <aside className="flex min-h-[22rem] flex-col gap-3 rounded-2xl border border-border bg-background p-4 lg:h-[calc(100dvh-3rem)]">
+          <header>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted">Live interview</p>
+            <h2 className="mt-1 text-lg font-semibold">Conversation</h2>
+          </header>
+          <TranscriptPanel entries={transcript} interim={interimTranscript} />
+        </aside>
       </main>
     );
   }

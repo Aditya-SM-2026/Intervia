@@ -56,7 +56,7 @@ export class InterviewAgentSession {
     const credentials = await generateLiveKitToken({
       roomName: getLiveKitRoomName(this.roomId),
       identity: AI_AGENT_IDENTITY,
-      displayName: "AI Interviewer",
+      displayName: "Intervia AI",
       agent: true,
     });
 

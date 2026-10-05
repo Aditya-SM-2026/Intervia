@@ -13,9 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Video Interview Platform",
-  description:
-    "Recruiters create interview links; candidates join a LiveKit room and talk with an AI interviewer.",
+  title: {
+    default: "Intervia — AI-powered conversations for better hiring",
+    template: "%s | Intervia",
+  },
+  description: "AI-powered conversations for better hiring.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

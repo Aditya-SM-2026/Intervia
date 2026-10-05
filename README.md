@@ -1,8 +1,10 @@
-# AI Video Interview Platform
+# Intervia
 
-A simple AI video-interview platform: a recruiter creates a shareable interview
-link, the candidate opens it and grants camera + microphone access, and then
-talks with an AI interviewer in a real-time LiveKit room.
+AI-powered conversations for better hiring.
+
+Intervia is an AI video-interview platform: a recruiter creates a shareable
+interview link, the candidate opens it and grants camera + microphone access,
+and then talks with Intervia AI in a real-time LiveKit room.
 
 Built in four phases — **all four are complete**: foundation; recruiter link
 creation and the candidate join screen; the live LiveKit camera/microphone

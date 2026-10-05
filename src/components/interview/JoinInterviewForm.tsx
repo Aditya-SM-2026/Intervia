@@ -108,9 +108,8 @@ export function JoinInterviewForm({
   return (
     <div className="grid gap-4 text-center">
       <div>
-        <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">
-          Interview room
-        </p>
+        <p className="mb-1 text-xs font-medium uppercase tracking-wide text-accent">Intervia</p>
+        <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Interview room</p>
         <h1 className="text-2xl font-semibold">{roomTitle}</h1>
         {candidateName && (
           <p className="mt-1 text-sm">
@@ -140,7 +139,7 @@ export function JoinInterviewForm({
 
       <p className="text-xs text-muted">
         Your camera and microphone are used to show you and to let you speak with
-        the AI interviewer. Nothing is recorded or stored.
+        Intervia AI. Nothing is recorded or stored.
       </p>
 
       {error && (
