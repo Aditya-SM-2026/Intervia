@@ -41,8 +41,8 @@ export default function Home() {
           </Link>
         </div>
         <p className="mt-4 text-sm text-muted">
-          Phases 1–3 complete: link creation, join flow and the live
-          camera/microphone room. The AI voice conversation arrives next.
+          All four phases complete: link creation, join flow, the live
+          camera/microphone room and the AI voice conversation.
         </p>
       </div>
     </main>

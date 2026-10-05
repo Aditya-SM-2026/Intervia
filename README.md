@@ -4,9 +4,10 @@ A simple AI video-interview platform: a recruiter creates a shareable interview
 link, the candidate opens it and grants camera + microphone access, and then
 talks with an AI interviewer in a real-time LiveKit room.
 
-Built in four phases. **Phases 1–3 are complete** (foundation; recruiter link
+Built in four phases — **all four are complete**: foundation; recruiter link
 creation and the candidate join screen; the live LiveKit camera/microphone
-room). The AI voice conversation lands in Phase 4.
+room; and the AI agent voice conversation (speech-to-text in the browser, a
+LiveKit agent worker, and spoken replies).
 
 ## Stack
 
@@ -22,6 +23,7 @@ room). The AI voice conversation lands in Phase 4.
 ```bash
 npm install
 npm run dev        # http://localhost:3000
+npm run agent      # AI agent worker (joins interview rooms and talks with candidates)
 ```
 
 Other commands:
@@ -41,7 +43,7 @@ secret is ever exposed to the browser (no `NEXT_PUBLIC_` secrets).
 | --- | --- | --- |
 | `OMINIBOT_API_KEY` | For Ominibot provider | API key for the Ominibot LLM service (server-only) |
 | `OMINIBOT_API_BASE_URL` | No (defaults to `https://api.ominibot.com/v1`) | LLM API base URL |
-| `OMINIBOT_MODEL` | No (defaults to `ominibot/ominibot`) | Model used for text generation |
+| `OMINIBOT_MODEL` | No (defaults to `ominibot`) | Model used for text generation |
 | `OMINIBOT_PROVIDER` | No | `mock` forces the mock provider; `ominibot` forces Ominibot; empty = Ominibot if a key is set, otherwise mock |
 | `LIVEKIT_URL` | For the interview room | LiveKit server URL (e.g. `ws://localhost:7880` in dev) |
 | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | For the interview room | LiveKit credentials for server-side token generation |
@@ -76,6 +78,10 @@ src/
       room.ts               # interview room id → LiveKit room name
       client.ts             # shared client/server join contract (no secrets)
     config/env.ts           # Ominibot env config (server-only)
+  agent/                   # AI agent worker (separate Node process, Phase 4)
+    main.ts                #   worker entry: discovers interview rooms, runs sessions
+    room-discovery.ts      #   LiveKit server API polling for active rooms
+    interview-agent-session.ts  # one room: greeting, transcript handling, replies
   server/repositories/      # in-memory-interview-repository.ts (HMR-safe singleton)
   types/                    # shared type re-exports
 ```
@@ -116,46 +122,66 @@ Key boundaries:
 - The candidate video is rendered client-side from the acquired tracks; mute,
   camera on/off and leave are handled in the browser with clear error states
   for permission denial, missing devices, token failure and disconnection.
-- `AiStatus` is an honest placeholder until the AI agent joins in Phase 4.
+- `AiStatus` shows the live conversation state: connecting, listening,
+  processing, speaking, error, disconnected.
+
+## AI voice conversation (Phase 4)
+
+Because the LLM API returns **text only**, speech lives at the edges:
+
+```
+browser mic ──Web Speech API STT──▶ transcript ──LiveKit data channel──▶
+agent worker ──▶ Ominibot LLM ──▶ reply + status ──data channel──▶
+browser (transcript panel + speech synthesis playback)
+```
+
+- **Agent worker** (`npm run agent`) is a separate Node process built on
+  `@livekit/rtc-node`. It polls the LiveKit server API for active interview
+  rooms, joins each as the `ai-interviewer` participant, greets the candidate
+  (LLM-generated, with a static fallback), handles candidate transcripts sent
+  over the data channel (see `src/lib/ai/agent-protocol.ts`), maintains a
+  capped conversation history, and leaves when the room is empty. It shares
+  the provider layer with the Next.js server and is launched with the
+  `react-server` conditions flag because it imports `server-only` modules.
+- **Candidate browser**: speech recognition (Web Speech API — Chrome/Edge),
+  recognition paused while the agent is processing or speaking (prevents the
+  agent reacting to its own voice), spoken replies via `speechSynthesis` with
+  a duration-estimate fallback timer so a hung TTS can never wedge the
+  conversation.
+- The agent only accepts transcripts from `candidate-*` identities and sends
+  replies addressed to those identities; messages are reliable data-channel
+  publishes on the `interview-ai` topic.
 
 ## Ominibot integration status
 
-Verified by direct probe (no key):
+Verified with a real key:
 
-- The service exposes an OpenAI-style API under `https://api.ominibot.com/v1`;
-  unauthenticated requests return `401` with
-  `{"error":{"message":"Missing or invalid API key.","type":"authentication_error"}}`.
-
-From project integration notes:
-
-- OpenAI-compatible Chat Completions, Bearer auth (`omk_` key), models such as
-  `ominibot/ominibot` and `ominibot/ominibot-helper`.
-
-Assumed (to validate with a real key before Phase 4):
-
-- Request/response bodies follow the OpenAI Chat Completions format.
-- Streaming is supported but not needed yet (Phase 1 uses non-streaming).
-- The API returns **text only** — no built-in speech-to-text or text-to-speech.
-  If a real-key test shows otherwise, the Phase 4 audio pipeline adjusts; if
-  not, a separate speech pipeline is added around the provider.
+- OpenAI-compatible Chat Completions at `https://api.ominibot.com/v1`, Bearer
+  auth (`omk_` key); unauthenticated requests return `401`.
+- The model ID is `ominibot` (no org prefix needed).
+- The API returns **text only** — `/audio/speech` and `/audio/transcriptions`
+  return 404 — hence the browser-edge speech pipeline above.
+- It is a reasoning model: `choices[0].message.content` can be `null` if
+  `max_tokens` is set too low (reasoning consumes the budget); the provider
+  therefore does not set `max_tokens`.
 
 ## Phase status
 
 - [x] **Phase 1** — foundation: scaffold, env validation, types, provider layer, docs
 - [x] **Phase 2** — recruiter link + room creation (in-memory storage, join screen)
 - [x] **Phase 3** — LiveKit camera/microphone room (tokens, media controls, errors)
-- [ ] **Phase 4** — AI agent audio conversation (speech pipeline, statuses, errors)
+- [x] **Phase 4** — AI agent voice conversation (STT/TTS, agent worker, live transcript)
 
-## Current limitations (Phases 1–3)
+## Current limitations
 
-- The AI agent is a placeholder status — no AI participant, no speech pipeline
-  until Phase 4.
 - Storage is in-memory only: rooms are lost on dev-server restart and are not
   shared across server processes. Swap-ready via `InterviewRepository`.
 - Rooms never expire when no duration is set, and `waiting`/`completed`/
   `cancelled` transitions have no UI yet.
 - Tokens are valid 120 minutes; a session that outlives the token needs a
   page reload (re-issued token). No mid-session token refresh yet.
-- Only the candidate's own video is rendered; remote participants (the AI
-  agent's audio arrives via `RoomAudioRenderer`-style playback in Phase 4).
+- Speech recognition uses the Web Speech API: Chrome/Edge only, `en-US`
+  locale, and no barge-in (the candidate cannot interrupt the AI mid-reply).
+- One agent worker process per deployment; the worker and dev server are
+  separate processes, so both must be running (`npm run dev` + `npm run agent`).
 - No recording, scoring, resume parsing or analytics — out of scope for v1.
