@@ -20,7 +20,7 @@ function getStore(): InterviewStore {
   return globalStore.__interviewStore;
 }
 
-export function getInterviewRepository(): InterviewRepository {
+export function getInMemoryInterviewRepository(): InterviewRepository {
   const store = getStore();
 
   return {

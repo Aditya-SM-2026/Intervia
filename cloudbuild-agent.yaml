@@ -1,0 +1,13 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "build",
+        "-t",
+        "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/agent:latest",
+        "-f",
+        "Dockerfile.agent",
+        ".",
+      ]
+images:
+  - "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/agent:latest"

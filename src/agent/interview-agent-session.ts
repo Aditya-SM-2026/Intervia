@@ -63,10 +63,13 @@ export class InterviewAgentSession {
     this.room.on(RoomEvent.DataReceived, this.onDataReceived);
     this.room.on(RoomEvent.ParticipantConnected, this.onParticipantsChanged);
     this.room.on(RoomEvent.ParticipantDisconnected, this.onParticipantsChanged);
+    this.room.on(RoomEvent.ConnectionStateChanged, this.onConnectionStateChanged);
     this.room.on(RoomEvent.Disconnected, this.onRoomDisconnected);
 
-    await this.room.connect(credentials.url, credentials.token);
-    console.log(`[agent] joined room for interview ${this.roomId} (provider: ${this.llm.name})`);
+    await this.room.connect(credentials.url, credentials.token, { autoSubscribe: true, dynacast: false });
+    console.log(
+      `[agent] joined room for interview ${this.roomId} (provider: ${this.llm.name}, candidates: ${this.candidateParticipants().length})`,
+    );
 
     if (this.candidateParticipants().length > 0) {
       this.scheduleGreeting();
@@ -108,7 +111,17 @@ export class InterviewAgentSession {
     }
   };
 
-  private onRoomDisconnected = () => {
+  private onConnectionStateChanged = (state: unknown, reason?: unknown): void => {
+    if (state === "connected" || state === "connecting") return;
+    console.log(
+      `[agent] connection state in interview ${this.roomId}: ${String(state)}${reason ? ` (${String(reason)})` : ""}`,
+    );
+  };
+
+  private onRoomDisconnected = (reason?: unknown): void => {
+    console.log(
+      `[agent] room disconnected in interview ${this.roomId}${reason ? ` (reason: ${String(reason)})` : ""}`,
+    );
     void this.stop();
   };
 
@@ -195,13 +208,19 @@ export class InterviewAgentSession {
       .map((participant) => participant.info?.identity)
       .filter((identity): identity is string => Boolean(identity));
 
-    if (destinations.length === 0 || this.stopping) return;
+    if (destinations.length === 0 || this.stopping) {
+      console.warn(`[agent] dropped ${message.type} in interview ${this.roomId}: no candidate destinations`);
+      return;
+    }
 
     void this.room.localParticipant
       ?.publishData(encodeDataMessage(message), {
         reliable: true,
         destination_identities: destinations,
         topic: AGENT_DATA_TOPIC,
+      })
+      .then(() => {
+        console.log(`[agent] sent ${message.type} to ${destinations.join(",")} (${destinations.length})`);
       })
       .catch((error: unknown) => {
         console.error(`[agent] failed to send message: ${describeError(error)}`);

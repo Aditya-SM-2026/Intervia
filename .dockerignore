@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.env
+.env.*
+!.env.example
+*.log
+.agent-log.txt
+.dev-server.log
+Dockerfile*
+.dockerignore
+.gcloudignore
+README.md

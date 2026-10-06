@@ -7,7 +7,7 @@ import type {
   InterviewRoom,
   InterviewStatus,
 } from "./interview.types";
-import { getInterviewRepository } from "@/server/repositories/in-memory-interview-repository";
+import { getInterviewRepository } from "@/server/repositories";
 
 const MS_PER_MINUTE = 60_000;
 // 16 random bytes → 22 URL-safe base64 characters, well above the minimum

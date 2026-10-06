@@ -1,4 +1,5 @@
 import "server-only";
+import { createServer } from "node:http";
 import { InterviewAgentSession } from "./interview-agent-session";
 import { findRoomsNeedingAgent } from "./room-discovery";
 import { ROOM_NAME_PREFIX } from "@/lib/livekit/room";
@@ -76,10 +77,22 @@ async function main(): Promise<void> {
   const interval = setInterval(() => void pollOnce(), POLL_INTERVAL_MS);
   void pollOnce();
 
+  // Health endpoint: Cloud Run probes the container port. The worker itself
+  // only joins rooms, so this serves nothing but a readiness response.
+  const healthPort = Number(process.env.PORT ?? 8080);
+  const healthServer = createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "text/plain" });
+    response.end(`ok sessions=${sessions.size}`);
+  });
+  healthServer.listen(healthPort, () => {
+    console.log(`[worker] health endpoint listening on ${healthPort}`);
+  });
+
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
       console.log(`[worker] received ${signal}, stopping ${sessions.size} session(s)`);
       clearInterval(interval);
+      healthServer.close();
       for (const session of sessions.values()) {
         void session.stop();
       }

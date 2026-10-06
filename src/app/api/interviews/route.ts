@@ -26,7 +26,29 @@ export async function POST(request: NextRequest) {
   }
 
   const room = await createInterviewRoom(parsed.data);
-  const candidateUrl = new URL(`/interview/${room.id}`, request.nextUrl.origin).toString();
+  const candidateUrl = new URL(
+    `/interview/${room.id}`,
+    publicOrigin(request),
+  ).toString();
 
   return NextResponse.json({ room, candidateUrl }, { status: 201 });
+}
+
+/**
+ * The externally visible origin. Behind a proxy (Cloud Run, tunnels) the
+ * Next.js request URL reflects the internal listener, so the forwarded
+ * headers take precedence when present.
+ */
+function publicOrigin(request: NextRequest): string {
+  const forwardedProto = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim();
+  const proto =
+    forwardedProto === "https" || forwardedProto === "http"
+      ? forwardedProto
+      : request.nextUrl.protocol.replace(":", "");
+  const host = request.headers.get("host") ?? request.nextUrl.host;
+  const safeHost = /^[a-zA-Z0-9.\-:]+$/.test(host) ? host : "localhost";
+  return `${proto}://${safeHost}`;
 }
