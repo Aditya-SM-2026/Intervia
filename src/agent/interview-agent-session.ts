@@ -12,6 +12,8 @@ import {
 } from "@/lib/ai/agent-protocol";
 import { generateLiveKitToken } from "@/lib/livekit/token";
 import { getLiveKitRoomName } from "@/lib/livekit/room";
+import { CloudTtsEngine } from "./tts";
+import { AI_AUDIO_MAX_CHUNK_BYTES } from "@/lib/ai/agent-protocol";
 
 /**
  * One AI agent participant in one interview room. It joins the LiveKit room,
@@ -44,6 +46,15 @@ export class InterviewAgentSession {
 
   private readonly room = new Room();
   private readonly llm = createLlmProvider();
+  /**
+   * Cascade pipeline: with AGENT_TTS_PROVIDER=cloud the worker speaks replies
+   * through Cloud TTS and streams the audio to the page; otherwise the page
+   * speaks the text itself (browser speechSynthesis).
+   */
+  private readonly tts = new CloudTtsEngine(
+    process.env.AGENT_TTS_PROVIDER?.trim().toLowerCase() === "cloud",
+  );
+  private nextReplyId = 0;
   private history: AiMessage[] = [];
   private isProcessing = false;
   private stopping = false;
@@ -68,7 +79,7 @@ export class InterviewAgentSession {
 
     await this.room.connect(credentials.url, credentials.token, { autoSubscribe: true, dynacast: false });
     console.log(
-      `[agent] joined room for interview ${this.roomId} (provider: ${this.llm.name}, candidates: ${this.candidateParticipants().length})`,
+      `[agent] joined room for interview ${this.roomId} (provider: ${this.llm.name}, tts: ${this.tts.enabled ? "cloud" : "off"}, candidates: ${this.candidateParticipants().length})`,
     );
 
     if (this.candidateParticipants().length > 0) {
@@ -159,7 +170,7 @@ export class InterviewAgentSession {
       console.error(`[agent] greeting LLM call failed: ${describeError(error)}`);
     }
 
-    this.sendAgentMessage({ type: "ai-message", text });
+    await this.speakReply(text);
     this.sendAgentMessage({ type: "ai-status", state: "listening" });
   }
 
@@ -180,7 +191,7 @@ export class InterviewAgentSession {
       this.history.push({ role: "assistant", content: reply.text });
       this.history = this.history.slice(-MAX_HISTORY_MESSAGES);
 
-      this.sendAgentMessage({ type: "ai-message", text: reply.text });
+      await this.speakReply(reply.text);
     } catch (error) {
       console.error(`[agent] reply failed in interview ${this.roomId}: ${describeError(error)}`);
       this.sendAgentMessage({
@@ -196,6 +207,42 @@ export class InterviewAgentSession {
       if (!this.stopping) {
         this.sendAgentMessage({ type: "ai-status", state: "listening" });
       }
+    }
+  }
+
+  /**
+   * Sends the reply text (for the transcript) and, in cascade mode, speaks it:
+   * each sentence is synthesized by Cloud TTS and streamed as audio chunks on
+   * the data channel, terminated by ai-audio-end.
+   */
+  private async speakReply(text: string): Promise<void> {
+    // spoken=true tells the page audio chunks will follow, so it must not
+    // speak the text itself (two voices would overlap).
+    this.sendAgentMessage({ type: "ai-message", text, spoken: this.tts.enabled });
+    if (!this.tts.enabled) return;
+
+    const replyId = ++this.nextReplyId;
+    let seq = 0;
+    try {
+      for (const sentence of CloudTtsEngine.splitSentences(text)) {
+        if (this.stopping) return;
+        const audio = await this.tts.synthesizeSentence(sentence);
+        for (const piece of splitBase64(audio.bytes.toString("base64"), AI_AUDIO_MAX_CHUNK_BYTES)) {
+          this.sendAgentMessage({
+            type: "ai-audio-chunk",
+            replyId,
+            seq: seq++,
+            mimeType: audio.mimeType,
+            data: piece,
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`[agent] tts failed in interview ${this.roomId}: ${describeError(error)}`);
+    } finally {
+      // Always close the reply: with zero chunks the page's drain check
+      // completes immediately, so it returns to listening instead of waiting.
+      this.sendAgentMessage({ type: "ai-audio-end", replyId });
     }
   }
 
@@ -236,4 +283,14 @@ export class InterviewAgentSession {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Splits base64 into transport-sized pieces (lengths stay multiples of 4). */
+function splitBase64(base64: string, maxBytes: number): string[] {
+  const step = Math.max(4, Math.floor(maxBytes / 4) * 4);
+  const pieces: string[] = [];
+  for (let index = 0; index < base64.length; index += step) {
+    pieces.push(base64.slice(index, index + step));
+  }
+  return pieces;
 }

@@ -59,4 +59,13 @@ export interface InterviewApiError {
 export interface InterviewRepository {
   save(room: InterviewRoom): Promise<void>;
   get(id: string): Promise<InterviewRoom | null>;
+  /**
+   * Exclusive claim so only one agent worker joins a room (several workers
+   * poll the same rooms). Returns false when another worker holds a fresh
+   * claim. Claims expire after ttlSeconds so a crashed worker's room is
+   * recoverable.
+   */
+  claimForAgent(roomId: string, workerId: string, ttlSeconds: number): Promise<boolean>;
+  /** Releases this worker's claim (agent left the room normally). */
+  releaseAgentClaim(roomId: string, workerId: string): Promise<void>;
 }

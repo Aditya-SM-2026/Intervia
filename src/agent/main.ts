@@ -1,10 +1,12 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { InterviewAgentSession } from "./interview-agent-session";
 import { findRoomsNeedingAgent } from "./room-discovery";
 import { ROOM_NAME_PREFIX } from "@/lib/livekit/room";
 import { getLiveKitConfig } from "@/lib/livekit/config";
 import { getLlmProviderName } from "@/lib/config/env";
+import { getInterviewRepository } from "@/server/repositories";
 import { roomIdSchema } from "@/lib/interviews/interview.validation";
 
 /**
@@ -14,12 +16,18 @@ import { roomIdSchema } from "@/lib/interviews/interview.validation";
  *
  * Discovery is polling-based: every few seconds the worker asks LiveKit for
  * interview rooms that have a candidate but no agent, and joins them. A room
- * whose interview ID is no longer valid (or malformed) is skipped.
+ * whose interview ID is no longer valid (or malformed) is skipped. Before
+ * joining, the worker takes an exclusive claim on the interview so that two
+ * workers (e.g. a local dev worker and the deployed VM worker, which share
+ * the same database) never both join the same room.
  */
 
 const POLL_INTERVAL_MS = 4000;
+/** How long a claim holds without the worker renewing it. */
+const CLAIM_TTL_SECONDS = 120;
 
 const sessions = new Map<string, InterviewAgentSession>();
+const workerId = randomUUID();
 let pollBusy = false;
 
 async function pollOnce(): Promise<void> {
@@ -34,13 +42,38 @@ async function pollOnce(): Promise<void> {
       if (!roomIdSchema.safeParse(roomId).success) continue;
       if (sessions.has(roomId)) continue;
 
+      const claimed = await getInterviewRepository().claimForAgent(roomId, workerId, CLAIM_TTL_SECONDS);
+      if (!claimed) continue;
+
       const session = new InterviewAgentSession(roomId);
-      session.onEnded = () => sessions.delete(roomId);
+      // Keep the claim alive for the whole interview; a lapsed claim would
+      // let another worker join the same room during a LiveKit reconnect.
+      const renewClaim = setInterval(() => {
+        void getInterviewRepository()
+          .claimForAgent(roomId, workerId, CLAIM_TTL_SECONDS)
+          .catch(() => {});
+      }, 45_000);
+      session.onEnded = async () => {
+        clearInterval(renewClaim);
+        sessions.delete(roomId);
+        try {
+          await getInterviewRepository().releaseAgentClaim(roomId, workerId);
+        } catch (error) {
+          console.error(`[worker] could not release claim for ${roomId}: ${describeError(error)}`);
+        }
+      };
       try {
         await session.start();
         sessions.set(roomId, session);
       } catch (error) {
         console.error(`[worker] could not join interview ${roomId}: ${describeError(error)}`);
+        clearInterval(renewClaim);
+        sessions.delete(roomId);
+        try {
+          await getInterviewRepository().releaseAgentClaim(roomId, workerId);
+        } catch {
+          // Claim expires via TTL anyway.
+        }
         await session.stop();
       }
     }
@@ -75,6 +108,12 @@ async function main(): Promise<void> {
   }
 
   const interval = setInterval(() => void pollOnce(), POLL_INTERVAL_MS);
+  if ((process.env.AGENT_ENABLED ?? "").trim().toLowerCase() === "false") {
+    // Voice provider is not the room agent (e.g. Gemini Live talks to the
+    // candidate directly): keep the health endpoint but never join rooms.
+    clearInterval(interval);
+    console.log("[worker] AGENT_ENABLED=false — idling, will not join any rooms");
+  }
   void pollOnce();
 
   // Health endpoint: Cloud Run probes the container port. The worker itself

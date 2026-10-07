@@ -17,6 +17,8 @@ import {
   type SpeechRecognitionController,
 } from "@/lib/speech/browser-speech";
 import { cancelSpeech, isSpeechSynthesisSupported, speakText } from "@/lib/speech/browser-tts";
+import { startGeminiLiveVoice, type GeminiLiveVoiceHandle } from "@/lib/speech/gemini-live";
+import { AgentAudioPlayer } from "@/lib/speech/agent-audio-player";
 import { JoinInterviewForm } from "./JoinInterviewForm";
 import { CandidateVideo } from "./CandidateVideo";
 import { AiAgentVideo } from "./AiAgentVideo";
@@ -32,6 +34,20 @@ interface InterviewRoomProps {
 }
 
 type Stage = "prejoin" | "connecting" | "connected" | "left" | "error";
+
+/**
+ * "agent" uses the LiveKit data-channel agent worker pipeline (default).
+ * "cascade" is the agent worker speaking through Cloud TTS: audio arrives on
+ * the data channel instead of browser speechSynthesis.
+ * "gemini-live" streams the microphone straight to the Gemini Live API with a
+ * server-issued ephemeral token; the LiveKit room then only carries the
+ * candidate's camera/microphone.
+ */
+const RAW_VOICE_PROVIDER = process.env.NEXT_PUBLIC_VOICE_PROVIDER?.trim();
+const VOICE_PROVIDER: "agent" | "cascade" | "gemini-live" =
+  RAW_VOICE_PROVIDER === "cascade" || RAW_VOICE_PROVIDER === "gemini-live"
+    ? RAW_VOICE_PROVIDER
+    : "agent";
 
 function failureMessage(code: string | undefined): string {
   if (code === "ROOM_EXPIRED") return "This interview link has expired.";
@@ -63,6 +79,8 @@ export function InterviewRoom({ roomId, roomTitle, candidateName }: InterviewRoo
   const streamRef = useRef<MediaStream | null>(null);
   const leftIntentionallyRef = useRef(false);
   const recognitionRef = useRef<SpeechRecognitionController | null>(null);
+  const geminiVoiceRef = useRef<GeminiLiveVoiceHandle | null>(null);
+  const audioPlayerRef = useRef<AgentAudioPlayer | null>(null);
   // Mirrors React state for use inside long-lived event handlers.
   const agentPresentRef = useRef(false);
   const speakingRef = useRef(false);
@@ -73,6 +91,10 @@ export function InterviewRoom({ roomId, roomTitle, candidateName }: InterviewRoo
       leftIntentionallyRef.current = true;
       recognitionRef.current?.stop();
       cancelSpeech();
+      audioPlayerRef.current?.stop();
+      audioPlayerRef.current = null;
+      geminiVoiceRef.current?.stop();
+      geminiVoiceRef.current = null;
       void roomRef.current?.disconnect();
       roomRef.current = null;
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -138,7 +160,11 @@ export function InterviewRoom({ roomId, roomTitle, candidateName }: InterviewRoo
             pauseListening();
             setAiState("processing");
           } else if (message.state === "listening") {
-            if (!speakingRef.current) setAiState("listening");
+            // Cascade playback may still be running; the drain callback
+            // returns the state to listening when the voice has finished.
+            if (!speakingRef.current && !audioPlayerRef.current?.isPlaying) {
+              setAiState("listening");
+            }
             startListeningIfReady();
           } else if (message.state === "error") {
             setAiState("error");
@@ -149,20 +175,57 @@ export function InterviewRoom({ roomId, roomTitle, candidateName }: InterviewRoo
           return;
         }
 
-        // The AI's reply: show it, speak it, and only listen again once the
-        // voice has finished (so the AI never reacts to its own voice).
+        if (message.type === "ai-audio-chunk") {
+          const player = audioPlayerRef.current;
+          if (!player) return;
+          setAiState("speaking");
+          setAiDetail(null);
+          void player.enqueue(message.mimeType, message.data).catch(() => {
+            // Undecodable audio must not break the interview.
+          });
+          return;
+        }
+
+        if (message.type === "ai-audio-end") {
+          audioPlayerRef.current?.end();
+          return;
+        }
+
+        // The AI's reply text: show it, speak it through this provider's
+        // pipeline, and only listen again once the voice has finished.
         setTranscript((entries) => [...entries, { role: "interviewer", text: message.text }]);
         setAiDetail(null);
+        speakingRef.current = true;
+        setAiState("speaking");
+        pauseListening();
+
+        if (VOICE_PROVIDER === "cascade") {
+          // spoken=true: the worker is streaming this reply as audio chunks,
+          // so the page must stay silent (no browser speechSynthesis — two
+          // voices would overlap). Without spoken the worker cannot speak and
+          // the page says the reply itself, as in the default agent pipeline.
+          if (message.spoken) return;
+          if (isSpeechSynthesisSupported()) {
+            speakText(message.text, () => {
+              speakingRef.current = false;
+              setAiState("listening");
+              startListeningIfReady();
+            });
+          } else {
+            speakingRef.current = false;
+            setAiState("listening");
+          }
+          return;
+        }
+
         if (isSpeechSynthesisSupported()) {
-          speakingRef.current = true;
-          setAiState("speaking");
-          pauseListening();
           speakText(message.text, () => {
             speakingRef.current = false;
             setAiState("listening");
             startListeningIfReady();
           });
         } else {
+          speakingRef.current = false;
           setAiState("listening");
         }
       });
@@ -172,6 +235,7 @@ export function InterviewRoom({ roomId, roomTitle, candidateName }: InterviewRoo
         if (!present) {
           speakingRef.current = false;
           cancelSpeech();
+          audioPlayerRef.current?.stop();
           recognitionRef.current?.stop();
           setAiState("disconnected");
           setInterimTranscript(null);
@@ -205,6 +269,34 @@ export function InterviewRoom({ roomId, roomTitle, candidateName }: InterviewRoo
       // The agent may already be in the room (e.g. after rejoining).
       if (room.remoteParticipants.has(AI_AGENT_IDENTITY)) {
         syncAgentPresence(true);
+      }
+
+      if (VOICE_PROVIDER === "gemini-live") {
+        // The microphone streams straight to the Gemini Live API; the LiveKit
+        // room only carries the candidate's own camera and microphone.
+        try {
+          geminiVoiceRef.current = await startGeminiLiveVoice({
+            onStatus: (state, detail) => {
+              setAiState(state);
+              setAiDetail(detail ?? null);
+            },
+            onTranscript: (role, text) =>
+              setTranscript((entries) => [...entries, { role, text }]),
+          });
+        } catch {
+          setVoiceNotice("The Gemini Live session could not start. Please try again.");
+        }
+        return;
+      }
+
+      if (VOICE_PROVIDER === "cascade") {
+        const player = new AgentAudioPlayer();
+        player.onDrained = () => {
+          speakingRef.current = false;
+          setAiState("listening");
+          startListeningIfReady();
+        };
+        audioPlayerRef.current = player;
       }
 
       if (!isSpeechRecognitionSupported()) {
@@ -266,6 +358,10 @@ export function InterviewRoom({ roomId, roomTitle, candidateName }: InterviewRoo
     leftIntentionallyRef.current = true;
     recognitionRef.current?.stop();
     cancelSpeech();
+    audioPlayerRef.current?.stop();
+    audioPlayerRef.current = null;
+    geminiVoiceRef.current?.stop();
+    geminiVoiceRef.current = null;
     await roomRef.current?.disconnect();
     roomRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());

@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS interviews (
   created_at TIMESTAMPTZ NOT NULL,
   expires_at TIMESTAMPTZ
 );
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS agent_claimed_by TEXT;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS agent_claimed_at TIMESTAMPTZ;
 `;
 
 function getPool(): Pool {
@@ -102,6 +104,34 @@ export function getPostgresInterviewRepository(): InterviewRepository {
       );
       const row = result.rows[0];
       return row ? rowToRoom(row) : null;
+    },
+
+    async claimForAgent(roomId: string, workerId: string, ttlSeconds: number): Promise<boolean> {
+      await ensureSchema();
+      // Atomic conditional update: the row lock makes the check-and-set a
+      // single step, so concurrent workers cannot both win.
+      const result = await getPool().query(
+        `UPDATE interviews
+         SET agent_claimed_by = $2, agent_claimed_at = now()
+         WHERE id = $1
+           AND (agent_claimed_by IS NULL
+                OR agent_claimed_by = ''
+                OR agent_claimed_at IS NULL
+                OR agent_claimed_at < now() - make_interval(secs => $3))
+         RETURNING id`,
+        [roomId, workerId, ttlSeconds],
+      );
+      return (result.rowCount ?? 0) === 1;
+    },
+
+    async releaseAgentClaim(roomId: string, workerId: string): Promise<void> {
+      await ensureSchema();
+      await getPool().query(
+        `UPDATE interviews
+         SET agent_claimed_by = NULL, agent_claimed_at = NULL
+         WHERE id = $1 AND agent_claimed_by = $2`,
+        [roomId, workerId],
+      );
     },
   };
 }

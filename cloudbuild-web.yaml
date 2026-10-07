@@ -7,6 +7,7 @@ steps:
         "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/web:latest",
         "-f",
         "Dockerfile.web",
+        "--build-arg=NEXT_PUBLIC_VOICE_PROVIDER=cascade",
         ".",
       ]
 images:

@@ -50,3 +50,49 @@ export function getLlmConfig(): LlmConfig {
 
   return parsed.data;
 }
+
+/**
+ * Gemini Live configuration (real-time voice). "studio" uses the Gemini API
+ * key; "vertex" uses Application Default Credentials / service accounts and
+ * bills to the GCP project.
+ */
+
+const geminiLiveSchema = z.object({
+  apiKey: z.string().min(1, "GEMINI_API_KEY is empty"),
+  backend: z.enum(["studio", "vertex"]),
+  project: z.string().optional(),
+  location: z.string().optional(),
+  model: z.string().min(1, "GEMINI_LIVE_MODEL is empty"),
+});
+
+const DEFAULT_GEMINI_LIVE_MODEL = "gemini-2.5-flash-native-audio-latest";
+
+export type GeminiLiveConfig = z.infer<typeof geminiLiveSchema>;
+
+export function getGeminiLiveConfig(): GeminiLiveConfig {
+  const backend = (process.env.GEMINI_BACKEND?.trim() || "studio").toLowerCase();
+  const parsed = geminiLiveSchema.safeParse({
+    apiKey: process.env.GEMINI_API_KEY?.trim() ?? "",
+    backend,
+    project: process.env.GOOGLE_CLOUD_PROJECT?.trim() || undefined,
+    location: process.env.GOOGLE_CLOUD_LOCATION?.trim() || "us-central1",
+    model: process.env.GEMINI_LIVE_MODEL?.trim() || DEFAULT_GEMINI_LIVE_MODEL,
+  });
+
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "value"}: ${issue.message}`)
+      .join("; ");
+    throw new Error(
+      `Invalid Gemini Live configuration. Check the GEMINI_* variables in .env. Details: ${issues}`,
+    );
+  }
+
+  if (parsed.data.backend === "vertex" && !parsed.data.project) {
+    throw new Error(
+      "GEMINI_BACKEND=vertex requires GOOGLE_CLOUD_PROJECT to be set in .env.",
+    );
+  }
+
+  return parsed.data;
+}
