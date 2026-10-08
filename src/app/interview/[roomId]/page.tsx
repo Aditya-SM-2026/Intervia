@@ -17,6 +17,7 @@ export default async function InterviewPage({
       roomId={result.room.id}
       roomTitle={result.room.title}
       candidateName={result.room.candidateName}
+      recruiterName={result.room.recruiterName}
     />
   );
 }

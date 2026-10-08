@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 interface JoinErrorProps {
-  code: "ROOM_NOT_FOUND" | "ROOM_EXPIRED" | "ROOM_UNAVAILABLE" | "SERVER_ERROR";
+  code: "ROOM_NOT_FOUND" | "ROOM_EXPIRED" | "ROOM_UNAVAILABLE" | "EMAIL_MISMATCH" | "SERVER_ERROR";
   message: string;
 }
 

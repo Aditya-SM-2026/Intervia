@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { InterviewRoom } from "@/lib/interviews/interview.types";
-import { CreateInterviewForm } from "./CreateInterviewForm";
+import { CreateInterviewForm, type CreateInterviewFormValues } from "./CreateInterviewForm";
 import { InterviewLinkResult } from "./InterviewLinkResult";
 
 interface CreateResult {
@@ -15,24 +15,27 @@ export function CreateInterviewPanel() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CreateResult | null>(null);
 
-  async function handleSubmit(values: {
-    title: string;
-    candidateName?: string;
-    durationMinutes?: number;
-  }) {
+  async function handleSubmit(values: CreateInterviewFormValues) {
     setIsSubmitting(true);
     setError(null);
 
     try {
-      const response = await fetch("/api/interviews", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: values.title,
-          candidateName: values.candidateName,
-          durationMinutes: values.durationMinutes,
-        }),
-      });
+      const form = new FormData();
+      form.set("recruiterName", values.recruiterName);
+      form.set("candidateName", values.candidateName);
+      form.set("candidateEmail", values.candidateEmail);
+      form.set("roleTitle", values.roleTitle);
+      if (values.durationMinutes !== undefined) {
+        form.set("durationMinutes", String(values.durationMinutes));
+      }
+      if (values.jobDescriptionPdf) {
+        form.set("jobDescriptionPdf", values.jobDescriptionPdf);
+      } else if (values.jobDescriptionText) {
+        form.set("jobDescriptionText", values.jobDescriptionText);
+      }
+      form.set("resume", values.resume);
+
+      const response = await fetch("/api/interviews", { method: "POST", body: form });
       const data = await response.json();
 
       if (!response.ok) {

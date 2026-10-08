@@ -7,6 +7,7 @@ import { ROOM_NAME_PREFIX } from "@/lib/livekit/room";
 import { getLiveKitConfig } from "@/lib/livekit/config";
 import { getLlmProviderName } from "@/lib/config/env";
 import { getInterviewRepository } from "@/server/repositories";
+import { completeSession } from "@/lib/interviews/interview.service";
 import { roomIdSchema } from "@/lib/interviews/interview.validation";
 
 /**
@@ -60,6 +61,11 @@ async function pollOnce(): Promise<void> {
           await getInterviewRepository().releaseAgentClaim(roomId, workerId);
         } catch (error) {
           console.error(`[worker] could not release claim for ${roomId}: ${describeError(error)}`);
+        }
+        try {
+          await completeSession(roomId);
+        } catch (error) {
+          console.error(`[worker] could not complete session ${roomId}: ${describeError(error)}`);
         }
       };
       try {

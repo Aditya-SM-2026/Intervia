@@ -38,11 +38,18 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
 
   const room: InterviewRoom = {
     id,
-    title: input.title,
-    candidateName: input.candidateName ?? null,
+    title: input.title || input.roleTitle,
+    candidateName: input.candidateName,
     status: "scheduled",
     createdAt,
     expiresAt,
+    recruiterName: input.recruiterName,
+    candidateEmail: input.candidateEmail,
+    roleTitle: input.roleTitle,
+    jobDescription: input.jobDescription,
+    resume: input.resume,
+    consent: null,
+    completedAt: null,
   };
 
   await repository.save(room);
@@ -98,6 +105,78 @@ export async function activateRoom(roomId: string): Promise<void> {
   if (room && isActiveStatus(room.status) && room.status !== "active") {
     await repository.save({ ...room, status: "active" });
   }
+}
+
+export type EmailVerifyResult =
+  | { ok: true; room: InterviewRoom }
+  | { ok: false; code: RoomAccessErrorCode | "EMAIL_MISMATCH"; message: string };
+
+/**
+ * Email gate: checks the candidate's email against the session, and on
+ * success records consent. Sessions created before the gate (no email on
+ * file) skip the match but still record consent.
+ */
+export async function verifyCandidateEmail(
+  roomId: string,
+  email: string,
+  consentedAt: string,
+): Promise<EmailVerifyResult> {
+  const repository = getInterviewRepository();
+  const room = await applyExpiry(repository, roomId);
+
+  if (!room) {
+    return {
+      ok: false,
+      code: "ROOM_NOT_FOUND",
+      message: "This interview link does not exist. Please ask your recruiter for a new link.",
+    };
+  }
+  if (room.status === "expired") {
+    return {
+      ok: false,
+      code: "ROOM_EXPIRED",
+      message: "This interview link has expired. Please ask your recruiter for a new link.",
+    };
+  }
+  if (room.status === "completed" || room.status === "cancelled") {
+    return {
+      ok: false,
+      code: "ROOM_UNAVAILABLE",
+      message: "This interview is no longer available.",
+    };
+  }
+
+  if (room.candidateEmail && normalizeEmail(room.candidateEmail) !== normalizeEmail(email)) {
+    return {
+      ok: false,
+      code: "EMAIL_MISMATCH",
+      message: "This email does not match the one registered for this interview link.",
+    };
+  }
+
+  await repository.save({ ...room, consent: { givenAt: consentedAt } });
+  return { ok: true, room };
+}
+
+/**
+ * Marks a finished session completed (status + completedAt). Terminal states
+ * (expired/cancelled/completed) are never overwritten.
+ */
+export async function completeSession(roomId: string): Promise<void> {
+  const repository = getInterviewRepository();
+  const room = await repository.get(roomId);
+  if (!room || room.status === "completed") return;
+
+  if (room.status === "expired" || room.status === "cancelled") return;
+  await repository.save({
+    ...room,
+    status: "completed",
+    completedAt: new Date().toISOString(),
+  });
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
 }
 
 async function generateUnusedRoomId(repository: InterviewRepository): Promise<string> {

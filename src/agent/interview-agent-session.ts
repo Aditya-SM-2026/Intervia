@@ -12,6 +12,8 @@ import {
 } from "@/lib/ai/agent-protocol";
 import { generateLiveKitToken } from "@/lib/livekit/token";
 import { getLiveKitRoomName } from "@/lib/livekit/room";
+import { getInterviewRepository } from "@/server/repositories";
+import type { InterviewRoom } from "@/lib/interviews/interview.types";
 import { CloudTtsEngine } from "./tts";
 import { AI_AUDIO_MAX_CHUNK_BYTES } from "@/lib/ai/agent-protocol";
 
@@ -20,25 +22,75 @@ import { AI_AUDIO_MAX_CHUNK_BYTES } from "@/lib/ai/agent-protocol";
  * listens for candidate transcripts on the data channel, generates replies
  * through the LLM provider, and broadcasts its messages and status back.
  *
- * Basic conversation only (greeting → candidate speaks → AI replies). There is
- * deliberately no scoring, resume analysis or advanced follow-up logic.
+ * The brain is assembled from the session record (job description, resume,
+ * role) and follows an integrity policy: dynamic follow-ups, reworded
+ * revisits of suspicious answers, and never revealing answers or scores.
+ * Every spoken turn is persisted incrementally to the session transcript.
  */
 
 const GREETING_DELAY_MS = 1500;
 const EMPTY_ROOM_SHUTDOWN_MS = 10_000;
 const MAX_HISTORY_MESSAGES = 20;
+const MAX_JD_PROMPT_CHARS = 6_000;
+const MAX_RESUME_PROMPT_CHARS = 4_000;
 
-const SYSTEM_PROMPT = [
+const BASE_PERSONA_PROMPT = [
   "You are a professional AI interviewer conducting a live spoken interview.",
   "Keep replies short (2-3 sentences), conversational and warm, because they are spoken aloud.",
   "Ask one natural follow-up question at a time.",
   "Never use markdown, lists or emojis; plain spoken sentences only.",
 ].join(" ");
 
+const INTERVIEW_CONDUCT_PROMPT = [
+  "Conduct the interview according to these rules:",
+  "- Build a mental plan from the job description and the candidate's resume, and cover its main areas across the interview.",
+  "- Ask follow-up questions dynamically based on what the candidate actually said; do not walk a fixed list.",
+  "- Mix role-specific technical questions with common-sense and preference questions.",
+  "- If an answer sounds scripted, evasive, or inconsistent, politely revisit it later, reworded, to check it holds up.",
+  "- When an answer is thin, ask the candidate to go deeper or give a concrete example.",
+  "- Never give the candidate answers, hints, feedback on correctness, or any score.",
+  "- If the candidate asks what you think of them or asks for the answer, steer back to the interview.",
+  "- Keep the tone professional and neutral even under pressure.",
+].join(" ");
+
 const FALLBACK_GREETING =
   "Hello, and thank you for joining. Please tell me a little about yourself.";
 
 const CANDIDATE_IDENTITY_PREFIX = "candidate-";
+
+/** Assembles the interviewer system prompt from the session record. */
+function buildSystemPrompt(room: InterviewRoom | null): string {
+  if (!room) return BASE_PERSONA_PROMPT;
+
+  const sections: string[] = [BASE_PERSONA_PROMPT, INTERVIEW_CONDUCT_PROMPT];
+
+  const details = [
+    room.roleTitle ? `Role: ${room.roleTitle}` : null,
+    room.candidateName ? `Candidate: ${room.candidateName}` : null,
+    room.recruiterName ? `Recruiter: ${room.recruiterName}` : null,
+  ].filter(Boolean);
+  if (details.length > 0) sections.push(details.join("\n"));
+
+  if (room.jobDescription) {
+    sections.push(
+      `Job description:\n${room.jobDescription.text.slice(0, MAX_JD_PROMPT_CHARS)}`,
+    );
+  }
+
+  if (room.resume) {
+    if (room.resume.unreadable) {
+      sections.push(
+        "The candidate's resume could not be read. Do not mention the resume; explore their experience through questions alone.",
+      );
+    } else {
+      sections.push(
+        `Candidate resume (${room.resume.fileName}):\n${room.resume.text.slice(0, MAX_RESUME_PROMPT_CHARS)}`,
+      );
+    }
+  }
+
+  return sections.join("\n\n");
+}
   
 export class InterviewAgentSession {
   /** Called once the session has stopped for any reason. */
@@ -60,6 +112,9 @@ export class InterviewAgentSession {
   private stopping = false;
   private greetingTimer: ReturnType<typeof setTimeout> | null = null;
   private emptyRoomTimer: ReturnType<typeof setTimeout> | null = null;
+  private systemPrompt = BASE_PERSONA_PROMPT;
+  /** When the last interviewer question was sent (for answer latency). */
+  private lastQuestionAskedAt: string | null = null;
 
   constructor(readonly roomId: string) {}
 
@@ -82,10 +137,33 @@ export class InterviewAgentSession {
       `[agent] joined room for interview ${this.roomId} (provider: ${this.llm.name}, tts: ${this.tts.enabled ? "cloud" : "off"}, candidates: ${this.candidateParticipants().length})`,
     );
 
+    await this.loadSessionContext();
+
     if (this.candidateParticipants().length > 0) {
       this.scheduleGreeting();
     } else {
       this.scheduleEmptyRoomShutdown();
+    }
+  }
+
+  /**
+   * Loads the session record (job description, resume, role) and assembles
+   * the brain from it. A missing or failed load keeps the generic prompt so
+   * the interview can still run.
+   */
+  private async loadSessionContext(): Promise<void> {
+    try {
+      const room = await getInterviewRepository().get(this.roomId);
+      this.systemPrompt = buildSystemPrompt(room);
+      const parts = [
+        room?.jobDescription ? "jd" : null,
+        room?.resume ? (room.resume.unreadable ? "resume(unreadable)" : "resume") : null,
+      ].filter(Boolean);
+      console.log(
+        `[agent] session context for ${this.roomId}: ${parts.length > 0 ? parts.join(", ") : "none (generic prompt)"}`,
+      );
+    } catch (error) {
+      console.error(`[agent] failed to load session context: ${describeError(error)}`);
     }
   }
 
@@ -157,7 +235,7 @@ export class InterviewAgentSession {
     let text = FALLBACK_GREETING;
     try {
       const reply = await this.llm.generateReply([
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: this.systemPrompt },
         {
           role: "user",
           content:
@@ -182,10 +260,22 @@ export class InterviewAgentSession {
     this.isProcessing = true;
     this.sendAgentMessage({ type: "ai-status", state: "processing" });
 
+    const answeredAt = new Date().toISOString();
+    this.recordTurn({
+      speaker: "candidate",
+      text: trimmed,
+      askedAt: this.lastQuestionAskedAt,
+      answeredAt,
+      latencyMs: this.lastQuestionAskedAt
+        ? Date.parse(answeredAt) - Date.parse(this.lastQuestionAskedAt)
+        : null,
+    });
+    this.lastQuestionAskedAt = null;
+
     try {
       this.history.push({ role: "user", content: trimmed });
       const reply = await this.llm.generateReply([
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: this.systemPrompt },
         ...this.recentHistory(),
       ]);
       this.history.push({ role: "assistant", content: reply.text });
@@ -216,6 +306,15 @@ export class InterviewAgentSession {
    * the data channel, terminated by ai-audio-end.
    */
   private async speakReply(text: string): Promise<void> {
+    const askedAt = new Date().toISOString();
+    this.lastQuestionAskedAt = askedAt;
+    this.recordTurn({
+      speaker: "interviewer",
+      text,
+      askedAt,
+      answeredAt: null,
+      latencyMs: null,
+    });
     // spoken=true tells the page audio chunks will follow, so it must not
     // speak the text itself (two voices would overlap).
     this.sendAgentMessage({ type: "ai-message", text, spoken: this.tts.enabled });
@@ -248,6 +347,24 @@ export class InterviewAgentSession {
 
   private recentHistory(): AiMessage[] {
     return this.history.slice(-MAX_HISTORY_MESSAGES);
+  }
+
+  /**
+   * Persists one transcript turn. Fire-and-forget: a storage failure must
+   * never break the live interview.
+   */
+  private recordTurn(turn: {
+    speaker: "interviewer" | "candidate";
+    text: string;
+    askedAt: string | null;
+    answeredAt: string | null;
+    latencyMs: number | null;
+  }): void {
+    getInterviewRepository()
+      .appendTurn(this.roomId, turn)
+      .catch((error: unknown) => {
+        console.error(`[agent] failed to persist turn: ${describeError(error)}`);
+      });
   }
 
   private sendAgentMessage(message: AgentDataMessage): void {

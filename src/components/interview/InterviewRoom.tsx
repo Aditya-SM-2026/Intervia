@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Room, RoomEvent } from "livekit-client";
-import { LIVEKIT_TOKEN_ENDPOINT } from "@/lib/livekit/client";
 import type { LiveKitJoinCredentials } from "@/lib/livekit/client";
 import {
   AI_AGENT_IDENTITY,
@@ -31,6 +30,7 @@ interface InterviewRoomProps {
   roomId: string;
   roomTitle: string;
   candidateName: string | null;
+  recruiterName: string | null;
 }
 
 type Stage = "prejoin" | "connecting" | "connected" | "left" | "error";
@@ -49,17 +49,11 @@ const VOICE_PROVIDER: "agent" | "cascade" | "gemini-live" =
     ? RAW_VOICE_PROVIDER
     : "agent";
 
-function failureMessage(code: string | undefined): string {
-  if (code === "ROOM_EXPIRED") return "This interview link has expired.";
-  if (code === "ROOM_NOT_FOUND") return "This interview link does not exist.";
-  if (code === "ROOM_UNAVAILABLE") return "This interview is no longer available.";
-  if (code === "INVALID_INPUT") return "This interview link is invalid.";
-  return "The interview room is not available right now. Please try again shortly.";
-}
-
-export function InterviewRoom({ roomId, roomTitle, candidateName }: InterviewRoomProps) {
+export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName }: InterviewRoomProps) {
   const [stage, setStage] = useState<Stage>("prejoin");
   const [failure, setFailure] = useState<string | null>(null);
+  /** Issued by the email-gate verify endpoint before the room can be joined. */
+  const [credentials, setCredentials] = useState<LiveKitJoinCredentials | null>(null);
   const [connectionStage, setConnectionStage] = useState<ConnectionStage>("connecting");
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
@@ -126,17 +120,11 @@ export function InterviewRoom({ roomId, roomTitle, candidateName }: InterviewRoo
     setAiState("connecting");
 
     try {
-      const response = await fetch(LIVEKIT_TOKEN_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomId }),
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(failureMessage(data?.error?.code));
+      if (!credentials) {
+        setFailure("This link needs email verification before it can be joined.");
+        setStage("error");
+        return;
       }
-      const credentials = data as LiveKitJoinCredentials;
 
       const room = new Room();
       roomRef.current = room;
@@ -382,8 +370,11 @@ export function InterviewRoom({ roomId, roomTitle, candidateName }: InterviewRoo
       <main className="grid min-h-dvh place-items-center p-6">
         <div className="w-full max-w-md rounded-xl border border-border bg-surface p-8 leading-relaxed">
           <JoinInterviewForm
+            roomId={roomId}
             roomTitle={roomTitle}
             candidateName={candidateName}
+            recruiterName={recruiterName}
+            onVerified={setCredentials}
             onProceed={handleProceed}
           />
         </div>

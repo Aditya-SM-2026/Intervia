@@ -2,9 +2,14 @@
 
 AI-powered conversations for better hiring.
 
-Intervia is an AI video-interview platform: a recruiter creates a shareable
-interview link, the candidate opens it and grants camera + microphone access,
-and then talks with Intervia AI in a real-time LiveKit room.
+Intervia is an AI video-interview platform: a recruiter creates a session
+(role, candidate name + email, job description as text or PDF, resume PDF),
+and the candidate opens the link, verifies their email (only the invited
+address works), gives consent, and talks with Intervia AI in a real-time
+LiveKit room. The interviewer's brain is assembled from the job description
+and the candidate's resume, and every spoken turn is persisted incrementally
+as a transcript with per-answer latency — the data the post-interview reports
+and dashboard consume (see `docs/` for both workstream plans).
 
 Built in four phases — **all four are complete and deployed to GCP**: foundation;
 recruiter link creation and the candidate join screen; the live LiveKit
@@ -77,6 +82,7 @@ non-secret voice-provider switch).
 | `NEXT_PUBLIC_VOICE_PROVIDER` | No (`agent`) | `agent`, `cascade`, or `gemini-live` — see Voice pipelines |
 | `AGENT_TTS_PROVIDER` | No | `cloud` makes the agent worker speak replies through Google Cloud TTS and stream the audio to the room (cascade pipeline) |
 | `CLOUD_TTS_VOICE` | No (`en-US-Chirp3-HD-Charon`) | Cloud TTS voice name (30 Chirp 3 HD voices available) |
+| `MEETINGBOT_ROOM_PREFIX` | No (`interview-`) | LiveKit room name prefix; set e.g. `dev-` locally so local test rooms stay away from a deployed agent watching the same LiveKit project |
 | `AGENT_ENABLED` | No | `false` keeps the worker process alive (health endpoint) but never joins rooms — used when Gemini Live replaces the room agent |
 | `GEMINI_API_KEY` | For gemini-live | Google AI Studio key, used server-side only to mint short-lived ephemeral Live tokens |
 | `GEMINI_BACKEND` | No (`studio`) | `studio` (AI Studio key) or `vertex` (Google Cloud Vertex AI) |
@@ -92,9 +98,12 @@ src/
     interview/[roomId]/page.tsx   # candidate join screen with validation (Phase 2)
     lab/page.tsx            # Gemini Live playground (voice-pipeline A/B)
     api/
-      interviews/route.ts         # POST — create an interview room
+      interviews/route.ts         # POST — create a session (multipart: fields +
+                                  # resume PDF + optional JD PDF)
       interviews/[roomId]/route.ts# GET  — room lookup / access validation
-      livekit/token/route.ts      # POST — candidate join credentials
+      interviews/[roomId]/verify/route.ts
+                                  # POST — candidate email gate: verifies the
+                                  # email + consent, issues join credentials
       ai/live-token/route.ts      # POST — ephemeral Gemini Live token (lab)
   components/
     recruiter/              # CreateInterviewPanel, CreateInterviewForm, InterviewLinkResult

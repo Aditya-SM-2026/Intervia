@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { verifyEndpoint, type LiveKitJoinCredentials } from "@/lib/livekit/client";
 
 interface JoinInterviewFormProps {
+  roomId: string;
   roomTitle: string;
   candidateName: string | null;
+  recruiterName: string | null;
+  /** Called with the join credentials once the email gate passes. */
+  onVerified: (credentials: LiveKitJoinCredentials) => void;
   /** Called with the acquired stream once the candidate chooses to join. */
   onProceed: (mediaStream: MediaStream) => void;
 }
@@ -19,6 +24,10 @@ const PREVIEW_CONSTRAINTS: MediaStreamConstraints = {
   video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
   audio: { echoCancellation: true, noiseSuppression: true },
 };
+
+const fieldLabelClasses = "mb-1 block text-sm font-medium";
+const fieldInputClasses =
+  "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition focus:border-accent";
 
 function toDeviceError(error: unknown): DeviceError {
   if (error instanceof DOMException) {
@@ -45,8 +54,11 @@ function toDeviceError(error: unknown): DeviceError {
 }
 
 export function JoinInterviewForm({
+  roomId,
   roomTitle,
   candidateName,
+  recruiterName,
+  onVerified,
   onProceed,
 }: JoinInterviewFormProps) {
   const [preview, setPreview] = useState<MediaStream | null>(null);
@@ -55,6 +67,44 @@ export function JoinInterviewForm({
   const videoRef = useRef<HTMLVideoElement>(null);
   // Once the stream is handed over to the room, unmount cleanup must not stop it.
   const handedOffRef = useRef(false);
+
+  // Email gate state: the link only proceeds after the email matches and
+  // consent is given.
+  const [email, setEmail] = useState("");
+  const [consent, setConsent] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verified, setVerified] = useState(false);
+
+  async function handleVerify(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!consent) {
+      setVerifyError("Please give consent to continue.");
+      return;
+    }
+    setIsVerifying(true);
+    setVerifyError(null);
+
+    try {
+      const response = await fetch(verifyEndpoint(roomId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), consent }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        setVerifyError(data?.error?.message ?? "Could not verify this email. Please try again.");
+        return;
+      }
+      onVerified(data as LiveKitJoinCredentials);
+      setVerified(true);
+    } catch {
+      setVerifyError("Could not reach the interview service. Please try again.");
+    } finally {
+      setIsVerifying(false);
+    }
+  }
 
   useEffect(() => {
     const video = videoRef.current;
@@ -105,18 +155,83 @@ export function JoinInterviewForm({
     onProceed(preview);
   }
 
-  return (
-    <div className="grid gap-4 text-center">
-      <div>
-        <p className="mb-1 text-xs font-medium uppercase tracking-wide text-accent">Intervia</p>
-        <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Interview room</p>
-        <h1 className="text-2xl font-semibold">{roomTitle}</h1>
-        {candidateName && (
-          <p className="mt-1 text-sm">
-            You are joining as <strong>{candidateName}</strong>.
+  const header = (
+    <div>
+      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-accent">Intervia</p>
+      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Interview room</p>
+      <h1 className="text-2xl font-semibold">{roomTitle}</h1>
+      {candidateName && (
+        <p className="mt-1 text-sm">
+          You are joining as <strong>{candidateName}</strong>.
+        </p>
+      )}
+    </div>
+  );
+
+  if (!verified) {
+    return (
+      <form onSubmit={handleVerify} className="grid gap-4 text-center">
+        {header}
+        <div className="grid gap-3 text-left">
+          <div>
+            <label htmlFor="join-email" className={fieldLabelClasses}>
+              Your email address
+            </label>
+            <input
+              id="join-email"
+              type="email"
+              required
+              maxLength={200}
+              placeholder="The email your recruiter invited"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className={fieldInputClasses}
+            />
+          </div>
+          <label className="flex items-start gap-2 text-sm leading-relaxed">
+            <input
+              type="checkbox"
+              required
+              checked={consent}
+              onChange={(event) => setConsent(event.target.checked)}
+              className="mt-1 size-4 shrink-0 accent-accent"
+            />
+            <span>
+              I give my consent for this interview to be conducted by Intervia AI
+              {recruiterName ? (
+                <> on behalf of <strong>{recruiterName}</strong></>
+              ) : (
+                <> on behalf of the recruiter</>
+              )}
+              , with the conversation transcribed and evaluated for this hiring decision.
+            </span>
+          </label>
+        </div>
+
+        {verifyError && (
+          <p
+            role="alert"
+            className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400"
+          >
+            {verifyError}
           </p>
         )}
-      </div>
+
+        <button
+          type="submit"
+          disabled={isVerifying}
+          aria-label="Verify email and continue to the interview"
+          className="justify-self-center rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isVerifying ? "Verifying…" : "Verify and continue"}
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 text-center">
+      {header}
 
       {preview ? (
         <div className="overflow-hidden rounded-xl border border-border">
@@ -138,8 +253,9 @@ export function JoinInterviewForm({
       )}
 
       <p className="text-xs text-muted">
-        Your camera and microphone are used to show you and to let you speak with
-        Intervia AI. Nothing is recorded or stored.
+        Email verified. Your camera and microphone are used to show you and to let
+        you speak with Intervia AI. The conversation is transcribed and used to
+        evaluate this interview.
       </p>
 
       {error && (
