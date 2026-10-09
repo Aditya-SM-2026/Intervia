@@ -1,6 +1,7 @@
 import "server-only";
 import { Pool } from "pg";
 import type {
+  DifficultyLevel,
   InterviewRepository,
   InterviewRoom,
   InterviewStatus,
@@ -35,6 +36,8 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS agent_claimed_at TIMESTAMPTZ;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS recruiter_name TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS candidate_email TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS role_title TEXT;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS difficulty TEXT;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS duration_minutes INTEGER;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS jd_source TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS jd_text TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS resume_file_name TEXT;
@@ -71,7 +74,14 @@ async function ensureSchema(): Promise<void> {
   if (!globalRefs.__interviewPgBootstrap) {
     globalRefs.__interviewPgBootstrap = getPool()
       .query(BOOTSTRAP_SQL)
-      .then(() => undefined);
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        // Allow a retry on the next request; a cached rejection (e.g. the
+        // database briefly unreachable at boot) would otherwise poison every
+        // future call in this process.
+        globalRefs.__interviewPgBootstrap = undefined;
+        throw error;
+      });
   }
   await globalRefs.__interviewPgBootstrap;
 }
@@ -86,6 +96,8 @@ interface InterviewRow {
   recruiter_name: string | null;
   candidate_email: string | null;
   role_title: string | null;
+  difficulty: string | null;
+  duration_minutes: number | null;
   jd_source: string | null;
   jd_text: string | null;
   resume_file_name: string | null;
@@ -107,6 +119,8 @@ function rowToRoom(row: InterviewRow): InterviewRoom {
     recruiterName: row.recruiter_name,
     candidateEmail: row.candidate_email,
     roleTitle: row.role_title,
+    difficulty: (row.difficulty as DifficultyLevel | null) ?? "medium",
+    durationMinutes: row.duration_minutes ?? 5,
     jobDescription:
       jdText !== null && (row.jd_source === "text" || row.jd_source === "pdf")
         ? { source: row.jd_source, text: jdText }
@@ -130,9 +144,9 @@ export function getPostgresInterviewRepository(): InterviewRepository {
       await ensureSchema();
       await getPool().query(
         `INSERT INTO interviews (id, title, candidate_name, status, created_at, expires_at,
-             recruiter_name, candidate_email, role_title, jd_source, jd_text,
+             recruiter_name, candidate_email, role_title, difficulty, duration_minutes, jd_source, jd_text,
              resume_file_name, resume_text, resume_unreadable, consent_given_at, completed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
          ON CONFLICT (id) DO UPDATE SET
            title = EXCLUDED.title,
            candidate_name = EXCLUDED.candidate_name,
@@ -142,6 +156,8 @@ export function getPostgresInterviewRepository(): InterviewRepository {
            recruiter_name = EXCLUDED.recruiter_name,
            candidate_email = EXCLUDED.candidate_email,
            role_title = EXCLUDED.role_title,
+           difficulty = EXCLUDED.difficulty,
+           duration_minutes = EXCLUDED.duration_minutes,
            jd_source = EXCLUDED.jd_source,
            jd_text = EXCLUDED.jd_text,
            resume_file_name = EXCLUDED.resume_file_name,
@@ -159,6 +175,8 @@ export function getPostgresInterviewRepository(): InterviewRepository {
           room.recruiterName,
           room.candidateEmail,
           room.roleTitle,
+          room.difficulty,
+          room.durationMinutes,
           room.jobDescription?.source ?? null,
           room.jobDescription?.text ?? null,
           room.resume?.fileName ?? null,
@@ -174,7 +192,7 @@ export function getPostgresInterviewRepository(): InterviewRepository {
       await ensureSchema();
       const result = await getPool().query<InterviewRow>(
         `SELECT id, title, candidate_name, status, created_at, expires_at,
-              recruiter_name, candidate_email, role_title, jd_source, jd_text,
+              recruiter_name, candidate_email, role_title, difficulty, duration_minutes, jd_source, jd_text,
               resume_file_name, resume_text, resume_unreadable, consent_given_at, completed_at
          FROM interviews WHERE id = $1`,
         [id],

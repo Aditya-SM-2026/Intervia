@@ -1,13 +1,16 @@
 "use client";
 
 import { useRef, useState } from "react";
+import type { DifficultyLevel } from "@/lib/interviews/interview.types";
+import { MAX_DURATION_MINUTES, MIN_DURATION_MINUTES } from "@/lib/interviews/interview.validation";
 
 export interface CreateInterviewFormValues {
   recruiterName: string;
   candidateName: string;
   candidateEmail: string;
   roleTitle: string;
-  durationMinutes?: number;
+  durationMinutes: number;
+  difficulty: DifficultyLevel;
   jobDescriptionText?: string;
   jobDescriptionPdf?: File;
   resume: File;
@@ -23,12 +26,24 @@ const inputClasses =
 
 const labelClasses = "mb-1 block text-sm font-medium";
 
+const DIFFICULTY_OPTIONS: {
+  value: DifficultyLevel;
+  label: string;
+  hint: string;
+}[] = [
+  { value: "easy", label: "Easy", hint: "Relaxed and encouraging; simple questions." },
+  { value: "medium", label: "Medium", hint: "Practical questions with follow-up probes." },
+  { value: "hard", label: "Hard", hint: "Deep-dives into experience and problems solved." },
+  { value: "extra-hard", label: "Extra Hard", hint: "Top-MNC bar-raiser style: pressure, pivots, drill-downs." },
+];
+
 export function CreateInterviewForm({ onSubmit, isSubmitting }: CreateInterviewFormProps) {
   const [recruiterName, setRecruiterName] = useState("");
   const [candidateName, setCandidateName] = useState("");
   const [candidateEmail, setCandidateEmail] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
-  const [durationMinutes, setDurationMinutes] = useState("");
+  const [durationMinutes, setDurationMinutes] = useState(MIN_DURATION_MINUTES);
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");
   const [jobDescriptionText, setJobDescriptionText] = useState("");
   const [jobDescriptionPdf, setJobDescriptionPdf] = useState<File | null>(null);
   const [resume, setResume] = useState<File | null>(null);
@@ -49,13 +64,13 @@ export function CreateInterviewForm({ onSubmit, isSubmitting }: CreateInterviewF
       return;
     }
 
-    const duration = durationMinutes.trim();
     onSubmit({
       recruiterName: recruiterName.trim(),
       candidateName: candidateName.trim(),
       candidateEmail: candidateEmail.trim(),
       roleTitle: roleTitle.trim(),
-      durationMinutes: duration ? Number(duration) : undefined,
+      durationMinutes,
+      difficulty,
       ...(jobDescriptionPdf ? { jobDescriptionPdf } : { jobDescriptionText: jobDescriptionText.trim() }),
       resume,
     });
@@ -131,21 +146,58 @@ export function CreateInterviewForm({ onSubmit, isSubmitting }: CreateInterviewF
 
       <div>
         <label htmlFor="duration" className={labelClasses}>
-          Interview duration in minutes <span className="font-normal text-muted">(optional)</span>
+          Interview duration: <strong>{durationMinutes} minutes</strong>
         </label>
         <input
           id="duration"
-          type="number"
-          min={5}
-          max={240}
-          step={5}
-          placeholder="e.g. 30"
+          type="range"
+          min={MIN_DURATION_MINUTES}
+          max={MAX_DURATION_MINUTES}
+          step={1}
           value={durationMinutes}
-          onChange={(event) => setDurationMinutes(event.target.value)}
-          className={inputClasses}
+          onChange={(event) => setDurationMinutes(Number(event.target.value))}
+          className="w-full accent-accent"
         />
+        <div className="flex justify-between text-xs text-muted">
+          <span>{MIN_DURATION_MINUTES} min</span>
+          <span>{MAX_DURATION_MINUTES} min</span>
+        </div>
         <p className="mt-1 text-xs text-muted">
-          If set, the link stops working after this many minutes (5–240).
+          The AI interviewer wraps the interview up at this length. The link
+          itself stays valid for 24 hours.
+        </p>
+      </div>
+
+      <div>
+        <span className={labelClasses}>Interviewer difficulty</span>
+        <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Interviewer difficulty">
+          {DIFFICULTY_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+                difficulty === option.value
+                  ? "border-accent bg-accent/5"
+                  : "border-border hover:bg-surface"
+              }`}
+            >
+              <input
+                type="radio"
+                name="difficulty"
+                value={option.value}
+                checked={difficulty === option.value}
+                onChange={() => setDifficulty(option.value)}
+                className="mt-0.5 size-4 shrink-0 accent-accent"
+              />
+              <span>
+                <span className="font-medium">{option.label}</span>
+                <span className="block text-xs text-muted">{option.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="mt-1 text-xs text-muted">
+          This is the personality of the AI interviewer — how hard it pushes
+          and how it asks.
         </p>
       </div>
 

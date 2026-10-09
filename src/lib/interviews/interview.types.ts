@@ -10,6 +10,12 @@ export type InterviewStatus =
 /** Who a participant is in the interview room. */
 export type ParticipantRole = "candidate" | "interviewer" | "ai_agent";
 
+/**
+ * Interviewer personality: how hard the AI interviewer pushes. Each level has
+ * its own prompt section (see buildSystemPrompt in the agent session).
+ */
+export type DifficultyLevel = "easy" | "medium" | "hard" | "extra-hard";
+
 export interface Participant {
   id: string;
   name: string;
@@ -54,6 +60,10 @@ export interface InterviewRoom {
   /** The only email that may open this link; the join token is issued after it matches. */
   candidateEmail: string | null;
   roleTitle: string | null;
+  /** Interviewer personality chosen by the recruiter (default: medium). */
+  difficulty: DifficultyLevel;
+  /** Interview length in minutes (5-10); enforced by the agent session. */
+  durationMinutes: number;
   jobDescription: JobDescription | null;
   resume: ResumeInfo | null;
   consent: ConsentRecord | null;
@@ -68,8 +78,10 @@ export interface CreateInterviewInput {
   candidateName: string;
   candidateEmail: string;
   roleTitle: string;
-  /** Requested interview length in minutes. Optional. */
-  durationMinutes?: number;
+  /** Interview length in minutes (5-10). Drives agent pacing and enforcement. */
+  durationMinutes: number;
+  /** How hard the interviewer pushes (default: medium). */
+  difficulty: DifficultyLevel;
   jobDescription: JobDescription | null;
   resume: ResumeInfo | null;
 }

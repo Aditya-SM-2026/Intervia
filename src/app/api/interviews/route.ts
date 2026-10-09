@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
     candidateEmail: text("candidateEmail"),
     roleTitle: text("roleTitle"),
     durationMinutes: text("durationMinutes"),
+    difficulty: text("difficulty"),
     jobDescriptionText: text("jobDescriptionText"),
   });
   if (!parsed.success) {

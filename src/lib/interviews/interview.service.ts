@@ -10,6 +10,10 @@ import type {
 import { getInterviewRepository } from "@/server/repositories";
 
 const MS_PER_MINUTE = 60_000;
+// The interview length (5-10 min) is enforced by the agent session; the link
+// itself stays joinable for a day so candidates are not blocked by short
+// durations between creation and joining.
+const LINK_VALIDITY_HOURS = 24;
 // 16 random bytes → 22 URL-safe base64 characters, well above the minimum
 // length the room ID validation pattern requires.
 const ROOM_ID_RANDOM_BYTES = 16;
@@ -32,9 +36,7 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
   const repository = getInterviewRepository();
   const id = await generateUnusedRoomId(repository);
   const createdAt = new Date().toISOString();
-  const expiresAt = input.durationMinutes
-    ? new Date(Date.now() + input.durationMinutes * MS_PER_MINUTE).toISOString()
-    : null;
+  const expiresAt = new Date(Date.now() + LINK_VALIDITY_HOURS * 60 * MS_PER_MINUTE).toISOString();
 
   const room: InterviewRoom = {
     id,
@@ -46,6 +48,8 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     recruiterName: input.recruiterName,
     candidateEmail: input.candidateEmail,
     roleTitle: input.roleTitle,
+    difficulty: input.difficulty,
+    durationMinutes: input.durationMinutes,
     jobDescription: input.jobDescription,
     resume: input.resume,
     consent: null,

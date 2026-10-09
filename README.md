@@ -161,23 +161,32 @@ Key boundaries:
 
 ## Interview API (Phase 2)
 
-- `POST /api/interviews` — body `{ title, candidateName?, durationMinutes? }`
-  → `201 { room, candidateUrl }`. Room ID is a 22-character URL-safe random
-  value generated with `node:crypto`.
+- `POST /api/interviews` — multipart form: session fields (`recruiterName`,
+  `candidateName`, `candidateEmail`, `roleTitle`, `durationMinutes` 5–10 with
+  a range slider defaulting to 5, `difficulty` easy/medium/hard/extra-hard
+  defaulting to medium), the job description (text field or PDF), and the
+  resume (PDF, required) → `201 { room, candidateUrl }`.
 - `GET /api/interviews/:roomId` — returns `{ room }` or an error body
   `{ error: { code, message } }`: `400 INVALID_INPUT` (bad ID format),
   `404 ROOM_NOT_FOUND`, `410 ROOM_EXPIRED`, `409 ROOM_UNAVAILABLE`.
-- Rooms are created `scheduled`; if a duration is set, the link expires after
-  it (expiry applied lazily on read). Issuing join credentials marks the room
-  `active`. Statuses: scheduled, waiting, active, completed, expired,
-  cancelled (`waiting`, `completed`, `cancelled` have no transitions yet).
+- Rooms are created `scheduled`; links stay valid for 24 hours (the interview
+  length is enforced by the agent, not the link). Issuing join credentials
+  marks the room `active`. Statuses: scheduled, waiting, active, completed,
+  expired, cancelled.
+- The difficulty level is the AI interviewer's personality (see the persona
+  prompts in `src/agent/interview-agent-session.ts`): easy is relaxed and
+  encouraging, medium probes one level deeper, hard drills into past
+  experience and problems solved, and extra-hard follows the top-MNC
+  bar-raiser playbook (constraint pivots, multi-level "why" chases, stories
+  drilled until thin, cold delivery). The agent enforces the duration clock
+  itself: it announces the wrap-up when time is up and leaves shortly after.
 
 ## LiveKit room (Phase 3)
 
-- `POST /api/livekit/token` — body `{ roomId }` → `{ token, url, identity }`.
-  Validates room access, generates the participant identity server-side
-  (client values are never trusted for identity), issues a short-lived
-  (120 min) join token, and marks the room `active`.
+- `POST /api/interviews/:roomId/verify` — the candidate email gate: body
+  `{ email, consent }` → on a match, `{ token, url, identity }` (join
+  credentials issued in the same response) and the room is marked `active`.
+  Five wrong attempts lock the link for 15 minutes.
 - The candidate flow: grant camera + microphone → local preview →
   `Join interview` → connects to the LiveKit room and publishes both tracks.
 - The candidate video is rendered client-side from the acquired tracks; mute,

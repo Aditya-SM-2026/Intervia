@@ -25,9 +25,8 @@ export function CreateInterviewPanel() {
       form.set("candidateName", values.candidateName);
       form.set("candidateEmail", values.candidateEmail);
       form.set("roleTitle", values.roleTitle);
-      if (values.durationMinutes !== undefined) {
-        form.set("durationMinutes", String(values.durationMinutes));
-      }
+      form.set("durationMinutes", String(values.durationMinutes));
+      form.set("difficulty", values.difficulty);
       if (values.jobDescriptionPdf) {
         form.set("jobDescriptionPdf", values.jobDescriptionPdf);
       } else if (values.jobDescriptionText) {

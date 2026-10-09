@@ -33,6 +33,9 @@ const EMPTY_ROOM_SHUTDOWN_MS = 10_000;
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_JD_PROMPT_CHARS = 6_000;
 const MAX_RESUME_PROMPT_CHARS = 4_000;
+/** Grace period after the time-up announcement before the agent leaves. */
+const WRAP_UP_GRACE_MS = 45_000;
+const DEFAULT_INTERVIEW_MINUTES = 5;
 
 const BASE_PERSONA_PROMPT = [
   "You are a professional AI interviewer conducting a live spoken interview.",
@@ -53,8 +56,56 @@ const INTERVIEW_CONDUCT_PROMPT = [
   "- Keep the tone professional and neutral even under pressure.",
 ].join(" ");
 
+/**
+ * Interviewer personalities by difficulty level. The extra-hard persona is
+ * modelled on how top MNCs run their toughest loops: Amazon's Bar Raiser
+ * (deliberately underspecified problems, constraint changes after the first
+ * answer, stories drilled with follow-ups until they get thin), Google's
+ * recursive depth (defending "why" several levels down with defensible
+ * numbers), Meta's mid-session pivots (re-architecting when constraints
+ * change live) and Netflix-style blast-radius probing.
+ */
+const DIFFICULTY_PROMPTS: Record<string, string> = {
+  easy: [
+    "Interviewer style: easy and welcoming.",
+    "- Keep the mood relaxed and encouraging; start with simple introductions.",
+    "- Ask one straightforward question at a time, based on things the candidate mentioned themselves.",
+    "- Avoid trick questions, pressure or rapid follow-ups.",
+    "- If the candidate struggles, gently rephrase or simplify the question and reassure them before moving on.",
+  ].join(" "),
+  medium: [
+    "Interviewer style: balanced and practical.",
+    "- Be friendly but focused; ask realistic questions for the role.",
+    "- Probe each answer one level deeper (why, what happened next, what was your part in it).",
+    "- Expect concrete examples for claims; if none come, note it and move on politely.",
+    "- Mix technical, situational and preference questions; keep a steady, fair pace.",
+  ].join(" "),
+  hard: [
+    "Interviewer style: rigorous and direct.",
+    "- Dig deep into the candidate's past experience and the problems they have actually solved.",
+    "- For every claimed achievement ask for the concrete problem, their specific role, the alternatives they considered, the trade-offs, and the measurable outcome.",
+    "- Stack follow-ups to test real depth until the candidate reaches their limit, then move on without sympathy.",
+    "- Ask at least one challenging scenario or failure question, and test how they handle not knowing an answer.",
+    "- Do not rescue the candidate when they stall; allow a pause, then redirect to a new area.",
+  ].join(" "),
+  "extra-hard": [
+    "Interviewer style: top-MNC bar-raiser panel, the hardest loop.",
+    "- Pose deliberately underspecified questions; expect the candidate to clarify scope and state assumptions before answering. If they answer without clarifying, point that out neutrally and ask what they assumed.",
+    "- After a first answer, change the constraints (scale 10x, input no longer guaranteed, real-time needed) and see whether they adapt the approach or restart from scratch.",
+    "- Chase the why behind every answer, several levels down: why this design, what invariant does it rely on, what breaks without it. Demand defensible numbers, not hand-waving.",
+    "- Drill their stories with follow-ups (what exactly did you do, who disagreed, how did you measure success, what would you do differently) until the story gets thin, then push one more level.",
+    "- Switch context mid-discussion to test composure, and revisit an earlier answer reworded to check consistency.",
+    "- Ask about failure modes and blast radius unprompted: what happens when traffic spikes, when the region goes down, when the cache fills; what does the on-call runbook look like.",
+    "- Stay cold and professional: no encouragement, deliberate pauses after weak answers, never reveal whether an answer was right.",
+    "- If the candidate is stuck, give at most one minimal hint, then move on and cover a different area.",
+  ].join(" "),
+};
+
 const FALLBACK_GREETING =
   "Hello, and thank you for joining. Please tell me a little about yourself.";
+
+const WRAP_UP_MESSAGE =
+  "Thank you for your time. That brings us to the end of this interview. The recruiter will get back to you with the next steps. Take care.";
 
 const CANDIDATE_IDENTITY_PREFIX = "candidate-";
 
@@ -62,14 +113,21 @@ const CANDIDATE_IDENTITY_PREFIX = "candidate-";
 function buildSystemPrompt(room: InterviewRoom | null): string {
   if (!room) return BASE_PERSONA_PROMPT;
 
+  const durationMinutes = room.durationMinutes ?? DEFAULT_INTERVIEW_MINUTES;
   const sections: string[] = [BASE_PERSONA_PROMPT, INTERVIEW_CONDUCT_PROMPT];
 
-  const details = [
-    room.roleTitle ? `Role: ${room.roleTitle}` : null,
-    room.candidateName ? `Candidate: ${room.candidateName}` : null,
-    room.recruiterName ? `Recruiter: ${room.recruiterName}` : null,
-  ].filter(Boolean);
-  if (details.length > 0) sections.push(details.join("\n"));
+  sections.push(
+    DIFFICULTY_PROMPTS[room.difficulty] ?? DIFFICULTY_PROMPTS.medium,
+    [
+      "Interview logistics:",
+      `Role: ${room.roleTitle ?? "the role"}`,
+      room.candidateName ? `Candidate: ${room.candidateName}` : null,
+      room.recruiterName ? `Recruiter: ${room.recruiterName}` : null,
+      `Scheduled length: ${durationMinutes} minutes. Pace the conversation to cover the key areas within that time, and start wrapping up when roughly one minute remains.`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
 
   if (room.jobDescription) {
     sections.push(
@@ -112,7 +170,11 @@ export class InterviewAgentSession {
   private stopping = false;
   private greetingTimer: ReturnType<typeof setTimeout> | null = null;
   private emptyRoomTimer: ReturnType<typeof setTimeout> | null = null;
+  private interviewTimer: ReturnType<typeof setTimeout> | null = null;
+  private wrapUpTimer: ReturnType<typeof setTimeout> | null = null;
   private systemPrompt = BASE_PERSONA_PROMPT;
+  private sessionRoom: InterviewRoom | null = null;
+  private greetingSent = false;
   /** When the last interviewer question was sent (for answer latency). */
   private lastQuestionAskedAt: string | null = null;
 
@@ -140,7 +202,7 @@ export class InterviewAgentSession {
     await this.loadSessionContext();
 
     if (this.candidateParticipants().length > 0) {
-      this.scheduleGreeting();
+      this.beginInterviewIfNeeded();
     } else {
       this.scheduleEmptyRoomShutdown();
     }
@@ -154,8 +216,11 @@ export class InterviewAgentSession {
   private async loadSessionContext(): Promise<void> {
     try {
       const room = await getInterviewRepository().get(this.roomId);
+      this.sessionRoom = room;
       this.systemPrompt = buildSystemPrompt(room);
       const parts = [
+        room?.difficulty ? `difficulty:${room.difficulty}` : null,
+        room?.durationMinutes ? `duration:${room.durationMinutes}min` : null,
         room?.jobDescription ? "jd" : null,
         room?.resume ? (room.resume.unreadable ? "resume(unreadable)" : "resume") : null,
       ].filter(Boolean);
@@ -172,6 +237,8 @@ export class InterviewAgentSession {
     this.stopping = true;
     if (this.greetingTimer) clearTimeout(this.greetingTimer);
     if (this.emptyRoomTimer) clearTimeout(this.emptyRoomTimer);
+    if (this.interviewTimer) clearTimeout(this.interviewTimer);
+    if (this.wrapUpTimer) clearTimeout(this.wrapUpTimer);
     await this.room.disconnect().catch(() => {});
     this.onEnded?.();
   }
@@ -195,6 +262,10 @@ export class InterviewAgentSession {
         clearTimeout(this.emptyRoomTimer);
         this.emptyRoomTimer = null;
       }
+      // The interview (greeting + duration clock) begins when the first
+      // candidate is present, whether they were already here at join or
+      // arrived later.
+      this.beginInterviewIfNeeded();
     } else {
       this.scheduleEmptyRoomShutdown();
     }
@@ -222,6 +293,40 @@ export class InterviewAgentSession {
     }, GREETING_DELAY_MS);
   }
 
+  /** Starts the greeting + duration clock once, on the first candidate. */
+  private beginInterviewIfNeeded(): void {
+    if (this.greetingSent || this.greetingTimer) return;
+    this.scheduleGreeting();
+    this.scheduleInterviewTimer();
+  }
+
+  /**
+   * Enforces the session duration: when the clock runs out the interviewer
+   * announces the wrap-up and leaves after a short grace period, whatever the
+   * LLM's own pacing managed.
+   */
+  private scheduleInterviewTimer(): void {
+    if (this.interviewTimer) return;
+    const minutes = this.sessionRoom?.durationMinutes ?? DEFAULT_INTERVIEW_MINUTES;
+    this.interviewTimer = setTimeout(() => {
+      this.interviewTimer = null;
+      this.onInterviewTimerFired();
+    }, minutes * 60_000);
+    console.log(`[agent] interview clock set to ${minutes} min in ${this.roomId}`);
+  }
+
+  private onInterviewTimerFired(): void {
+    if (this.stopping) return;
+    console.log(`[agent] interview time reached in ${this.roomId}, wrapping up`);
+    void this.speakReply(WRAP_UP_MESSAGE).then(() => {
+      if (this.stopping) return;
+      this.wrapUpTimer = setTimeout(() => {
+        this.wrapUpTimer = null;
+        void this.stop();
+      }, WRAP_UP_GRACE_MS);
+    });
+  }
+
   private scheduleEmptyRoomShutdown(): void {
     if (this.emptyRoomTimer || this.stopping) return;
     this.emptyRoomTimer = setTimeout(() => {
@@ -232,6 +337,7 @@ export class InterviewAgentSession {
   }
 
   private async sendGreeting(): Promise<void> {
+    this.greetingSent = true;
     let text = FALLBACK_GREETING;
     try {
       const reply = await this.llm.generateReply([
