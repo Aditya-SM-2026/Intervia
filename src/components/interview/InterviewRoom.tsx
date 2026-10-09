@@ -18,6 +18,7 @@ import {
 import { cancelSpeech, isSpeechSynthesisSupported, speakText } from "@/lib/speech/browser-tts";
 import { startGeminiLiveVoice, type GeminiLiveVoiceHandle } from "@/lib/speech/gemini-live";
 import { AgentAudioPlayer } from "@/lib/speech/agent-audio-player";
+import { SentenceAssembler } from "@/lib/speech/sentence-assembler";
 import { JoinInterviewForm } from "./JoinInterviewForm";
 import { CandidateVideo } from "./CandidateVideo";
 import { AiAgentVideo } from "./AiAgentVideo";
@@ -75,9 +76,14 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
   const recognitionRef = useRef<SpeechRecognitionController | null>(null);
   const geminiVoiceRef = useRef<GeminiLiveVoiceHandle | null>(null);
   const audioPlayerRef = useRef<AgentAudioPlayer | null>(null);
+  const assemblerRef = useRef<SentenceAssembler | null>(null);
   // Mirrors React state for use inside long-lived event handlers.
   const agentPresentRef = useRef(false);
   const speakingRef = useRef(false);
+  /** Reply the page is currently playing/speaking (for stale-piece filtering). */
+  const currentReplyIdRef = useRef<number | null>(null);
+  /** Last two agent utterances, for echo detection when the candidate barges in. */
+  const agentReplyHistoryRef = useRef<string[]>([]);
 
   // Cleanup when the page is closed or navigated away from.
   useEffect(() => {
@@ -97,7 +103,12 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
   }, []);
 
   function startListeningIfReady() {
-    if (agentPresentRef.current && !speakingRef.current) {
+    // Cascade keeps the recognizer live even while the agent speaks or thinks:
+    // the candidate can barge in mid-sentence. Other providers pause the mic
+    // during playback so it cannot hear the page speaking.
+    const canListen =
+      VOICE_PROVIDER === "cascade" || !speakingRef.current;
+    if (agentPresentRef.current && canListen) {
       recognitionRef.current?.start();
     }
   }
@@ -145,7 +156,9 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
 
         if (message.type === "ai-status") {
           if (message.state === "processing") {
-            pauseListening();
+            // Cascade keeps the mic live so the candidate can interrupt even
+            // while the agent is thinking; other providers pause listening.
+            if (VOICE_PROVIDER !== "cascade") pauseListening();
             setAiState("processing");
           } else if (message.state === "listening") {
             // Cascade playback may still be running; the drain callback
@@ -164,17 +177,39 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
         }
 
         if (message.type === "ai-audio-chunk") {
+          // Chunks of a reply that was interrupted meanwhile are stale.
+          if (
+            message.replyId !== undefined &&
+            currentReplyIdRef.current !== null &&
+            message.replyId !== currentReplyIdRef.current
+          ) {
+            return;
+          }
           const player = audioPlayerRef.current;
-          if (!player) return;
+          const assembler = assemblerRef.current;
+          if (!player || !assembler) return;
           setAiState("speaking");
           setAiDetail(null);
-          void player.enqueue(message.mimeType, message.data).catch(() => {
-            // Undecodable audio must not break the interview.
-          });
+          // A sentence may arrive split across chunks; only a complete
+          // sentence (reassembled, in order) goes to the player.
+          assembler.add(
+            message.sentence ?? message.seq,
+            message.piece,
+            message.pieces,
+            message.mimeType,
+            message.data,
+          );
           return;
         }
 
         if (message.type === "ai-audio-end") {
+          if (
+            message.replyId !== undefined &&
+            currentReplyIdRef.current !== null &&
+            message.replyId !== currentReplyIdRef.current
+          ) {
+            return;
+          }
           audioPlayerRef.current?.end();
           return;
         }
@@ -183,9 +218,12 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
         // pipeline, and only listen again once the voice has finished.
         setTranscript((entries) => [...entries, { role: "interviewer", text: message.text }]);
         setAiDetail(null);
+        agentReplyHistoryRef.current = [message.text, ...agentReplyHistoryRef.current].slice(0, 2);
+        currentReplyIdRef.current = message.replyId ?? null;
+        assemblerRef.current?.reset();
         speakingRef.current = true;
         setAiState("speaking");
-        pauseListening();
+        if (VOICE_PROVIDER !== "cascade") pauseListening();
 
         if (VOICE_PROVIDER === "cascade") {
           // spoken=true: the worker is streaming this reply as audio chunks,
@@ -285,6 +323,13 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
           startListeningIfReady();
         };
         audioPlayerRef.current = player;
+        const assembler = new SentenceAssembler();
+        assembler.onSentence = (mimeType, base64) => {
+          void player.enqueue(mimeType, base64).catch(() => {
+            // Undecodable audio must not break the interview.
+          });
+        };
+        assemblerRef.current = assembler;
       }
 
       if (!isSpeechRecognitionSupported()) {
@@ -297,6 +342,22 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
       recognitionRef.current = createSpeechRecognition({
         onFinalTranscript: (text) => {
           setInterimTranscript(null);
+          // Barge-in (cascade): the candidate talked over the agent's voice.
+          // Stop the audio immediately, then send the speech as a normal
+          // transcript — the agent cancels its reply and answers this. The
+          // gate is deliberately strict: short backchannels ("yes", "okay")
+          // and the recognizer's pickup of the agent's own voice through the
+          // speakers must not cancel the agent mid-sentence.
+          if (
+            VOICE_PROVIDER === "cascade" &&
+            (speakingRef.current || audioPlayerRef.current?.isPlaying) &&
+            isRealInterrupt(text, agentReplyHistoryRef.current)
+          ) {
+            audioPlayerRef.current?.interrupt();
+            assemblerRef.current?.reset();
+            speakingRef.current = false;
+            setAiState("processing");
+          }
           setTranscript((entries) => [...entries, { role: "candidate", text }]);
           if (!agentPresentRef.current) return;
           void room.localParticipant
@@ -510,4 +571,59 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
       </div>
     </main>
   );
+}
+/** Filler words that must never count as an interrupt on their own. */
+const BACKCHANNEL_WORDS = new Set([
+  "yes", "yeah", "yep", "ya", "no", "nope", "okay", "ok", "hmm", "hmmm", "mm",
+  "um", "uh", "right", "sure", "alright", "fine", "great", "good", "nice",
+  "thanks", "thank", "hello", "hi", "hey", "please", "continue", "go", "on",
+  "so", "well", "like", "actually", "basically", "understood", "got",
+]);
+
+function tokensOf(value: string): Set<string> {
+  return new Set(
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length > 2),
+  );
+}
+
+/**
+ * Decides whether a final transcript that arrived while the agent was
+ * speaking is a real barge-in. Guards against two false positives:
+ * backchannel filler ("yes okay sure") and the recognizer transcribing the
+ * agent's own TTS voice through the speakers (echo).
+ */
+function isRealInterrupt(text: string, agentReplies: string[]): boolean {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  // A real interrupt is a phrase, not a sound.
+  if (words.length < 4 || text.trim().length < 12) return false;
+
+  const normalizedWords = words.map((word) => word.toLowerCase().replace(/[^a-z0-9]/g, ""));
+  if (normalizedWords.length > 0 && normalizedWords.every((word) => BACKCHANNEL_WORDS.has(word))) {
+    return false;
+  }
+
+  // Echo: the transcript largely repeats what the agent just said (it can be
+  // a partial or imperfect transcription of the TTS output).
+  const spoken = tokensOf(text);
+  if (spoken.size === 0) return true;
+  const agent = new Set<string>();
+  for (const reply of agentReplies) {
+    for (const word of tokensOf(reply)) agent.add(word);
+  }
+  let overlap = 0;
+  for (const word of spoken) {
+    if (agent.has(word)) overlap += 1;
+  }
+  if (overlap / spoken.size > 0.5) return false;
+
+  const normalizedText = ` ${text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ")} `;
+  for (const reply of agentReplies) {
+    const normalizedReply = ` ${reply.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ")} `;
+    if (normalizedReply.includes(normalizedText.trim())) return false;
+  }
+  return true;
 }

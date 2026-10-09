@@ -57,6 +57,25 @@ export class AgentAudioPlayer {
     this.drainTimer = setTimeout(check, 250);
   }
 
+  /**
+   * Barge-in: stop all scheduled playback immediately and forget the queue so
+   * the next reply starts from silence. The AudioContext is kept for reuse.
+   */
+  interrupt(): void {
+    if (this.drainTimer) clearTimeout(this.drainTimer);
+    this.drainTimer = null;
+    for (const source of this.sources) {
+      try {
+        source.stop();
+      } catch {
+        // Already finished.
+      }
+    }
+    this.sources = [];
+    this.lastScheduledEnd = 0;
+    this.playing = false;
+  }
+
   stop(): void {
     if (this.drainTimer) clearTimeout(this.drainTimer);
     this.drainTimer = null;

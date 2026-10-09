@@ -12,16 +12,37 @@ export type AgentStatusState = "listening" | "processing" | "speaking" | "error"
 
 export type AgentDataMessage =
   | { type: "ai-status"; state: AgentStatusState; detail?: string }
-  | { type: "ai-message"; text: string; spoken?: boolean }
+  | {
+      type: "ai-message";
+      text: string;
+      spoken?: boolean;
+      /**
+       * Groups a reply with its audio chunks and ai-audio-end, so the page
+       * can discard stale pieces of an interrupted reply.
+       */
+      replyId?: number;
+    }
   /**
-   * One piece of spoken reply audio (base64 of a complete audio segment, e.g.
-   * an MP3 sentence synthesized by the worker). replyId groups the pieces of
-   * one reply; seq orders them. The last piece is followed by ai-audio-end.
+   * One piece of spoken reply audio (base64). A sentence longer than
+   * AI_AUDIO_MAX_CHUNK_BYTES is split across several chunks: `sentence` is the
+   * sentence index within the reply, `piece`/`pieces` the piece index/count.
+   * The page must reassemble the pieces before decoding — each piece alone is
+   * a truncated MP3 stream. replyId groups the pieces of one reply; seq
+   * orders them. The last piece is followed by ai-audio-end.
    */
-  | { type: "ai-audio-chunk"; replyId: number; seq: number; mimeType: string; data: string }
+  | {
+      type: "ai-audio-chunk";
+      replyId: number;
+      seq: number;
+      sentence?: number;
+      piece?: number;
+      pieces?: number;
+      mimeType: string;
+      data: string;
+    }
   | { type: "ai-audio-end"; replyId: number };
 
-export const AI_AUDIO_MAX_CHUNK_BYTES = 12 * 1024;
+export const AI_AUDIO_MAX_CHUNK_BYTES = 48 * 1024;
 
 export type CandidateDataMessage = {
   type: "candidate-transcript";
@@ -78,6 +99,9 @@ export function decodeAgentDataMessage(payload: Uint8Array): AgentDataMessage | 
       type: "ai-audio-chunk",
       replyId: message.replyId,
       seq: message.seq,
+      sentence: typeof message.sentence === "number" ? message.sentence : undefined,
+      piece: typeof message.piece === "number" ? message.piece : undefined,
+      pieces: typeof message.pieces === "number" ? message.pieces : undefined,
       mimeType: message.mimeType,
       data: message.data,
     };

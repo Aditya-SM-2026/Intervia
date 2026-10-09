@@ -232,6 +232,11 @@ export class InterviewAgentSession {
     }
   }
 
+  private pendingInterrupt: string | null = null;
+  private replyEpoch = 0;
+  /** Last two replies the agent spoke — used to recognize echoes of its own voice. */
+  private recentSpoken: string[] = [];
+
   async stop(): Promise<void> {
     if (this.stopping) return;
     this.stopping = true;
@@ -337,6 +342,8 @@ export class InterviewAgentSession {
   }
 
   private async sendGreeting(): Promise<void> {
+    if (this.isProcessing) return; // the candidate spoke before the greeting fired
+    this.isProcessing = true;
     this.greetingSent = true;
     let text = FALLBACK_GREETING;
     try {
@@ -355,39 +362,92 @@ export class InterviewAgentSession {
     }
 
     await this.speakReply(text);
+    this.isProcessing = false;
     this.sendAgentMessage({ type: "ai-status", state: "listening" });
+
+    // An interrupt that arrived during the greeting is answered now.
+    const pending = this.pendingInterrupt;
+    this.pendingInterrupt = null;
+    if (pending) void this.handleTranscript(pending);
   }
 
   private async handleTranscript(text: string): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return; // empty speech
-    if (this.isProcessing || this.stopping) return; // basic turn-taking
+
+    if (this.isProcessing || this.stopping) {
+      // Barge-in: the candidate talked over the agent. Cancel whatever reply
+      // is being generated or spoken (the epoch bump aborts its speakReply)
+      // and queue this speech as the next thing to answer. Short filler
+      // ("yes", "okay") and echoes of the agent's own voice never cancel a
+      // reply — only substantive speech does.
+      if (
+        !this.stopping &&
+        isSubstantiveSpeech(trimmed) &&
+        !this.isEchoOfOwnVoice(trimmed)
+      ) {
+        this.pendingInterrupt = trimmed;
+        this.replyEpoch += 1;
+        console.log(`[agent] interrupt received in ${this.roomId}, cancelling current reply`);
+      } else {
+        console.log(
+          `[agent] ignored barge-in candidate transcript in ${this.roomId}: ` +
+            (this.stopping ? "stopping" : this.isEchoOfOwnVoice(trimmed) ? "echo" : "backchannel"),
+        );
+      }
+      return;
+    }
 
     this.isProcessing = true;
     this.sendAgentMessage({ type: "ai-status", state: "processing" });
 
-    const answeredAt = new Date().toISOString();
-    this.recordTurn({
-      speaker: "candidate",
-      text: trimmed,
-      askedAt: this.lastQuestionAskedAt,
-      answeredAt,
-      latencyMs: this.lastQuestionAskedAt
-        ? Date.parse(answeredAt) - Date.parse(this.lastQuestionAskedAt)
-        : null,
-    });
-    this.lastQuestionAskedAt = null;
-
     try {
-      this.history.push({ role: "user", content: trimmed });
-      const reply = await this.llm.generateReply([
-        { role: "system", content: this.systemPrompt },
-        ...this.recentHistory(),
-      ]);
-      this.history.push({ role: "assistant", content: reply.text });
-      this.history = this.history.slice(-MAX_HISTORY_MESSAGES);
+      let current: string | null = trimmed;
+      // Interrupts can arrive while a reply is generated or spoken; each one
+      // becomes the next candidate turn, so the conversation follows the
+      // candidate instead of talking over them.
+      while (current) {
+        const turnText = current;
+        current = null;
 
-      await this.speakReply(reply.text);
+        const answeredAt = new Date().toISOString();
+        this.recordTurn({
+          speaker: "candidate",
+          text: turnText,
+          askedAt: this.lastQuestionAskedAt,
+          answeredAt,
+          latencyMs: this.lastQuestionAskedAt
+            ? Date.parse(answeredAt) - Date.parse(this.lastQuestionAskedAt)
+            : null,
+        });
+        this.lastQuestionAskedAt = null;
+        this.history.push({ role: "user", content: turnText });
+
+        const reply = await this.llm.generateReply([
+          { role: "system", content: this.systemPrompt },
+          ...this.recentHistory(),
+        ]);
+
+        // An interrupt during the LLM call: the reply it was composing is
+        // stale (never spoken, so it stays out of the history) — answer the
+        // interrupt instead.
+        if (this.pendingInterrupt) {
+          current = this.pendingInterrupt;
+          this.pendingInterrupt = null;
+          this.sendAgentMessage({ type: "ai-status", state: "processing" });
+          continue;
+        }
+
+        this.history.push({ role: "assistant", content: reply.text });
+        this.history = this.history.slice(-MAX_HISTORY_MESSAGES);
+        await this.speakReply(reply.text);
+
+        if (this.pendingInterrupt) {
+          current = this.pendingInterrupt;
+          this.pendingInterrupt = null;
+          this.sendAgentMessage({ type: "ai-status", state: "processing" });
+        }
+      }
     } catch (error) {
       console.error(`[agent] reply failed in interview ${this.roomId}: ${describeError(error)}`);
       this.sendAgentMessage({
@@ -400,6 +460,7 @@ export class InterviewAgentSession {
       });
     } finally {
       this.isProcessing = false;
+      this.pendingInterrupt = null;
       if (!this.stopping) {
         this.sendAgentMessage({ type: "ai-status", state: "listening" });
       }
@@ -412,6 +473,8 @@ export class InterviewAgentSession {
    * the data channel, terminated by ai-audio-end.
    */
   private async speakReply(text: string): Promise<void> {
+    const replyId = ++this.nextReplyId;
+    const epoch = this.replyEpoch;
     const askedAt = new Date().toISOString();
     this.lastQuestionAskedAt = askedAt;
     this.recordTurn({
@@ -422,25 +485,34 @@ export class InterviewAgentSession {
       latencyMs: null,
     });
     // spoken=true tells the page audio chunks will follow, so it must not
-    // speak the text itself (two voices would overlap).
-    this.sendAgentMessage({ type: "ai-message", text, spoken: this.tts.enabled });
+    // speak the text itself (two voices would overlap). replyId lets the page
+    // discard pieces of a reply that was interrupted meanwhile.
+    this.sendAgentMessage({ type: "ai-message", text, spoken: this.tts.enabled, replyId });
+    this.recentSpoken = [text, ...this.recentSpoken].slice(0, 2);
     if (!this.tts.enabled) return;
 
-    const replyId = ++this.nextReplyId;
     let seq = 0;
+    let sentence = 0;
     try {
-      for (const sentence of CloudTtsEngine.splitSentences(text)) {
-        if (this.stopping) return;
-        const audio = await this.tts.synthesizeSentence(sentence);
-        for (const piece of splitBase64(audio.bytes.toString("base64"), AI_AUDIO_MAX_CHUNK_BYTES)) {
+      for (const sentenceText of CloudTtsEngine.splitSentences(text)) {
+        if (this.stopping || epoch !== this.replyEpoch) return;
+        const audio = await this.tts.synthesizeSentence(sentenceText);
+        // The candidate may have interrupted while this sentence synthesized.
+        if (this.stopping || epoch !== this.replyEpoch) return;
+        const pieces = splitBase64(audio.bytes.toString("base64"), AI_AUDIO_MAX_CHUNK_BYTES);
+        for (let piece = 0; piece < pieces.length; piece++) {
           this.sendAgentMessage({
             type: "ai-audio-chunk",
             replyId,
             seq: seq++,
+            sentence,
+            piece,
+            pieces: pieces.length,
             mimeType: audio.mimeType,
-            data: piece,
+            data: pieces[piece],
           });
         }
+        sentence += 1;
       }
     } catch (error) {
       console.error(`[agent] tts failed in interview ${this.roomId}: ${describeError(error)}`);
@@ -471,6 +543,33 @@ export class InterviewAgentSession {
       .catch((error: unknown) => {
         console.error(`[agent] failed to persist turn: ${describeError(error)}`);
       });
+  }
+
+  /**
+   * True when a transcript largely repeats what the agent itself just said —
+   * the recognizer picking up its own TTS through the candidate's speakers.
+   * Such transcripts never cancel a reply; they are dropped entirely.
+   */
+  private isEchoOfOwnVoice(text: string): boolean {
+    if (this.recentSpoken.length === 0) return false;
+    const spoken = tokensOf(text);
+    if (spoken.size === 0) return true;
+    const agent = new Set<string>();
+    for (const reply of this.recentSpoken) {
+      for (const word of tokensOf(reply)) agent.add(word);
+    }
+    let overlap = 0;
+    for (const word of spoken) {
+      if (agent.has(word)) overlap += 1;
+    }
+    if (overlap / spoken.size > 0.5) return true;
+    const normalizedText = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    if (!normalizedText) return true;
+    for (const reply of this.recentSpoken) {
+      const normalizedReply = reply.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+      if (normalizedReply.includes(normalizedText)) return true;
+    }
+    return false;
   }
 
   private sendAgentMessage(message: AgentDataMessage): void {
@@ -506,6 +605,34 @@ export class InterviewAgentSession {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+const BACKCHANNEL_WORDS = new Set([
+  "yes", "yeah", "yep", "no", "nope", "okay", "ok", "hmm", "um", "uh", "right",
+  "sure", "alright", "fine", "great", "good", "nice", "thanks", "thank",
+  "hello", "hi", "hey", "please", "continue", "go", "on", "so", "well",
+]);
+
+/**
+ * Barge-in gate on the agent side: only substantive speech cancels a reply
+ * that is being generated or spoken. Short acknowledgments and filler are
+ * dropped (they are not queued or answered either).
+ */
+function isSubstantiveSpeech(text: string): boolean {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 3) return false;
+  const normalized = words.map((word) => word.toLowerCase().replace(/[^a-z0-9]/g, ""));
+  return !normalized.every((word) => BACKCHANNEL_WORDS.has(word));
+}
+
+function tokensOf(value: string): Set<string> {
+  return new Set(
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length > 2),
+  );
 }
 
 /** Splits base64 into transport-sized pieces (lengths stay multiples of 4). */

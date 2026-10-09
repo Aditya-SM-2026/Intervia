@@ -60,7 +60,7 @@ export function CreateInterviewPanel() {
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="grid h-full gap-3">
       {error && (
         <p
           role="alert"
