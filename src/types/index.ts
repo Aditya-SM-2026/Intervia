@@ -6,11 +6,33 @@ export type {
   ProviderResponse,
 } from "@/lib/ai/ai.types";
 export type {
+  ConsentRecord,
   CreateInterviewInput,
+  DashboardListFilter,
   InterviewApiError,
   InterviewRepository,
   InterviewRoom,
   InterviewStatus,
+  InterviewTurn,
+  InterviewTurnInput,
+  JobDescription,
   Participant,
   ParticipantRole,
+  ResumeInfo,
 } from "@/lib/interviews/interview.types";
+export type {
+  DashboardInterviewSummary,
+  DashboardInterviewsResponse,
+  InterviewReport,
+  InterviewReportResponse,
+  IntegrityLevel,
+  IntegritySignal,
+  JdCoverageEntry,
+  ReportAnalysis,
+  ReportEngineMeta,
+  ReportIntegrity,
+  ReportIntegritySummary,
+  ReportTopicSummary,
+  TranscriptSpeaker,
+  TranscriptTurn,
+} from "@/lib/interviews/report.types";

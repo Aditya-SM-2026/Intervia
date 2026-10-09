@@ -1,6 +1,7 @@
 import "server-only";
 import { Pool } from "pg";
 import type {
+  DashboardListFilter,
   DifficultyLevel,
   InterviewRepository,
   InterviewRoom,
@@ -8,11 +9,26 @@ import type {
   InterviewTurn,
   InterviewTurnInput,
 } from "@/lib/interviews/interview.types";
+import type {
+  InterviewReport,
+  ReportIntegritySummary,
+} from "@/lib/interviews/report.types";
+import {
+  parseStoredReport,
+  reportIntegritySchema,
+} from "@/lib/interviews/report.validation";
 
 /**
- * Postgres-backed interview room store (Cloud SQL in production).
+ * Postgres-backed interview session store (Cloud SQL in production).
  * The schema is bootstrapped idempotently on first use so a fresh database
  * needs no separate migration step.
+ *
+ * Ownership: this repository WRITES interview rows (its own columns only —
+ * columns owned by other workstreams are never overwritten) and the
+ * dashboard-owned `reports` table. Sessions' pipeline fields and transcript
+ * turns are READ-ONLY here: they are written by the pre-interview pipeline,
+ * so reads are defensive (missing tables/columns degrade to empty/undefined,
+ * never errors).
  */
 
 interface GlobalWithPool {
@@ -57,6 +73,13 @@ CREATE TABLE IF NOT EXISTS interview_turns (
   PRIMARY KEY (room_id, seq)
 );
 CREATE INDEX IF NOT EXISTS interview_turns_room_idx ON interview_turns (room_id, seq);
+CREATE TABLE IF NOT EXISTS reports (
+  room_id TEXT PRIMARY KEY,
+  report JSONB NOT NULL,
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+DROP TABLE IF EXISTS interview_transcripts;
+DROP TABLE IF EXISTS interview_reports;
 `;
 
 function getPool(): Pool {
@@ -138,6 +161,11 @@ function rowToRoom(row: InterviewRow): InterviewRoom {
   };
 }
 
+const integritySummarySchema = reportIntegritySchema.pick({
+  probability: true,
+  level: true,
+});
+
 export function getPostgresInterviewRepository(): InterviewRepository {
   return {
     async save(room: InterviewRoom): Promise<void> {
@@ -201,6 +229,35 @@ export function getPostgresInterviewRepository(): InterviewRepository {
       return row ? rowToRoom(row) : null;
     },
 
+    async list(filter?: DashboardListFilter): Promise<InterviewRoom[]> {
+      await ensureSchema();
+
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      if (filter?.email) {
+        params.push(`%${filter.email.trim()}%`);
+        conditions.push(`candidate_email ILIKE $${params.length}`);
+      }
+
+      let sql = `SELECT id, title, candidate_name, status, created_at, expires_at,
+          recruiter_name, candidate_email, role_title, jd_source, jd_text,
+          resume_file_name, resume_text, resume_unreadable, consent_given_at, completed_at
+        FROM interviews`;
+      if (conditions.length > 0) sql += ` WHERE ${conditions.join(" AND ")}`;
+      sql += " ORDER BY created_at DESC";
+      if (filter?.limit && Number.isFinite(filter.limit) && filter.limit > 0) {
+        params.push(Math.floor(filter.limit));
+        sql += ` LIMIT $${params.length}`;
+        if (filter.offset && Number.isFinite(filter.offset) && filter.offset > 0) {
+          params.push(Math.floor(filter.offset));
+          sql += ` OFFSET $${params.length}`;
+        }
+      }
+
+      const result = await getPool().query<InterviewRow>(sql, params);
+      return result.rows.map(rowToRoom);
+    },
+
     async claimForAgent(roomId: string, workerId: string, ttlSeconds: number): Promise<boolean> {
       await ensureSchema();
       // Atomic conditional update: the row lock makes the check-and-set a
@@ -260,6 +317,51 @@ export function getPostgresInterviewRepository(): InterviewRepository {
          WHERE id = $1 AND status IN ('scheduled', 'waiting', 'active')`,
         [roomId],
       );
+    },
+
+    async saveReport(report: InterviewReport): Promise<void> {
+      await ensureSchema();
+      await getPool().query(
+        `INSERT INTO reports (room_id, report, generated_at)
+         VALUES ($1, $2, now())
+         ON CONFLICT (room_id) DO UPDATE SET
+           report = EXCLUDED.report,
+           generated_at = now()`,
+        [report.roomId, JSON.stringify(report)],
+      );
+    },
+
+    async getReport(roomId: string): Promise<InterviewReport | null> {
+      await ensureSchema();
+      const result = await getPool().query<{ report: unknown }>(
+        "SELECT report FROM reports WHERE room_id = $1",
+        [roomId],
+      );
+      const row = result.rows[0];
+      return row ? parseStoredReport(row.report) : null;
+    },
+
+    async getReportIntegrity(
+      roomIds: readonly string[],
+    ): Promise<Map<string, ReportIntegritySummary>> {
+      const result = new Map<string, ReportIntegritySummary>();
+      if (roomIds.length === 0) return result;
+
+      await ensureSchema();
+      const query = await getPool().query<{ room_id: string; integrity: unknown }>(
+        `SELECT room_id, report -> 'integrity' AS integrity
+         FROM reports
+         WHERE room_id = ANY($1)`,
+        [[...roomIds]],
+      );
+
+      for (const row of query.rows) {
+        const parsed = integritySummarySchema.safeParse(row.integrity);
+        if (parsed.success) {
+          result.set(row.room_id, parsed.data);
+        }
+      }
+      return result;
     },
   };
 }

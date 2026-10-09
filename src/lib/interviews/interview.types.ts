@@ -1,3 +1,9 @@
+import type {
+  InterviewReport,
+  ReportIntegritySummary,
+} from "./report.types";
+import type { TranscriptTurn } from "./report.types";
+
 /** Lifecycle states for an interview room (status transitions land in Phase 2). */
 export type InterviewStatus =
   | "scheduled"
@@ -44,6 +50,11 @@ export interface ConsentRecord {
   givenAt: string;
 }
 
+/**
+ * The interview session record. Older sessions only carry the original
+ * fields; everything the pre-interview pipeline adds (email, role, JD,
+ * resume, consent, …) is read defensively by the dashboard.
+ */
 export interface InterviewRoom {
   /** Opaque, URL-safe identifier used in candidate links. */
   id: string;
@@ -87,18 +98,8 @@ export interface CreateInterviewInput {
 }
 
 /** One transcript turn of a session, persisted incrementally by the agent. */
-export interface InterviewTurn {
+export interface InterviewTurn extends TranscriptTurn {
   roomId: string;
-  /** 1-based order within the room. */
-  seq: number;
-  speaker: "interviewer" | "candidate";
-  text: string;
-  /** Interviewer turns: when the question was sent. */
-  askedAt: string | null;
-  /** Candidate turns: when the final answer arrived. */
-  answeredAt: string | null;
-  /** answeredAt - askedAt for candidate turns; an AI-usage signal. */
-  latencyMs: number | null;
 }
 
 export interface InterviewTurnInput {
@@ -107,6 +108,14 @@ export interface InterviewTurnInput {
   askedAt: string | null;
   answeredAt: string | null;
   latencyMs: number | null;
+}
+
+/** Optional filters/slicing for the recruiter dashboard list. */
+export interface DashboardListFilter {
+  /** Case-insensitive substring match on candidate email. */
+  email?: string;
+  limit?: number;
+  offset?: number;
 }
 
 /** Uniform error body returned by the interview/room API endpoints. */
@@ -127,10 +136,19 @@ export interface InterviewApiError {
  * Storage boundary for interview rooms. Storage is deliberately isolated
  * behind this interface so the in-memory store can later be swapped for a
  * database without touching route handlers or services.
+ *
+ * Sessions and transcript turns are WRITTEN by the pre-interview pipeline
+ * workstream; the dashboard side only reads them. Reports are owned by the
+ * dashboard side.
  */
 export interface InterviewRepository {
   save(room: InterviewRoom): Promise<void>;
   get(id: string): Promise<InterviewRoom | null>;
+  /**
+   * Sessions, newest first, with optional dashboard filters. Only fields
+   * that exist in storage are returned; absent pipeline fields stay undefined.
+   */
+  list(filter?: DashboardListFilter): Promise<InterviewRoom[]>;
   /**
    * Exclusive claim so only one agent worker joins a room (several workers
    * poll the same rooms). Returns false when another worker holds a fresh
@@ -140,10 +158,19 @@ export interface InterviewRepository {
   claimForAgent(roomId: string, workerId: string, ttlSeconds: number): Promise<boolean>;
   /** Releases this worker's claim (agent left the room normally). */
   releaseAgentClaim(roomId: string, workerId: string): Promise<void>;
-  /** Persists one transcript turn (seq is assigned by the store). */
+/** Persists one transcript turn (seq is assigned by the store). */
   appendTurn(roomId: string, turn: InterviewTurnInput): Promise<void>;
-  /** Full ordered transcript for a room. */
+  /** Full ordered transcript for a room (each turn carries its roomId). */
   getTurns(roomId: string): Promise<InterviewTurn[]>;
   /** Marks a session completed once the agent has left (sets completedAt). */
   completeSession(roomId: string): Promise<void>;
+  /** Stores a generated report, replacing any previous one for the room. */
+  saveReport(report: InterviewReport): Promise<void>;
+  /** The generated report, or null when none exists yet. */
+  getReport(roomId: string): Promise<InterviewReport | null>;
+  /**
+   * Integrity summaries for many rooms in one call (dashboard list badges).
+   * Rooms without a report are simply absent from the map.
+   */
+  getReportIntegrity(roomIds: readonly string[]): Promise<Map<string, ReportIntegritySummary>>;
 }

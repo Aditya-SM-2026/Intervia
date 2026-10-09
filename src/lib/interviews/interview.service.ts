@@ -2,11 +2,13 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import type {
   CreateInterviewInput,
+  DashboardListFilter,
   InterviewApiError,
   InterviewRepository,
   InterviewRoom,
   InterviewStatus,
 } from "./interview.types";
+import type { DashboardInterviewSummary } from "./report.types";
 import { getInterviewRepository } from "@/server/repositories";
 
 const MS_PER_MINUTE = 60_000;
@@ -181,6 +183,30 @@ export async function completeSession(roomId: string): Promise<void> {
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+/**
+ * Sessions for the recruiter dashboard, newest first, each with the report's
+ * integrity summary when a report exists. Expiry is applied for display only
+ * (no writes) so listing never mutates rooms. Supports the email filter and
+ * pagination from the dashboard UI.
+ */
+export async function listDashboardInterviews(
+  filter?: DashboardListFilter,
+): Promise<DashboardInterviewSummary[]> {
+  const repository = getInterviewRepository();
+  const rooms = await repository.list(filter);
+  const integrity = await repository.getReportIntegrity(rooms.map((room) => room.id));
+
+  return rooms.map((room) => ({
+    room: { ...room, status: displayStatus(room) },
+    integrity: integrity.get(room.id) ?? null,
+  }));
+}
+
+/** Expiry shown lazily for display; the stored row is not rewritten here. */
+function displayStatus(room: InterviewRoom): InterviewStatus {
+  return isExpired(room) ? "expired" : room.status;
 }
 
 async function generateUnusedRoomId(repository: InterviewRepository): Promise<string> {

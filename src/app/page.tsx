@@ -28,12 +28,20 @@ export default function Home() {
             Intervia
           </Link>
 
-          <Link
-            href="/recruiter"
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-surface"
-          >
-            Sign in
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/dashboard"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-surface"
+            >
+              Dashboard
+            </Link>
+            <Link
+              href="/recruiter"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-surface"
+            >
+              Sign in
+            </Link>
+          </div>
         </div>
       </header>
 
