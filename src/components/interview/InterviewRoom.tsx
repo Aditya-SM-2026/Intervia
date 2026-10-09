@@ -84,12 +84,17 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
   const currentReplyIdRef = useRef<number | null>(null);
   /** Last two agent utterances, for echo detection when the candidate barges in. */
   const agentReplyHistoryRef = useRef<string[]>([]);
+  /** Final transcript fragments staged during a thinking pause, not yet sent. */
+  const stagedTranscriptRef = useRef<string | null>(null);
+  /** Timer that publishes the staged transcript when the pause outlasts it. */
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cleanup when the page is closed or navigated away from.
   useEffect(() => {
     return () => {
       leftIntentionallyRef.current = true;
       recognitionRef.current?.stop();
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
       cancelSpeech();
       audioPlayerRef.current?.stop();
       audioPlayerRef.current = null;
@@ -339,36 +344,59 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
         return;
       }
 
+      // Endpointing: the recognizer emits a "final" after ~1s of silence, but
+      // candidates pause mid-thought. Fragments are staged and only published
+      // after TRANSCRIPT_HOLD_MS of no further speech; each new fragment
+      // extends the staged text, so a thought split across pauses is sent as
+      // one turn instead of several half-sentences to the LLM.
+      const publishStagedTranscript = () => {
+        holdTimerRef.current = null;
+        const staged = stagedTranscriptRef.current;
+        stagedTranscriptRef.current = null;
+        if (!staged) return;
+        setTranscript((entries) => [...entries, { role: "candidate", text: staged }]);
+        if (!agentPresentRef.current) return;
+        void room.localParticipant
+          .publishData(encodeDataMessage({ type: "candidate-transcript", text: staged }), {
+            reliable: true,
+            destinationIdentities: [AI_AGENT_IDENTITY],
+            topic: AGENT_DATA_TOPIC,
+          })
+          .catch(() => setVoiceNotice("Could not send your message. Please try again."));
+      };
+
       recognitionRef.current = createSpeechRecognition({
         onFinalTranscript: (text) => {
           setInterimTranscript(null);
-          // Barge-in (cascade): the candidate talked over the agent's voice.
-          // Stop the audio immediately, then send the speech as a normal
-          // transcript — the agent cancels its reply and answers this. The
-          // gate is deliberately strict: short backchannels ("yes", "okay")
-          // and the recognizer's pickup of the agent's own voice through the
-          // speakers must not cancel the agent mid-sentence.
+          stagedTranscriptRef.current = stagedTranscriptRef.current
+            ? `${stagedTranscriptRef.current} ${text}`
+            : text;
+          if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+          // Barge-in (cascade): the candidate talked over the agent's voice —
+          // stop the audio now; the answer still waits for the hold. The gate
+          // is deliberately strict: short backchannels ("yes", "okay") and the
+          // recognizer's pickup of the agent's voice must not cancel it.
+          const staged = stagedTranscriptRef.current;
           if (
             VOICE_PROVIDER === "cascade" &&
             (speakingRef.current || audioPlayerRef.current?.isPlaying) &&
-            isRealInterrupt(text, agentReplyHistoryRef.current)
+            isRealInterrupt(staged, agentReplyHistoryRef.current)
           ) {
             audioPlayerRef.current?.interrupt();
             assemblerRef.current?.reset();
             speakingRef.current = false;
             setAiState("processing");
           }
-          setTranscript((entries) => [...entries, { role: "candidate", text }]);
-          if (!agentPresentRef.current) return;
-          void room.localParticipant
-            .publishData(encodeDataMessage({ type: "candidate-transcript", text }), {
-              reliable: true,
-              destinationIdentities: [AI_AGENT_IDENTITY],
-              topic: AGENT_DATA_TOPIC,
-            })
-            .catch(() => setVoiceNotice("Could not send your message. Please try again."));
+          holdTimerRef.current = setTimeout(publishStagedTranscript, TRANSCRIPT_HOLD_MS);
         },
-        onInterimTranscript: (text) => setInterimTranscript(text || null),
+        onInterimTranscript: (text) => {
+          setInterimTranscript(text || null);
+          // Speech resumed while a fragment is staged — keep holding.
+          if (stagedTranscriptRef.current && holdTimerRef.current) {
+            clearTimeout(holdTimerRef.current);
+            holdTimerRef.current = setTimeout(publishStagedTranscript, TRANSCRIPT_HOLD_MS);
+          }
+        },
         onError: (message) => setVoiceNotice(message),
       });
       startListeningIfReady();
@@ -579,6 +607,9 @@ const BACKCHANNEL_WORDS = new Set([
   "thanks", "thank", "hello", "hi", "hey", "please", "continue", "go", "on",
   "so", "well", "like", "actually", "basically", "understood", "got",
 ]);
+
+/** How long a final transcript waits for more speech before it is sent. */
+const TRANSCRIPT_HOLD_MS = 3000;
 
 function tokensOf(value: string): Set<string> {
   return new Set(
