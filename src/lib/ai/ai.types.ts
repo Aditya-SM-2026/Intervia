@@ -6,7 +6,7 @@ export interface AiMessage {
   content: string;
 }
 
-export type LlmProviderName = "ominibot" | "mock";
+export type LlmProviderName = "ominibot" | "gemini" | "mock";
 
 /** Normalized reply returned by every LLM provider implementation. */
 export interface ProviderResponse {

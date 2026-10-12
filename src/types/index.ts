@@ -25,6 +25,8 @@ export type {
   DashboardInterviewsResponse,
   InterviewReport,
   InterviewReportResponse,
+  InterviewScoreEntry,
+  InterviewScores,
   IntegrityLevel,
   IntegritySignal,
   JdCoverageEntry,

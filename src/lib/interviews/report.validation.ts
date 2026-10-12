@@ -50,12 +50,30 @@ export const reportIntegritySchema = z.object({
   signals: z.array(integritySignalSchema),
 });
 
+export const interviewScoreEntrySchema = z.object({
+  score: z.number().int().min(0).max(100),
+  rationale: z.string().min(1),
+  evidenceTurnSeq: z.array(z.number().int()),
+});
+
+/** Five evaluation scores; proctoring stays null until a recording exists. */
+export const interviewScoresSchema = z.object({
+  overall: interviewScoreEntrySchema,
+  jdMatch: interviewScoreEntrySchema,
+  aiRisk: interviewScoreEntrySchema,
+  communication: interviewScoreEntrySchema,
+  proctoring: interviewScoreEntrySchema.nullable(),
+});
+
 /** Full stored report, validated defensively on every read from storage. */
 export const interviewReportSchema = z.object({
   roomId: z.string().min(1),
   generatedAt: z.string().min(1),
   analysis: reportAnalysisSchema,
   integrity: reportIntegritySchema,
+  // nullish (not just nullable) so reports generated before scoring existed
+  // still parse; the type layer presents them as `scores: null`.
+  scores: interviewScoresSchema.nullish(),
   engineMeta: z.object({
     model: z.string().min(1),
     generatedAt: z.string().min(1),
@@ -111,6 +129,39 @@ export const llmReportOutputSchema = z.object({
 
 export type LlmReportOutput = z.infer<typeof llmReportOutputSchema>;
 
+/**
+ * The evaluation-scores pass output. Scores arrive as numbers (tolerating
+ * string forms) and are clamped in the service; proctoring must be null —
+ * the scorer never invents a video assessment.
+ */
+export const llmScoresOutputSchema = z.object({
+  scores: z.object({
+    overall: z.object({
+      score: llmNumber,
+      rationale: z.string().min(1),
+      evidenceTurnSeq: llmSeqArray,
+    }),
+    jdMatch: z.object({
+      score: llmNumber,
+      rationale: z.string().min(1),
+      evidenceTurnSeq: llmSeqArray,
+    }),
+    aiRisk: z.object({
+      score: llmNumber,
+      rationale: z.string().min(1),
+      evidenceTurnSeq: llmSeqArray,
+    }),
+    communication: z.object({
+      score: llmNumber,
+      rationale: z.string().min(1),
+      evidenceTurnSeq: llmSeqArray,
+    }),
+    proctoring: z.literal(null),
+  }),
+});
+
+export type LlmScoresOutput = z.infer<typeof llmScoresOutputSchema>;
+
 /** Maps a 0-100 probability onto its integrity level. */
 export function deriveIntegrityLevel(probability: number): IntegrityLevel {
   if (probability >= 70) return "high";
@@ -127,5 +178,7 @@ export function parseStoredTurns(value: unknown): TranscriptTurn[] | null {
 /** Validates a stored report, returning null when it does not match the schema. */
 export function parseStoredReport(value: unknown): InterviewReport | null {
   const parsed = interviewReportSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) return null;
+  // Pre-scores reports lack the key entirely; normalize to the domain type.
+  return { ...parsed.data, scores: parsed.data.scores ?? null };
 }

@@ -1,5 +1,6 @@
 import "server-only";
 import { createLlmProvider } from "@/lib/ai/llm-provider";
+import { createGeminiProvider } from "@/lib/ai/gemini-provider";
 import { LlmError } from "@/lib/ai/llm-error";
 import type { AiMessage } from "@/lib/ai/ai.types";
 import { getLlmConfig } from "@/lib/config/env";
@@ -9,10 +10,13 @@ import { getInterviewRepository } from "@/server/repositories";
 import {
   deriveIntegrityLevel,
   llmReportOutputSchema,
+  llmScoresOutputSchema,
 } from "./report.validation";
 import type {
   InterviewReport,
   InterviewReportResponse,
+  InterviewScoreEntry,
+  InterviewScores,
   JdCoverageEntry,
   IntegritySignal,
   ReportIntegrity,
@@ -47,6 +51,58 @@ const MIN_CANDIDATE_TURNS = 5;
  * instead of the chat default (OMINIBOT_TIMEOUT_MS).
  */
 const REPORT_LLM_TIMEOUT_MS = 180_000;
+
+/**
+ * The evaluation-scores pass runs on the Phase 0-benchmarked Gemini flash-lite
+ * model (~2s median, $0.001/interview) right after the analysis pass. Scorer
+ * failure never fails the report — scores simply stay null and the dashboard
+ * shows "pending".
+ */
+const SCORES_TIMEOUT_MS = 60_000;
+
+export const SCORES_SYSTEM_PROMPT = [
+  "You are a senior technical interviewer and interview-integrity analyst. You evaluate recorded interview transcripts and produce calibrated 0-100 scores.",
+  "",
+  "INPUTS YOU RECEIVE",
+  '- Job description (the role\'s requirements). May be absent: judge without it and say so in the jdMatch rationale.',
+  "- Candidate resume (may be absent or unreadable).",
+  '- Difficulty: "easy", "medium", "hard", or "extra-hard" — how demanding the interview was calibrated to be.',
+  "- Transcript: turns as JSON [{seq, speaker (\"interviewer\"|\"candidate\"), text, latencyMs}]. latencyMs = milliseconds between the interviewer finishing a question and the candidate's answer arriving; null on interviewer turns. Judge latency ONLY as an AI-assistance hint, never as a communication penalty by itself.",
+  "",
+  "SCORES (integers 0-100)",
+  "",
+  "jdMatch — how well the candidate's demonstrated skills cover THIS job description's core requirements.",
+  "  0-30 answers mostly off-target for the role; 40-70 partial coverage (some core requirements demonstrated, others avoided or admitted missing); 80-100 core requirements demonstrated with concrete specifics.",
+  "",
+  "aiRisk — likelihood the candidate's answers were AI-generated or heavily AI-assisted.",
+  "  Weight these signals: answers to complex questions arriving implausibly fast (latency under ~2 seconds) while long and fully polished; identical sentence templates across unrelated questions; resume-parrot recall that recites personal history verbatim; contradicting themselves when a topic is revisited reworded; deflecting when asked to go deeper; suspiciously uniform perfection across unrelated topics; overuse of interview-coach filler (\"Great question!\", \"Certainly!\").",
+  "  Counter-evidence (lower the score): hesitations, uneven quality between answers, real specifics only the candidate would know, self-corrections, thinking time proportional to question difficulty, admissions of not knowing.",
+  "  0-25 clear human patterns; 40-70 several suspicious patterns; 80-100 overwhelming evidence. Do not give a high aiRisk without at least two independent signals.",
+  "",
+  "communication — clarity, structure, specificity, listening, concision.",
+  "  Penalize: rambling without a point, one-word answers to open questions (score 20 or below), ignoring the actual question, drifting off-topic mid-answer. Do NOT penalize: filler words or informal tone by themselves if the reasoning is clear, non-native grammar, brevity that still answers the question.",
+  "  0-30 answers are vague, evasive, or fail to engage the question; 40-70 understandable but disorganized or shallow; 80-100 clear, structured, specific, well-paced.",
+  "",
+  "overall — your single headline judgment of interview performance.",
+  "  Base it on: technical depth demonstrated (40%), jdMatch (25%), communication (20%), consistency/honesty (15%).",
+  "  Then apply: (a) difficulty normalization — identical answers on a harder difficulty earn 10-25 fewer overall points than on an easier one, because the bar differs; (b) integrity cap — if aiRisk >= 60, overall must not exceed 55; if aiRisk >= 85, overall must not exceed 35. State in the rationale which adjustments you applied.",
+  "",
+  "proctoring — ALWAYS null in this evaluation: no video data is provided. Never invent a proctoring score.",
+  "",
+  "GROUNDING RULES (anti-fabrication)",
+  "- Every evidenceTurnSeq entry must be a real seq from the transcript.",
+  "- 1-6 seqs per score, pointing at the strongest supporting turns.",
+  "- Judge ONLY what is in the transcript + resume + JD. No assumptions about things not said.",
+  "- If the transcript is too thin to judge a dimension, still give your best calibrated score but say so in the rationale (one clause).",
+  "",
+  "OUTPUT — JSON only, no markdown fences, no commentary:",
+  '{"scores":{',
+  '  "overall":{"score":<int 0-100>,"rationale":"<=60 words","evidenceTurnSeq":[...]},',
+  '  "jdMatch":{"score":<int 0-100>,"rationale":"<=60 words","evidenceTurnSeq":[...]},',
+  '  "aiRisk":{"score":<int 0-100>,"rationale":"<=60 words","evidenceTurnSeq":[...]},',
+  '  "communication":{"score":<int 0-100>,"rationale":"<=60 words","evidenceTurnSeq":[...]},',
+  '  "proctoring":null}}',
+];
 
 export const ANALYSIS_SYSTEM_PROMPT = [
   "You are an interview analysis engine for a hiring platform.",
@@ -192,6 +248,99 @@ function buildNotes(room: InterviewRoom): string[] {
   return notes;
 }
 
+/** Prompt inputs for the scores pass: same facts as the analysis pass. */
+function buildScoresMessages(room: InterviewRoom, turns: TranscriptTurn[]): AiMessage[] {
+  const jd = room.jobDescription?.text?.trim();
+  const resume = room.resume?.unreadable ? null : room.resume?.text?.trim();
+
+  const transcript = turns.map((turn) =>
+    turn.speaker === "interviewer"
+      ? { seq: turn.seq, speaker: turn.speaker, text: turn.text }
+      : {
+          seq: turn.seq,
+          speaker: turn.speaker,
+          text: turn.text,
+          latencyMs: turn.latencyMs,
+        },
+  );
+
+  return [
+    { role: "system", content: SCORES_SYSTEM_PROMPT.join(" ") },
+    {
+      role: "user",
+      content: [
+        jd ? `Job description:\n${jd}` : "Job description: (not provided — judge jdMatch without it and say so in the rationale)",
+        resume ? `Resume:\n${resume}` : "Resume: (not available — judge without resume context)",
+        `Difficulty: ${room.difficulty}`,
+        `Interview transcript (JSON):\n${JSON.stringify(transcript)}`,
+        "Produce the JSON scores object now.",
+      ].join("\n\n"),
+    },
+  ];
+}
+
+/** Clamps a score into 0-100 and drops evidence seqs that do not exist. */
+function scoreEntry(
+  raw: { score: number; rationale: string; evidenceTurnSeq: number[] },
+  validSeqs: ReadonlySet<number>,
+  roomId: string,
+): InterviewScoreEntry {
+  const evidenceTurnSeq = raw.evidenceTurnSeq.filter((seq) => validSeqs.has(seq));
+  if (evidenceTurnSeq.length < raw.evidenceTurnSeq.length) {
+    console.warn(
+      `[scores] dropped ${raw.evidenceTurnSeq.length - evidenceTurnSeq.length} ungrounded evidence seq(s) for interview ${roomId}`,
+    );
+  }
+  return {
+    score: Math.min(100, Math.max(0, Math.round(raw.score))),
+    rationale: raw.rationale,
+    evidenceTurnSeq,
+  };
+}
+
+/**
+ * The five evaluation scores (proctoring always null until a recording
+ * exists). Any failure — API error, malformed JSON, schema mismatch — returns
+ * null so the report itself still saves.
+ */
+async function generateScores(room: InterviewRoom, turns: TranscriptTurn[]): Promise<InterviewScores | null> {
+  const provider = createGeminiProvider({ timeoutMs: SCORES_TIMEOUT_MS });
+  try {
+    const reply = await provider.generateReply(buildScoresMessages(room, turns));
+
+    let parsedJson: unknown;
+    try {
+      parsedJson = extractJsonObject(reply.text);
+    } catch (error) {
+      throw new LlmError(error instanceof Error ? error.message : "The scores did not return JSON.");
+    }
+
+    const parsed = llmScoresOutputSchema.safeParse(parsedJson);
+    if (!parsed.success) {
+      console.error(
+        `[scores] output failed validation for interview ${room.id}: ${parsed.error.issues
+          .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+          .join("; ")
+          .slice(0, 400)}`,
+      );
+      return null;
+    }
+
+    const validSeqs = new Set(turns.map((turn) => turn.seq));
+    const raw = parsed.data.scores;
+    return {
+      overall: scoreEntry(raw.overall, validSeqs, room.id),
+      jdMatch: scoreEntry(raw.jdMatch, validSeqs, room.id),
+      aiRisk: scoreEntry(raw.aiRisk, validSeqs, room.id),
+      communication: scoreEntry(raw.communication, validSeqs, room.id),
+      proctoring: null,
+    };
+  } catch (error) {
+    console.error(`[scores] scoring failed for interview ${room.id}: ${describeGenerationError(error)}`);
+    return null;
+  }
+}
+
 async function generateReport(room: InterviewRoom, turns: TranscriptTurn[]): Promise<InterviewReport> {
   const provider = createLlmProvider({ timeoutMs: REPORT_LLM_TIMEOUT_MS });
   const reply = await provider.generateReply(buildAnalysisMessages(room, turns));
@@ -217,8 +366,8 @@ async function generateReport(room: InterviewRoom, turns: TranscriptTurn[]): Pro
   const notes = buildNotes(room);
   const hasJd = Boolean(room.jobDescription?.text);
 
-  const integrity = buildIntegrity(parsed.data.integrity.probability, parsed.data.integrity.signals, turns);
-  const droppedSignals = parsed.data.integrity.signals.length - integrity.signals.length;
+  const analysisIntegrity = buildIntegrity(parsed.data.integrity.probability, parsed.data.integrity.signals, turns);
+  const droppedSignals = parsed.data.integrity.signals.length - analysisIntegrity.signals.length;
   if (droppedSignals > 0) {
     console.warn(
       `[report] dropped ${droppedSignals} signal(s) for interview ${room.id}: evidence seqs not grounded in the transcript`,
@@ -235,6 +384,19 @@ async function generateReport(room: InterviewRoom, turns: TranscriptTurn[]): Pro
     );
   }
 
+  const scores = await generateScores(room, turns);
+  // When the benchmarked scorer ran, its aiRisk score is the single source of
+  // truth for the integrity probability — one number, one story for the
+  // recruiter; the analysis signals remain the evidence detail. On scorer
+  // failure the analysis probability stands and scores stay null.
+  const integrity: ReportIntegrity = scores
+    ? {
+        probability: scores.aiRisk.score,
+        level: deriveIntegrityLevel(scores.aiRisk.score),
+        signals: analysisIntegrity.signals,
+      }
+    : analysisIntegrity;
+
   return {
     roomId: room.id,
     generatedAt: new Date().toISOString(),
@@ -245,6 +407,7 @@ async function generateReport(room: InterviewRoom, turns: TranscriptTurn[]): Pro
       jdCoverage,
     },
     integrity,
+    scores,
     engineMeta: {
       model: getLlmConfig().model,
       generatedAt: new Date().toISOString(),

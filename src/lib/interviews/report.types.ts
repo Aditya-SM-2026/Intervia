@@ -83,6 +83,37 @@ export interface ReportIntegrity {
   signals: IntegritySignal[];
 }
 
+/**
+ * One evaluation score: 0-100 with a short rationale and the transcript turns
+ * that ground it. Score bands are a presentation concern (the dashboard
+ * colors them); the stored value is always the raw integer.
+ */
+export interface InterviewScoreEntry {
+  /** 0-100. */
+  score: number;
+  /** Short recruiter-facing justification (<= 60 words). */
+  rationale: string;
+  /** Turn seqs supporting the score — never invented. */
+  evidenceTurnSeq: number[];
+}
+
+/**
+ * The five recruiter-facing evaluation metrics. `proctoring` is null until a
+ * video recording exists for the session — an honest "not available", never
+ * an invented number.
+ */
+export interface InterviewScores {
+  /** Headline judgment: composite of the others, difficulty-normalized. */
+  overall: InterviewScoreEntry;
+  /** How well demonstrated skills cover the job description. */
+  jdMatch: InterviewScoreEntry;
+  /** AI-assistance risk — mirrors integrity.probability. */
+  aiRisk: InterviewScoreEntry;
+  /** Clarity, structure, specificity of the candidate's answers. */
+  communication: InterviewScoreEntry;
+  proctoring: InterviewScoreEntry | null;
+}
+
 /** Which analysis engine produced a report. */
 export interface ReportEngineMeta {
   model: string;
@@ -96,6 +127,12 @@ export interface InterviewReport {
   generatedAt: string;
   analysis: ReportAnalysis;
   integrity: ReportIntegrity;
+  /**
+   * The five evaluation scores. Null on reports generated before scoring
+   * existed, or when the scorer was unavailable — the dashboard then shows
+   * "scores pending" rather than a fabricated value.
+   */
+  scores: InterviewScores | null;
   engineMeta: ReportEngineMeta;
   /**
    * Data-quality notes surfaced to the recruiter: missing consent,
