@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import type {
   CreateInterviewInput,
+  DashboardAnalytics,
   DashboardListFilter,
   InterviewApiError,
   InterviewRepository,
@@ -196,11 +197,16 @@ export async function listDashboardInterviews(
 ): Promise<DashboardInterviewSummary[]> {
   const repository = getInterviewRepository();
   const rooms = await repository.list(filter);
-  const integrity = await repository.getReportIntegrity(rooms.map((room) => room.id));
+  const roomIds = rooms.map((room) => room.id);
+  const [integrity, turnCounts] = await Promise.all([
+    repository.getReportIntegrity(roomIds),
+    repository.getCandidateTurnCounts(roomIds),
+  ]);
 
   return rooms.map((room) => ({
     room: { ...room, status: displayStatus(room) },
     integrity: integrity.get(room.id) ?? null,
+    candidateTurns: turnCounts.get(room.id) ?? 0,
   }));
 }
 
@@ -212,6 +218,58 @@ export async function listDashboardInterviews(
 export async function deleteInterviewSession(roomId: string): Promise<boolean> {
   const repository = getInterviewRepository();
   return repository.deleteInterview(roomId);
+}
+
+export interface BulkDeleteResult {
+  /** Room ids that were deleted. */
+  deleted: string[];
+  /** Per-id failures with a recruiter-facing reason. */
+  failed: { roomId: string; error: string }[];
+}
+
+/**
+ * Bulk delete for the dashboard's multi-select. Each id is deleted through
+ * the same transactional single-delete path, so one failure never blocks the
+ * others and the caller can report exactly which rooms survived.
+ */
+export async function deleteInterviewSessions(roomIds: readonly string[]): Promise<BulkDeleteResult> {
+  const repository = getInterviewRepository();
+  const deleted: string[] = [];
+  const failed: { roomId: string; error: string }[] = [];
+
+  for (const roomId of roomIds) {
+    try {
+      if (await repository.deleteInterview(roomId)) {
+        deleted.push(roomId);
+      } else {
+        failed.push({ roomId, error: "Interview not found (it may already have been deleted)." });
+      }
+    } catch (cause) {
+      failed.push({
+        roomId,
+        error: cause instanceof Error ? cause.message.slice(0, 200) : "Deletion failed.",
+      });
+    }
+  }
+  return { deleted, failed };
+}
+
+/**
+ * Total rooms matching the same filter — the pagination denominator for the
+ * dashboard list.
+ */
+export async function countDashboardInterviews(filter?: DashboardListFilter): Promise<number> {
+  const repository = getInterviewRepository();
+  return repository.count(filter);
+}
+
+/**
+ * Real-data analytics for the dashboard cards, bell and sparklines. Computed
+ * in the repository so the semantics live next to the storage they query.
+ */
+export async function getDashboardAnalytics(): Promise<DashboardAnalytics> {
+  const repository = getInterviewRepository();
+  return repository.getDashboardAnalytics();
 }
 
 /** Expiry shown lazily for display; the stored row is not rewritten here. */

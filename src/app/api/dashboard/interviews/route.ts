@@ -1,25 +1,46 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { listDashboardInterviews } from "@/lib/interviews/interview.service";
+import {
+  countDashboardInterviews,
+  listDashboardInterviews,
+} from "@/lib/interviews/interview.service";
 import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
 import type { DashboardInterviewsResponse } from "@/lib/interviews/report.types";
+import type { InterviewStatus, ReportState } from "@/lib/interviews/interview.types";
 
 /**
- * Recruiter dashboard list. Access follows the existing pattern of this code
- * base (room access validation, no recruiter accounts yet), so this endpoint
- * is as protected as every other recruiter route today.
+ * Recruiter dashboard list — server-side filtering, sorting and pagination.
+ * Access follows the existing pattern of this code base (room access
+ * validation, no recruiter accounts yet), so this endpoint is as protected as
+ * every other recruiter route today.
  *
- * Query params: `email` (case-insensitive substring filter on the candidate
- * email), `limit`, `offset` (simple slicing; pagination kept trivial by design).
+ * Query params: `q` (substring across candidate, role, recruiter, title),
+ * `status`, `report` (ready|processing|not-started), `range` (7|30|90|all
+ * days back from now), `sort` (asc|desc on creation date), `page`, `pageSize`.
  */
 export async function GET(request: NextRequest) {
-  const email = request.nextUrl.searchParams.get("email") ?? undefined;
-  const limit = parsePositiveInt(request.nextUrl.searchParams.get("limit"));
-  const offset = parsePositiveInt(request.nextUrl.searchParams.get("offset"));
+  const params = request.nextUrl.searchParams;
+  const page = parsePositiveInt(params.get("page")) ?? 1;
+  const pageSize = Math.min(parsePositiveInt(params.get("pageSize")) ?? 8, 50);
 
   try {
-    const interviews = await listDashboardInterviews({ email, limit, offset });
-    const body: DashboardInterviewsResponse = { interviews };
+    const filter = {
+      search: params.get("q") ?? undefined,
+      status: parseEnum<InterviewStatus>(params.get("status"), [
+        "scheduled", "waiting", "active", "completed", "expired", "cancelled",
+      ]),
+      reportState: parseEnum<ReportState>(params.get("report"), ["ready", "processing", "not-started"]),
+      from: parseFrom(params.get("range")),
+      sortDir: params.get("sort") === "asc" ? ("asc" as const) : ("desc" as const),
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+    };
+
+    const [interviews, total] = await Promise.all([
+      listDashboardInterviews(filter),
+      countDashboardInterviews(filter),
+    ]);
+    const body: DashboardInterviewsResponse = { interviews, total, page, pageSize };
     return NextResponse.json(body);
   } catch (error) {
     console.error(`[dashboard] list failed: ${describeError(error)}`);
@@ -28,6 +49,17 @@ export async function GET(request: NextRequest) {
       "Could not load the interview list. Please try again.",
     );
   }
+}
+
+function parseFrom(range: string | null): string | undefined {
+  if (range === null || range === "all" || range.trim() === "") return undefined;
+  const days = Number.parseInt(range, 10);
+  if (!Number.isFinite(days) || days <= 0) return undefined;
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function parseEnum<T extends string>(value: string | null, allowed: readonly T[]): T | undefined {
+  return value !== null && (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
 }
 
 function parsePositiveInt(value: string | null): number | undefined {

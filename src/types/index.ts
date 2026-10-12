@@ -8,6 +8,8 @@ export type {
 export type {
   ConsentRecord,
   CreateInterviewInput,
+  DashboardAnalytics,
+  DashboardAwaitingItem,
   DashboardListFilter,
   InterviewApiError,
   InterviewRepository,
@@ -18,6 +20,7 @@ export type {
   JobDescription,
   Participant,
   ParticipantRole,
+  ReportState,
   ResumeInfo,
 } from "@/lib/interviews/interview.types";
 export type {

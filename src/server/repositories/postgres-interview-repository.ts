@@ -1,6 +1,7 @@
 import "server-only";
 import { Pool } from "pg";
 import type {
+  DashboardAnalytics,
   DashboardListFilter,
   DifficultyLevel,
   InterviewRepository,
@@ -107,6 +108,74 @@ async function ensureSchema(): Promise<void> {
       });
   }
   await globalRefs.__interviewPgBootstrap;
+}
+
+/**
+ * Sessions whose analysis can meaningfully be awaited: the conversation
+ * finished (completed) or the join window passed without enough content.
+ * Shared by the analytics and awaiting-list queries so both define
+ * "awaiting analysis" identically.
+ */
+const AWAITING_SQL = `(i.status = 'completed' OR (i.expires_at IS NOT NULL AND i.expires_at < now() AND i.status IN ('scheduled','waiting','active')))`;
+
+/** Display-status semantics: expired is derived, never stored. */
+function buildListWhere(filter?: DashboardListFilter): { where: string | null; params: unknown[] } {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (filter?.email) {
+    params.push(`%${filter.email.trim()}%`);
+    conditions.push(`candidate_email ILIKE $${params.length}`);
+  }
+  if (filter?.search && filter.search.trim() !== "") {
+    params.push(`%${filter.search.trim()}%`);
+    const n = params.length;
+    conditions.push(
+      `(candidate_name ILIKE $${n} OR candidate_email ILIKE $${n} OR role_title ILIKE $${n} OR recruiter_name ILIKE $${n} OR title ILIKE $${n})`,
+    );
+  }
+  if (filter?.status) {
+    if (filter.status === "expired") {
+      conditions.push(`(expires_at IS NOT NULL AND expires_at < now() AND status IN ('scheduled','waiting','active'))`);
+    } else if (filter.status === "scheduled" || filter.status === "waiting" || filter.status === "active") {
+      params.push(filter.status);
+      conditions.push(`status = $${params.length} AND (expires_at IS NULL OR expires_at >= now())`);
+    } else {
+      params.push(filter.status);
+      conditions.push(`status = $${params.length}`);
+    }
+  }
+  if (filter?.reportState === "ready") {
+    conditions.push("EXISTS (SELECT 1 FROM reports r WHERE r.room_id = interviews.id)");
+  } else if (filter?.reportState === "processing") {
+    // Actively underway, or completed with enough answers to analyze (same
+    // threshold as report.service MIN_CANDIDATE_TURNS) but not generated yet.
+    conditions.push(
+      "NOT EXISTS (SELECT 1 FROM reports r WHERE r.room_id = interviews.id) AND (status = 'active' OR (status = 'completed' AND (SELECT COUNT(*) FROM interview_turns t WHERE t.room_id = interviews.id AND t.speaker = 'candidate') >= 5))",
+    );
+  } else if (filter?.reportState === "not-started") {
+    conditions.push(
+      "NOT EXISTS (SELECT 1 FROM reports r WHERE r.room_id = interviews.id) AND NOT (status = 'active' OR (status = 'completed' AND (SELECT COUNT(*) FROM interview_turns t WHERE t.room_id = interviews.id AND t.speaker = 'candidate') >= 5))",
+    );
+  }
+  if (filter?.from) {
+    params.push(filter.from);
+    conditions.push(`created_at >= $${params.length}`);
+  }
+  if (filter?.to) {
+    params.push(filter.to);
+    conditions.push(`created_at < $${params.length}`);
+  }
+
+  return { where: conditions.length > 0 ? conditions.join(" AND ") : null, params };
+}
+
+function sortDir(filter?: DashboardListFilter): string {
+  return filter?.sortDir === "asc" ? "ASC" : "DESC";
+}
+
+function positiveOrUndefined(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
 }
 
 interface InterviewRow {
@@ -231,31 +300,137 @@ export function getPostgresInterviewRepository(): InterviewRepository {
 
     async list(filter?: DashboardListFilter): Promise<InterviewRoom[]> {
       await ensureSchema();
-
-      const conditions: string[] = [];
-      const params: unknown[] = [];
-      if (filter?.email) {
-        params.push(`%${filter.email.trim()}%`);
-        conditions.push(`candidate_email ILIKE $${params.length}`);
-      }
-
+      const { where, params } = buildListWhere(filter);
       let sql = `SELECT id, title, candidate_name, status, created_at, expires_at,
           recruiter_name, candidate_email, role_title, jd_source, jd_text,
           resume_file_name, resume_text, resume_unreadable, consent_given_at, completed_at
         FROM interviews`;
-      if (conditions.length > 0) sql += ` WHERE ${conditions.join(" AND ")}`;
-      sql += " ORDER BY created_at DESC";
-      if (filter?.limit && Number.isFinite(filter.limit) && filter.limit > 0) {
-        params.push(Math.floor(filter.limit));
+      if (where) sql += ` WHERE ${where}`;
+      sql += ` ORDER BY created_at ${sortDir(filter)}`;
+      const limit = positiveOrUndefined(filter?.limit);
+      if (limit !== undefined) {
+        params.push(limit);
         sql += ` LIMIT $${params.length}`;
-        if (filter.offset && Number.isFinite(filter.offset) && filter.offset > 0) {
-          params.push(Math.floor(filter.offset));
+        const offset = positiveOrUndefined(filter?.offset);
+        if (offset !== undefined) {
+          params.push(offset);
           sql += ` OFFSET $${params.length}`;
         }
       }
-
       const result = await getPool().query<InterviewRow>(sql, params);
       return result.rows.map(rowToRoom);
+    },
+
+    async count(filter?: DashboardListFilter): Promise<number> {
+      await ensureSchema();
+      const { where, params } = buildListWhere(filter);
+      const sql = `SELECT COUNT(*)::int AS total FROM interviews${where ? ` WHERE ${where}` : ""}`;
+      const result = await getPool().query<{ total: number }>(sql, params);
+      return result.rows[0]?.total ?? 0;
+    },
+
+    async getCandidateTurnCounts(roomIds: readonly string[]): Promise<Map<string, number>> {
+      if (roomIds.length === 0) return new Map();
+      await ensureSchema();
+      const result = await getPool().query<{ room_id: string; n: number }>(
+        `SELECT room_id, COUNT(*)::int AS n FROM interview_turns
+         WHERE room_id = ANY($1::text[]) AND speaker = 'candidate'
+         GROUP BY room_id`,
+        [[...roomIds]],
+      );
+      return new Map(result.rows.map((row) => [row.room_id, row.n]));
+    },
+
+    async getDashboardAnalytics(): Promise<DashboardAnalytics> {
+      await ensureSchema();
+      // One pass over interviews LEFT JOIN reports: every card, trend window
+      // and the awaiting-analysis definition come from real rows. Trends and
+      // rates are turned into percentages only where the denominator is a
+      // real previous-period count; the UI never invents a delta.
+      const cards = await getPool().query<{
+        total: number;
+        ready: number;
+        awaiting: number;
+        total_curr: number;
+        total_prev: number;
+        ready_curr: number;
+        ready_prev: number;
+        awaiting_curr: number;
+        awaiting_prev: number;
+      }>(
+        `SELECT
+          COUNT(*)::int AS total,
+          COUNT(r.room_id)::int AS ready,
+          (COUNT(*) FILTER (WHERE r.room_id IS NULL AND ${AWAITING_SQL}))::int AS awaiting,
+          (COUNT(*) FILTER (WHERE i.created_at >= now() - interval '30 days'))::int AS total_curr,
+          (COUNT(*) FILTER (WHERE i.created_at >= now() - interval '60 days' AND i.created_at < now() - interval '30 days'))::int AS total_prev,
+          (COUNT(*) FILTER (WHERE r.room_id IS NOT NULL AND i.created_at >= now() - interval '30 days'))::int AS ready_curr,
+          (COUNT(*) FILTER (WHERE r.room_id IS NOT NULL AND i.created_at >= now() - interval '60 days' AND i.created_at < now() - interval '30 days'))::int AS ready_prev,
+          (COUNT(*) FILTER (WHERE r.room_id IS NULL AND ${AWAITING_SQL} AND i.created_at >= now() - interval '30 days'))::int AS awaiting_curr,
+          (COUNT(*) FILTER (WHERE r.room_id IS NULL AND ${AWAITING_SQL} AND i.created_at >= now() - interval '60 days' AND i.created_at < now() - interval '30 days'))::int AS awaiting_prev
+        FROM interviews i
+        LEFT JOIN reports r ON r.room_id = i.id`,
+      );
+
+      const series = await getPool().query<{ day: Date; interviews: number; reports: number }>(
+        `SELECT d::date AS day,
+          COUNT(i.id)::int AS interviews,
+          (SELECT COUNT(*)::int FROM reports r JOIN interviews i2 ON i2.id = r.room_id
+            WHERE r.generated_at::date = d::date) AS reports
+        FROM generate_series(now()::date - interval '13 days', now()::date, interval '1 day') d
+        LEFT JOIN interviews i ON i.created_at::date = d::date
+        GROUP BY d ORDER BY d`,
+      );
+
+      const awaitingRecent = await getPool().query<{
+        id: string;
+        candidate_name: string | null;
+        role_title: string | null;
+        at: Date;
+      }>(
+        `SELECT i.id, i.candidate_name, i.role_title,
+          COALESCE(i.completed_at, i.created_at) AS at
+        FROM interviews i
+        WHERE NOT EXISTS (SELECT 1 FROM reports r WHERE r.room_id = i.id)
+          AND ${AWAITING_SQL}
+        ORDER BY at DESC
+        LIMIT 8`,
+      );
+
+      const c = cards.rows[0];
+      const row = c ?? {
+        total: 0, ready: 0, awaiting: 0,
+        total_curr: 0, total_prev: 0, ready_curr: 0, ready_prev: 0,
+        awaiting_curr: 0, awaiting_prev: 0,
+      };
+      const rate = (ready: number, total: number) => (total > 0 ? Math.round((ready / total) * 100) : 0);
+      const pctChange = (curr: number, prev: number) => (prev > 0 ? Math.round(((curr - prev) / prev) * 100) : null);
+      return {
+        total: row.total,
+        reportsReady: row.ready,
+        awaitingAnalysis: row.awaiting,
+        completionRate: rate(row.ready, row.total),
+        trends: {
+          total: pctChange(row.total_curr, row.total_prev),
+          reportsReady: pctChange(row.ready_curr, row.ready_prev),
+          awaitingAnalysis: pctChange(row.awaiting_curr, row.awaiting_prev),
+          completionRate:
+            row.total_prev > 0
+              ? rate(row.ready_curr, row.total_curr) - rate(row.ready_prev, row.total_prev)
+              : null,
+        },
+        series: series.rows.map((r) => ({
+          date: r.day.toISOString().slice(0, 10),
+          interviews: r.interviews,
+          reports: r.reports,
+        })),
+        awaitingRecent: awaitingRecent.rows.map((r) => ({
+          roomId: r.id,
+          candidateName: r.candidate_name,
+          roleTitle: r.role_title,
+          at: r.at.toISOString(),
+        })),
+      };
     },
 
     async claimForAgent(roomId: string, workerId: string, ttlSeconds: number): Promise<boolean> {

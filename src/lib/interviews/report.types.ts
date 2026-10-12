@@ -151,11 +151,17 @@ export interface ReportIntegritySummary {
 export interface DashboardInterviewSummary {
   room: InterviewRoom;
   integrity: ReportIntegritySummary | null;
+  /** Candidate answer turns recorded by the pipeline — grounds the report-state reasons. */
+  candidateTurns: number;
 }
 
-/** Shape of GET /api/dashboard/interviews. */
+/** Shape of GET /api/dashboard/interviews — one server-paginated page. */
 export interface DashboardInterviewsResponse {
   interviews: DashboardInterviewSummary[];
+  /** Total count across all pages for the current filter. */
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 /** Shape of GET /api/dashboard/interviews/[roomId]/report. */

@@ -110,12 +110,64 @@ export interface InterviewTurnInput {
   latencyMs: number | null;
 }
 
-/** Optional filters/slicing for the recruiter dashboard list. */
+/** Which report column state a dashboard row is in. */
+export type ReportState = "ready" | "processing" | "not-started";
+
+/**
+ * Filters/sorting/pagination for the recruiter dashboard list. `email` is the
+ * legacy single-field filter, kept for compatibility; `search` matches
+ * candidate name/email, role title, recruiter name and session title.
+ * Status filtering follows the lazily-displayed expiry semantics (a finished
+ * scheduled/waiting/active session shows as "expired").
+ */
 export interface DashboardListFilter {
-  /** Case-insensitive substring match on candidate email. */
+  /** Case-insensitive substring match on candidate email (legacy). */
   email?: string;
+  /** Case-insensitive substring across candidate, role, recruiter, title. */
+  search?: string;
+  /** Session status filter (display semantics, incl. "expired"). */
+  status?: InterviewStatus;
+  /** Report column state filter. */
+  reportState?: ReportState;
+  /** Only sessions created at or after this ISO timestamp. */
+  from?: string;
+  /** Only sessions created before this ISO timestamp. */
+  to?: string;
+  /** Sort direction on created_at (default: desc). */
+  sortDir?: "asc" | "desc";
   limit?: number;
   offset?: number;
+}
+
+/** Recent sessions still waiting for their report — drives the bell menu. */
+export interface DashboardAwaitingItem {
+  roomId: string;
+  candidateName: string | null;
+  roleTitle: string | null;
+  /** ISO 8601 — completion time when known, else creation time. */
+  at: string;
+}
+
+/**
+ * Dashboard analytics, computed from real rows only. Trends compare the last
+ * 30 days with the 30 days before that; a trend is null when the previous
+ * period has no data, so no invented percentages are ever shown. `series` is
+ * the genuine per-day counts for the last 14 days.
+ */
+export interface DashboardAnalytics {
+  total: number;
+  reportsReady: number;
+  awaitingAnalysis: number;
+  /** reportsReady / total, 0-100 rounded; 0 when there are no sessions. */
+  completionRate: number;
+  trends: {
+    total: number | null;
+    reportsReady: number | null;
+    awaitingAnalysis: number | null;
+    completionRate: number | null;
+  };
+  series: { date: string; interviews: number; reports: number }[];
+  awaitingRecent: DashboardAwaitingItem[];
 }
 
 /** Uniform error body returned by the interview/room API endpoints. */
@@ -149,6 +201,12 @@ export interface InterviewRepository {
    * that exist in storage are returned; absent pipeline fields stay undefined.
    */
   list(filter?: DashboardListFilter): Promise<InterviewRoom[]>;
+  /** Total rooms matching the same filter, for server-side pagination. */
+  count(filter?: DashboardListFilter): Promise<number>;
+  /** Candidate answer-turn counts per room id (missing rooms count 0). */
+  getCandidateTurnCounts(roomIds: readonly string[]): Promise<Map<string, number>>;
+  /** Real-data analytics for the dashboard cards, bell and sparklines. */
+  getDashboardAnalytics(): Promise<DashboardAnalytics>;
   /**
    * Exclusive claim so only one agent worker joins a room (several workers
    * poll the same rooms). Returns false when another worker holds a fresh

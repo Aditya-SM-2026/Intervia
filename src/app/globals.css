@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -7,26 +9,40 @@
   --color-border: var(--border);
   --color-muted: var(--muted);
   --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --surface: #fafafa;
-  --border: #e5e5e5;
+  --background: #f7f8fa;
+  --foreground: #16181d;
+  --surface: #ffffff;
+  --border: #e6e8ec;
   --muted: #6b7280;
   --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.08);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --surface: #161616;
-    --border: #2a2a2a;
-    --muted: #9ca3af;
-    --accent: #60a5fa;
-  }
+.dark {
+  --background: #0b0c0f;
+  --foreground: #ececef;
+  --surface: #15171c;
+  --border: #272a31;
+  --muted: #9aa1ac;
+  --accent: #60a5fa;
+  --accent-soft: rgba(96, 165, 250, 0.12);
+}
+
+/*
+ * Class-based theming: the ThemeProvider always resolves to `.dark` or
+ * `.light` before paint (see the inline script in app/layout.tsx), so the
+ * media-query approach is replaced by explicit classes and a persisted
+ * preference. System preference is respected when nothing is saved.
+ */
+:root:not(.dark) {
+  color-scheme: light;
+}
+.dark {
+  color-scheme: dark;
 }
