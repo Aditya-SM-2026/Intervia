@@ -164,6 +164,12 @@ export interface InterviewRepository {
   getTurns(roomId: string): Promise<InterviewTurn[]>;
   /** Marks a session completed once the agent has left (sets completedAt). */
   completeSession(roomId: string): Promise<void>;
+  /**
+   * Permanently removes a session and everything belonging to it (transcript
+   * turns, report). Returns true when a session was deleted, false when the
+   * room id does not exist.
+   */
+  deleteInterview(roomId: string): Promise<boolean>;
   /** Stores a generated report, replacing any previous one for the room. */
   saveReport(report: InterviewReport): Promise<void>;
   /** The generated report, or null when none exists yet. */

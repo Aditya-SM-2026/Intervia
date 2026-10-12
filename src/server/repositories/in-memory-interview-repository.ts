@@ -115,6 +115,13 @@ async appendTurn(roomId: string, turn: InterviewTurnInput): Promise<void> {
       });
     },
 
+    async deleteInterview(roomId: string): Promise<boolean> {
+      const existed = store.rooms.delete(roomId);
+      store.turns.delete(roomId);
+      store.reports.delete(roomId);
+      return existed;
+    },
+
     async saveReport(report: InterviewReport): Promise<void> {
       store.reports.set(report.roomId, report);
     },

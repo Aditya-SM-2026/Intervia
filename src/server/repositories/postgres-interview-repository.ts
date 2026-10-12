@@ -319,6 +319,26 @@ export function getPostgresInterviewRepository(): InterviewRepository {
       );
     },
 
+    async deleteInterview(roomId: string): Promise<boolean> {
+      await ensureSchema();
+      // One transaction so a session is never left half-deleted (turns gone,
+      // row alive, or vice versa).
+      const client = await getPool().connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("DELETE FROM interview_turns WHERE room_id = $1", [roomId]);
+        await client.query("DELETE FROM reports WHERE room_id = $1", [roomId]);
+        const deleted = await client.query("DELETE FROM interviews WHERE id = $1", [roomId]);
+        await client.query("COMMIT");
+        return (deleted.rowCount ?? 0) > 0;
+      } catch (cause) {
+        await client.query("ROLLBACK");
+        throw cause;
+      } finally {
+        client.release();
+      }
+    },
+
     async saveReport(report: InterviewReport): Promise<void> {
       await ensureSchema();
       await getPool().query(

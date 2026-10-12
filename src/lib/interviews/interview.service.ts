@@ -204,6 +204,16 @@ export async function listDashboardInterviews(
   }));
 }
 
+/**
+ * Permanently removes a session with its transcript and report. Intended for
+ * the recruiter dashboard's delete action. Returns false when the room id is
+ * unknown.
+ */
+export async function deleteInterviewSession(roomId: string): Promise<boolean> {
+  const repository = getInterviewRepository();
+  return repository.deleteInterview(roomId);
+}
+
 /** Expiry shown lazily for display; the stored row is not rewritten here. */
 function displayStatus(room: InterviewRoom): InterviewStatus {
   return isExpired(room) ? "expired" : room.status;

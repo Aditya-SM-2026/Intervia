@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { InterviewStatus } from "@/lib/interviews/interview.types";
 import type {
   InterviewReport,
   InterviewReportResponse,
+  InterviewScoreEntry,
+  InterviewScores,
   IntegrityLevel,
   TranscriptTurn,
 } from "@/lib/interviews/report.types";
@@ -56,10 +59,12 @@ async function fetchReport(roomId: string, force: boolean): Promise<ReportPageSt
 }
 
 export function DashboardReportView({ roomId }: { roomId: string }) {
+  const router = useRouter();
   const [data, setData] = useState<ReportPageState | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(
     (force: boolean) => {
@@ -91,6 +96,29 @@ export function DashboardReportView({ roomId }: { roomId: string }) {
   function regenerate() {
     setRegenerating(true);
     load(true);
+  }
+
+  /**
+   * Asks once, then permanently removes the session with its transcript and
+   * report, and returns to the list. setState stays inside the promise
+   * callbacks (react-hooks rule).
+   */
+  function removeSession() {
+    const confirmed = window.confirm(
+      "Delete this interview permanently? The session, its transcript and its report will be removed. This cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    setDeleting(true);
+    fetch(`/api/dashboard/interviews/${roomId}`, { method: "DELETE" })
+      .then((response) => {
+        if (!response.ok) throw new Error("Could not delete this interview. Please try again.");
+        router.push("/dashboard");
+      })
+      .catch((cause: unknown) => {
+        setDeleting(false);
+        setError(cause instanceof Error ? cause.message : "Could not delete this interview.");
+      });
   }
 
   if (notFound) {
@@ -194,6 +222,20 @@ export function DashboardReportView({ roomId }: { roomId: string }) {
           {regenerating ? "Regenerating report… (this can take up to a minute)" : "Regenerate report"}
         </button>
       )}
+
+      <div className="border-t border-border pt-4">
+        <button
+          type="button"
+          onClick={removeSession}
+          disabled={deleting}
+          className="justify-self-start rounded-lg border border-red-500/40 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-500/10 disabled:opacity-60 dark:text-red-400"
+        >
+          {deleting ? "Deleting…" : "Delete interview"}
+        </button>
+        <p className="mt-2 text-xs text-muted">
+          Permanently removes the session, its transcript and its report. This cannot be undone.
+        </p>
+      </div>
     </div>
   );
 }
@@ -216,6 +258,82 @@ function SeqChips({ seqs }: { seqs: number[] }) {
   );
 }
 
+const SCORE_BAND_STYLES = {
+  good: "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  mixed: "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  bad: "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400",
+} as const;
+
+/** Higher-is-better bands: 70+ good, 40-69 mixed, <40 bad. */
+function bandForScore(score: number, inverted: boolean): keyof typeof SCORE_BAND_STYLES {
+  if (inverted) {
+    if (score >= 60) return "bad";
+    if (score >= 26) return "mixed";
+    return "good";
+  }
+  if (score >= 70) return "good";
+  if (score >= 40) return "mixed";
+  return "bad";
+}
+
+function ScoreCard({
+  label,
+  entry,
+  inverted = false,
+}: {
+  label: string;
+  entry: InterviewScoreEntry;
+  inverted?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-background p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-medium">{label}</span>
+        <span
+          className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+            SCORE_BAND_STYLES[bandForScore(entry.score, inverted)]
+          }`}
+        >
+          {entry.score}
+        </span>
+      </div>
+      <p className="mt-2 text-sm text-muted">{entry.rationale}</p>
+      <div className="mt-2">
+        <SeqChips seqs={entry.evidenceTurnSeq} />
+      </div>
+    </div>
+  );
+}
+
+function ScoresSection({ scores }: { scores: InterviewScores }) {
+  return (
+    <section aria-label="Evaluation scores" className="rounded-2xl border border-border bg-surface p-5 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-semibold">Evaluation scores</h2>
+        <span className="text-xs text-muted">0–100 · difficulty-normalized · grounded in the transcript</span>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ScoreCard label="Overall performance" entry={scores.overall} />
+        <ScoreCard label="JD / skill match" entry={scores.jdMatch} />
+        <ScoreCard label="AI-assistance risk" entry={scores.aiRisk} inverted />
+        <ScoreCard label="Communication quality" entry={scores.communication} />
+        <div className="rounded-xl border border-border bg-background p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium">Video proctoring</span>
+            <span className="rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium text-muted">
+              not available
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-muted">
+            Requires a recorded video stream — proctoring scores arrive when interview recording
+            is enabled.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ReportSections({ report }: { report: InterviewReport }) {
   const { analysis, integrity } = report;
   return (
@@ -228,6 +346,21 @@ function ReportSections({ report }: { report: InterviewReport }) {
               <li key={index}>{note}</li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {report.scores ? (
+        <ScoresSection scores={report.scores} />
+      ) : (
+        <section
+          aria-label="Evaluation scores"
+          className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-5 text-sm text-amber-700 dark:text-amber-400"
+        >
+          <p className="font-medium">Evaluation scores pending</p>
+          <p className="mt-1 text-amber-600 dark:text-amber-400/90">
+            This report was generated before the scoring engine was enabled, or scoring was
+            unavailable at the time. Use &quot;Regenerate report&quot; to compute the scores.
+          </p>
         </section>
       )}
 
