@@ -2,17 +2,19 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { listDashboardInterviews } from "@/lib/interviews/interview.service";
 import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
-import type { DashboardInterviewsResponse } from "@/lib/interviews/report.types";
+import type { DashboardInterviewsResponse } from "@/lib/interviews/scorecard.types";
+import { requireRecruiter } from "@/lib/auth/guards";
 
 /**
- * Recruiter dashboard list. Access follows the existing pattern of this code
- * base (room access validation, no recruiter accounts yet), so this endpoint
- * is as protected as every other recruiter route today.
+ * Recruiter dashboard list (signed-in recruiters only).
  *
  * Query params: `email` (case-insensitive substring filter on the candidate
- * email), `limit`, `offset` (simple slicing; pagination kept trivial by design).
+ * email), `limit`, `offset`.
  */
 export async function GET(request: NextRequest) {
+  const denied = await requireRecruiter();
+  if (denied) return denied;
+
   const email = request.nextUrl.searchParams.get("email") ?? undefined;
   const limit = parsePositiveInt(request.nextUrl.searchParams.get("limit"));
   const offset = parsePositiveInt(request.nextUrl.searchParams.get("offset"));

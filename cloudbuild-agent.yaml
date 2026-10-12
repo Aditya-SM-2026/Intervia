@@ -1,13 +1,15 @@
+# v2 agent image. Separate image name from the earlier deployment
+# (meetingbot/agent), whose VM start-up script pulls meetingbot/agent:latest.
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
       [
         "build",
         "-t",
-        "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/agent:latest",
+        "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/agent-v2:latest",
         "-f",
-        "Dockerfile.agent",
-        ".",
+        "agent/Dockerfile",
+        "agent",
       ]
 images:
-  - "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/agent:latest"
+  - "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/agent-v2:latest"

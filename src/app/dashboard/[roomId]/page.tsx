@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
-import { DashboardReportView } from "@/components/dashboard/DashboardReportView";
+import { AppShell } from "@/components/layout/AppShell";
+import { InterviewDetailView } from "@/components/dashboard/InterviewDetailView";
 
 export const metadata: Metadata = {
-  title: "Interview report",
+  title: "Interview scorecard",
 };
 
 export default async function InterviewReportPage({
@@ -10,8 +11,8 @@ export default async function InterviewReportPage({
 }: PageProps<"/dashboard/[roomId]">) {
   const { roomId } = await params;
   return (
-    <main className="mx-auto w-full max-w-4xl p-6 sm:p-8">
-      <DashboardReportView roomId={roomId} />
-    </main>
+    <AppShell current="interviews" wide>
+      <InterviewDetailView roomId={roomId} />
+    </AppShell>
   );
 }

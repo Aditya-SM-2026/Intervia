@@ -7,6 +7,8 @@ export interface LiveKitJoinCredentials {
   token: string;
   url: string;
   identity: string;
+  /** Authorises uploading this participant's own recording. */
+  recordingToken?: string;
 }
 
 /** Email gate: issues join credentials only for a verified email + consent. */

@@ -7,26 +7,94 @@
   --color-border: var(--border);
   --color-muted: var(--muted);
   --color-accent: var(--accent);
+  --color-candidate: var(--candidate);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display-face), var(--font-geist-sans), sans-serif;
 }
 
+/*
+ * Two voices run through the whole product: blue is the interviewer (and the
+ * product's own actions), green is the candidate (their words, their audio).
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --surface: #fafafa;
-  --border: #e5e5e5;
-  --muted: #6b7280;
-  --accent: #2563eb;
+  --background: #f5f6f8;
+  --foreground: #101828;
+  --surface: #ffffff;
+  --border: #e1e5ec;
+  --muted: #5d6779;
+  --accent: #2f5fe0;
+  --candidate: #17976a;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --surface: #161616;
-    --border: #2a2a2a;
-    --muted: #9ca3af;
-    --accent: #60a5fa;
+    --background: #0c111b;
+    --foreground: #e8ecf5;
+    --surface: #141b29;
+    --border: #263048;
+    --muted: #93a0b8;
+    --accent: #7aa7ff;
+    --candidate: #6fd3a8;
   }
+}
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  letter-spacing: -0.015em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+ * The live interview room is a stage of its own, the same in light and dark
+ * mode: a calm, dark call window. Overriding the theme variables here restyles
+ * every token-based component inside it.
+ */
+.interview-stage {
+  --background: #0e1420;
+  --foreground: #e8ecf5;
+  --surface: #161d2c;
+  --border: #263048;
+  --muted: #8d98b3;
+  --accent: #7aa7ff;
+  --candidate: #6fd3a8;
+  --voice-interviewer: #7aa7ff;
+  --voice-candidate: #6fd3a8;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* One line of bars for whoever is talking: blue for the interviewer, green for you. */
+.voice-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(2px, 0.5vw, 5px);
+  height: clamp(7rem, 22vh, 12rem);
+  width: min(100%, 34rem);
+  color: var(--muted);
+  transition: color 300ms ease;
+}
+.voice-line[data-voice="interviewer"] {
+  color: var(--voice-interviewer);
+}
+.voice-line[data-voice="candidate"] {
+  color: var(--voice-candidate);
+}
+.voice-line[data-voice="problem"] {
+  color: #f08a8a;
+}
+.voice-line > span {
+  flex: 1 1 0;
+  max-width: 8px;
+  height: 100%;
+  border-radius: 999px;
+  background: currentColor;
+  transform: scaleY(0.05);
+  will-change: transform;
 }

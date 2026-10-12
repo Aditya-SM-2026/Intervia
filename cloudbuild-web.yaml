@@ -1,14 +1,15 @@
+# v2 web image. Separate image name from the earlier deployment (meetingbot/web)
+# so building this never replaces what that service runs.
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
       [
         "build",
         "-t",
-        "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/web:latest",
+        "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/web-v2:latest",
         "-f",
         "Dockerfile.web",
-        "--build-arg=NEXT_PUBLIC_VOICE_PROVIDER=cascade",
         ".",
       ]
 images:
-  - "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/web:latest"
+  - "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/web-v2:latest"

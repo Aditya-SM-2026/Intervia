@@ -2,8 +2,13 @@ import { z } from "zod";
 
 const MAX_TITLE_LENGTH = 200;
 const MAX_NAME_LENGTH = 200;
-export const MIN_DURATION_MINUTES = 5;
-export const MAX_DURATION_MINUTES = 10;
+/**
+ * Real interviews run 10-45 minutes. The minimum is 2 so the whole flow
+ * (plan, interview, wrap-up, scorecard) can be tried quickly.
+ */
+export const MIN_DURATION_MINUTES = 2;
+export const MAX_DURATION_MINUTES = 45;
+export const DEFAULT_DURATION_MINUTES = 20;
 const MAX_JD_TEXT_LENGTH = 20_000;
 
 /** Room IDs are generated server-side and must match this pattern when received. */
@@ -54,7 +59,7 @@ export const createInterviewSchema = z.object({
       .int("Duration must be a whole number of minutes")
       .min(MIN_DURATION_MINUTES, `Duration must be at least ${MIN_DURATION_MINUTES} minutes`)
       .max(MAX_DURATION_MINUTES, `Duration must be at most ${MAX_DURATION_MINUTES} minutes`)
-      .default(MIN_DURATION_MINUTES),
+      .default(DEFAULT_DURATION_MINUTES),
   ),
   difficulty: z.preprocess(
     emptyToUndefined,
@@ -63,6 +68,12 @@ export const createInterviewSchema = z.object({
         message: "Difficulty must be one of: easy, medium, hard, extra-hard",
       })
       .default("medium"),
+  ),
+  voiceMode: z.preprocess(
+    emptyToUndefined,
+    z
+      .enum(["standard", "rolling"], { message: "Voice mode must be one of: standard, rolling" })
+      .default("standard"),
   ),
   jobDescriptionText: z.preprocess(
     emptyToUndefined,
@@ -94,6 +105,74 @@ export const verifyEmailSchema = z.object({
 });
 
 export type VerifyEmailPayload = z.infer<typeof verifyEmailSchema>;
+
+/** Recruiter's hiring decision on a finished interview. */
+export const decisionSchema = z.object({
+  outcome: z.enum(["advance", "hold", "reject"], {
+    message: "Decision must be one of: advance, hold, reject",
+  }),
+  note: z.string().trim().max(2000, "Note must be at most 2000 characters").default(""),
+});
+
+const isoTimestamp = z.string().refine((value) => Number.isFinite(Date.parse(value)), {
+  message: "Invalid timestamp",
+});
+
+/** Batch of turns and events posted by the agent worker. */
+export const agentEventsSchema = z.object({
+  turns: z
+    .array(
+      z.object({
+        speaker: z.enum(["interviewer", "candidate"]),
+        text: z.string().min(1).max(20_000),
+        startedAt: isoTimestamp.nullable().default(null),
+        endedAt: isoTimestamp.nullable().default(null),
+        responseLatencyMs: z.number().int().min(0).max(3_600_000).nullable().default(null),
+        interrupted: z.boolean().default(false),
+        phase: z.string().max(40).nullable().default(null),
+        competencyId: z.string().max(80).nullable().default(null),
+      }),
+    )
+    .max(200)
+    .default([]),
+  events: z
+    .array(
+      z.object({
+        type: z.string().min(1).max(60),
+        at: isoTimestamp,
+        data: z.record(z.string(), z.unknown()).default({}),
+      }),
+    )
+    .max(1000)
+    .default([]),
+});
+
+/** Completion record posted by the agent worker when the interview ends. */
+export const agentCompleteSchema = z.object({
+  reason: z.string().min(1).max(60),
+  startedAt: isoTimestamp.nullable().default(null),
+  endedAt: isoTimestamp,
+  elapsedSeconds: z.number().min(0).max(86_400),
+  completed: z.boolean().default(true),
+  coverage: z
+    .array(
+      z.object({
+        competencyId: z.string().max(80),
+        name: z.string().max(200),
+        status: z.enum(["covered", "skipped", "pending"]),
+        startedAtSeconds: z.number().nullable().default(null),
+        endedAtSeconds: z.number().nullable().default(null),
+        budgetSeconds: z.number().nullable().default(null),
+        interviewerSummary: z.string().max(2000).nullable().default(null),
+        interviewerEvidence: z.string().max(40).nullable().default(null),
+        advancedBy: z.enum(["interviewer", "controller"]).nullable().default(null),
+      }),
+    )
+    .max(20)
+    .default([]),
+  usage: z.array(z.unknown()).max(20).default([]),
+  modelSessions: z.number().int().min(0).max(10_000).optional(),
+});
 
 /** Flattens a ZodError into one readable message for API error responses. */
 export function formatValidationIssues(error: z.ZodError): string {

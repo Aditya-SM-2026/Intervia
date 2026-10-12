@@ -52,47 +52,35 @@ export function getLlmConfig(): LlmConfig {
 }
 
 /**
- * Gemini Live configuration (real-time voice). "studio" uses the Gemini API
- * key; "vertex" uses Application Default Credentials / service accounts and
- * bills to the GCP project.
+ * Gemini text model, used for interview-plan generation and scorecards. The
+ * live voice session itself runs in the agent worker (agent/), which reads
+ * the same GEMINI_API_KEY from the shared env file.
  */
+export interface GeminiTextConfig {
+  apiKey: string;
+  model: string;
+}
 
-const geminiLiveSchema = z.object({
-  apiKey: z.string().min(1, "GEMINI_API_KEY is empty"),
-  backend: z.enum(["studio", "vertex"]),
-  project: z.string().optional(),
-  location: z.string().optional(),
-  model: z.string().min(1, "GEMINI_LIVE_MODEL is empty"),
-});
+const DEFAULT_GEMINI_TEXT_MODEL = "gemini-3.8-flash";
 
-const DEFAULT_GEMINI_LIVE_MODEL = "gemini-2.5-flash-native-audio-latest";
+/** Null when no Gemini key is configured (callers fall back or report it). */
+export function getGeminiTextConfig(): GeminiTextConfig | null {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) return null;
+  return {
+    apiKey,
+    model: process.env.GEMINI_TEXT_MODEL?.trim() || DEFAULT_GEMINI_TEXT_MODEL,
+  };
+}
 
-export type GeminiLiveConfig = z.infer<typeof geminiLiveSchema>;
+/**
+ * Shared secret the agent worker presents on /api/agent/*. Null when unset:
+ * the agent API then only answers in development.
+ */
+export function getAgentApiSecret(): string | null {
+  return process.env.AGENT_API_SECRET?.trim() || null;
+}
 
-export function getGeminiLiveConfig(): GeminiLiveConfig {
-  const backend = (process.env.GEMINI_BACKEND?.trim() || "studio").toLowerCase();
-  const parsed = geminiLiveSchema.safeParse({
-    apiKey: process.env.GEMINI_API_KEY?.trim() ?? "",
-    backend,
-    project: process.env.GOOGLE_CLOUD_PROJECT?.trim() || undefined,
-    location: process.env.GOOGLE_CLOUD_LOCATION?.trim() || "us-central1",
-    model: process.env.GEMINI_LIVE_MODEL?.trim() || DEFAULT_GEMINI_LIVE_MODEL,
-  });
-
-  if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((issue) => `${issue.path.join(".") || "value"}: ${issue.message}`)
-      .join("; ");
-    throw new Error(
-      `Invalid Gemini Live configuration. Check the GEMINI_* variables in .env. Details: ${issues}`,
-    );
-  }
-
-  if (parsed.data.backend === "vertex" && !parsed.data.project) {
-    throw new Error(
-      "GEMINI_BACKEND=vertex requires GOOGLE_CLOUD_PROJECT to be set in .env.",
-    );
-  }
-
-  return parsed.data;
+export function isProduction(): boolean {
+  return process.env.NODE_ENV === "production";
 }

@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local voice auditions
+/voice-samples/
+
+# candidate recordings kept on local disk in development
+/.data/

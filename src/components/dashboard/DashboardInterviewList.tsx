@@ -5,13 +5,15 @@ import Link from "next/link";
 import type { InterviewStatus } from "@/lib/interviews/interview.types";
 import type {
   DashboardInterviewSummary,
-  IntegrityLevel,
-} from "@/lib/interviews/report.types";
+  ScoreSuggestion,
+} from "@/lib/interviews/scorecard.types";
+import { FACTOR_META } from "./factors";
 
 /**
  * Recruiter dashboard list: sessions with candidate/role/recruiter details,
- * an email search filter, status and an AI-usage badge (or "pending") when
- * the report has been generated. Loads through GET /api/dashboard/interviews.
+ * an email search filter, status, the overall score once the interview has
+ * been scored, and the recruiter's decision. Loads through
+ * GET /api/dashboard/interviews.
  */
 
 const STATUS_STYLES: Record<InterviewStatus, string> = {
@@ -23,11 +25,24 @@ const STATUS_STYLES: Record<InterviewStatus, string> = {
   cancelled: "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400",
 };
 
-const LEVEL_STYLES: Record<IntegrityLevel, string> = {
-  low: "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  medium: "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  high: "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400",
+const SUGGESTION_STYLES: Record<ScoreSuggestion, string> = {
+  strong: "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  positive: "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  mixed: "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  weak: "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400",
+  insufficient: "border-border bg-surface text-muted",
 };
+
+const STATUS_LABELS: Record<InterviewStatus, string> = {
+  scheduled: "Not started",
+  waiting: "Waiting",
+  active: "In progress",
+  completed: "Completed",
+  expired: "Link expired",
+  cancelled: "Cancelled",
+};
+
+const DECISION_LABELS = { advance: "Advanced", hold: "On hold", reject: "Rejected" } as const;
 
 async function fetchInterviews(email: string | undefined): Promise<DashboardInterviewSummary[]> {
   const params = new URLSearchParams();
@@ -108,7 +123,7 @@ export function DashboardInterviewList() {
           onChange={(event) => setSearchInput(event.target.value)}
           placeholder="Search by candidate email…"
           aria-label="Search by candidate email"
-          className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+          className="min-w-0 flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
         />
         <button
           type="submit"
@@ -136,7 +151,7 @@ export function DashboardInterviewList() {
           {[0, 1, 2].map((index) => (
             <div
               key={index}
-              className="h-[76px] animate-pulse rounded-2xl border border-border bg-surface"
+              className="h-[68px] animate-pulse rounded-2xl border border-border bg-surface"
             />
           ))}
         </div>
@@ -160,46 +175,90 @@ export function DashboardInterviewList() {
           )}
         </div>
       ) : (
-        <ul className="grid gap-3">
-          {interviews.map(({ room, integrity }) => (
-            <li key={room.id}>
-              <Link
-                href={`/dashboard/${room.id}`}
-                className="block rounded-2xl border border-border bg-surface p-5 transition hover:border-accent/50"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">{room.roleTitle || room.title}</span>
-                  <span className="flex items-center gap-2">
-                    {integrity ? (
-                      <span
-                        title="Estimated probability the candidate's answers were AI-assisted"
-                        className={`rounded-full border px-3 py-1 text-xs font-medium ${LEVEL_STYLES[integrity.level]}`}
-                      >
-                        AI {integrity.probability}% · {integrity.level}
-                      </span>
-                    ) : (
-                      <span className="rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium text-muted">
-                        Report pending
-                      </span>
-                    )}
-                    <span
-                      className={`rounded-full border px-3 py-1 text-xs font-medium ${STATUS_STYLES[room.status]}`}
-                    >
-                      {room.status}
+        <div className="overflow-hidden rounded-2xl border border-border bg-surface">
+          <div className="hidden grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_7rem_7rem_7rem] gap-4 border-b border-border px-5 py-2.5 text-xs font-medium text-muted md:grid">
+            <span>Candidate</span>
+            <span>Role</span>
+            <span>Status</span>
+            <span>Score</span>
+            <span>Decision</span>
+          </div>
+          <ul className="divide-y divide-border">
+            {interviews.map(({ room, scorecard }) => (
+              <li key={room.id}>
+                <Link
+                  href={`/dashboard/${room.id}`}
+                  className="grid gap-x-4 gap-y-1 px-5 py-4 transition hover:bg-background md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_7rem_7rem_7rem] md:items-center"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">
+                      {room.candidateName || "Candidate name not set"}
+                    </span>
+                    <span className="block truncate text-sm text-muted">
+                      {room.candidateEmail ?? "No email"}
                     </span>
                   </span>
-                </div>
-                <p className="mt-1 text-sm text-muted">
-                  {room.candidateName ? room.candidateName : "Candidate name not set"}
-                  {room.candidateEmail ? ` · ${room.candidateEmail}` : ""}
-                  {room.recruiterName ? ` · recruiter ${room.recruiterName}` : ""}
-                  {" · created "}
-                  {formatDateTime(room.createdAt)}
-                </p>
-              </Link>
-            </li>
-          ))}
-        </ul>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm">{room.roleTitle || room.title}</span>
+                    <span className="block text-xs text-muted">{formatDateTime(room.createdAt)}</span>
+                  </span>
+                  <span>
+                    <span
+                      className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[room.status]}`}
+                    >
+                      {STATUS_LABELS[room.status]}
+                    </span>
+                  </span>
+                  <span className="text-sm tabular-nums">
+                    {scorecard?.overall?.score != null ? (
+                      <span title="Overall score out of 100, with its four factors">
+                        <span className="font-display text-lg font-semibold">
+                          {scorecard.overall.score}
+                        </span>
+                        <span className="mt-1 flex gap-0.5" aria-hidden="true">
+                          {scorecard.overall.factors.map((factor) => (
+                            <span key={factor.id} className="h-1 w-4 rounded-full bg-border">
+                              {factor.score !== null && (
+                                <span
+                                  className={`block h-full rounded-full ${FACTOR_META[factor.id].bar}`}
+                                  style={{ width: `${factor.score}%` }}
+                                />
+                              )}
+                            </span>
+                          ))}
+                        </span>
+                      </span>
+                    ) : scorecard ? (
+                      <span
+                        title="Answer quality out of 5. Regenerate the scorecard for the full analysis."
+                        className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-semibold ${SUGGESTION_STYLES[scorecard.suggestion]}`}
+                      >
+                        {scorecard.overallScore === null
+                          ? "No score"
+                          : `${scorecard.overallScore.toFixed(1)} of 5`}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted">
+                        {room.status === "completed" ? "Scoring…" : "Not yet"}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-sm">
+                    {room.decision ? (
+                      <span className="font-medium text-accent">
+                        {DECISION_LABELS[room.decision.outcome]}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted">
+                        {scorecard?.needsHumanReview ? "Needs review" : "Undecided"}
+                      </span>
+                    )}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

@@ -3,37 +3,30 @@ import { Pool } from "pg";
 import type {
   DashboardListFilter,
   DifficultyLevel,
+  HumanDecision,
+  InterviewEvent,
+  InterviewEventInput,
   InterviewRepository,
   InterviewRoom,
   InterviewStatus,
   InterviewTurn,
   InterviewTurnInput,
+  SessionOutcome,
 } from "@/lib/interviews/interview.types";
-import type {
-  InterviewReport,
-  ReportIntegritySummary,
-} from "@/lib/interviews/report.types";
-import {
-  parseStoredReport,
-  reportIntegritySchema,
-} from "@/lib/interviews/report.validation";
+import type { InterviewPlan } from "@/lib/interviews/plan.types";
+import type { Scorecard, ScorecardSummary } from "@/lib/interviews/scorecard.types";
 
 /**
- * Postgres-backed interview session store (Cloud SQL in production).
- * The schema is bootstrapped idempotently on first use so a fresh database
- * needs no separate migration step.
- *
- * Ownership: this repository WRITES interview rows (its own columns only —
- * columns owned by other workstreams are never overwritten) and the
- * dashboard-owned `reports` table. Sessions' pipeline fields and transcript
- * turns are READ-ONLY here: they are written by the pre-interview pipeline,
- * so reads are defensive (missing tables/columns degrade to empty/undefined,
- * never errors).
+ * Postgres-backed store (Cloud SQL in production). The schema is bootstrapped
+ * idempotently on first use, so a fresh database needs no migration step and
+ * an existing v1 database gains the v2 columns and tables in place. v1 data
+ * (the old `reports` table and turn timing columns) is left untouched and
+ * simply no longer read.
  */
 
 interface GlobalWithPool {
   __interviewPgPool?: Pool;
-  __interviewPgBootstrap?: Promise<void>;
+  __interviewPgBootstrapV2?: Promise<void>;
 }
 
 const globalRefs = globalThis as unknown as GlobalWithPool;
@@ -47,13 +40,12 @@ CREATE TABLE IF NOT EXISTS interviews (
   created_at TIMESTAMPTZ NOT NULL,
   expires_at TIMESTAMPTZ
 );
-ALTER TABLE interviews ADD COLUMN IF NOT EXISTS agent_claimed_by TEXT;
-ALTER TABLE interviews ADD COLUMN IF NOT EXISTS agent_claimed_at TIMESTAMPTZ;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS recruiter_name TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS candidate_email TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS role_title TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS difficulty TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS duration_minutes INTEGER;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS voice_mode TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS jd_source TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS jd_text TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS resume_file_name TEXT;
@@ -61,26 +53,42 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS resume_text TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS resume_unreadable BOOLEAN;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS consent_given_at TIMESTAMPTZ;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS plan JSONB;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS outcome JSONB;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS decision JSONB;
 CREATE INDEX IF NOT EXISTS interviews_candidate_email_idx ON interviews (candidate_email);
 CREATE TABLE IF NOT EXISTS interview_turns (
   room_id TEXT NOT NULL,
   seq INTEGER NOT NULL,
   speaker TEXT NOT NULL,
   text TEXT NOT NULL,
-  asked_at TIMESTAMPTZ,
-  answered_at TIMESTAMPTZ,
-  latency_ms INTEGER,
   PRIMARY KEY (room_id, seq)
 );
-CREATE INDEX IF NOT EXISTS interview_turns_room_idx ON interview_turns (room_id, seq);
-CREATE TABLE IF NOT EXISTS reports (
+ALTER TABLE interview_turns ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE interview_turns ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+ALTER TABLE interview_turns ADD COLUMN IF NOT EXISTS response_latency_ms INTEGER;
+ALTER TABLE interview_turns ADD COLUMN IF NOT EXISTS interrupted BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE interview_turns ADD COLUMN IF NOT EXISTS phase TEXT;
+ALTER TABLE interview_turns ADD COLUMN IF NOT EXISTS competency_id TEXT;
+CREATE TABLE IF NOT EXISTS interview_events (
+  room_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  at TIMESTAMPTZ NOT NULL,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  PRIMARY KEY (room_id, seq)
+);
+CREATE TABLE IF NOT EXISTS scorecards (
   room_id TEXT PRIMARY KEY,
-  report JSONB NOT NULL,
+  scorecard JSONB NOT NULL,
   generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-DROP TABLE IF EXISTS interview_transcripts;
-DROP TABLE IF EXISTS interview_reports;
 `;
+
+const ROOM_COLUMNS = `id, title, candidate_name, status, created_at, expires_at,
+  recruiter_name, candidate_email, role_title, difficulty, duration_minutes, jd_source, jd_text,
+  resume_file_name, resume_text, resume_unreadable, consent_given_at, completed_at,
+  plan, outcome, decision, voice_mode`;
 
 function getPool(): Pool {
   if (!globalRefs.__interviewPgPool) {
@@ -94,19 +102,19 @@ function getPool(): Pool {
 }
 
 async function ensureSchema(): Promise<void> {
-  if (!globalRefs.__interviewPgBootstrap) {
-    globalRefs.__interviewPgBootstrap = getPool()
+  if (!globalRefs.__interviewPgBootstrapV2) {
+    globalRefs.__interviewPgBootstrapV2 = getPool()
       .query(BOOTSTRAP_SQL)
       .then(() => undefined)
       .catch((error: unknown) => {
         // Allow a retry on the next request; a cached rejection (e.g. the
         // database briefly unreachable at boot) would otherwise poison every
         // future call in this process.
-        globalRefs.__interviewPgBootstrap = undefined;
+        globalRefs.__interviewPgBootstrapV2 = undefined;
         throw error;
       });
   }
-  await globalRefs.__interviewPgBootstrap;
+  await globalRefs.__interviewPgBootstrapV2;
 }
 
 interface InterviewRow {
@@ -128,6 +136,10 @@ interface InterviewRow {
   resume_unreadable: boolean | null;
   consent_given_at: Date | null;
   completed_at: Date | null;
+  plan: InterviewPlan | null;
+  outcome: SessionOutcome | null;
+  decision: HumanDecision | null;
+  voice_mode: string | null;
 }
 
 function rowToRoom(row: InterviewRow): InterviewRoom {
@@ -143,7 +155,8 @@ function rowToRoom(row: InterviewRow): InterviewRoom {
     candidateEmail: row.candidate_email,
     roleTitle: row.role_title,
     difficulty: (row.difficulty as DifficultyLevel | null) ?? "medium",
-    durationMinutes: row.duration_minutes ?? 5,
+    durationMinutes: row.duration_minutes ?? 15,
+    voiceMode: row.voice_mode === "rolling" ? "rolling" : "standard",
     jobDescription:
       jdText !== null && (row.jd_source === "text" || row.jd_source === "pdf")
         ? { source: row.jd_source, text: jdText }
@@ -158,23 +171,24 @@ function rowToRoom(row: InterviewRow): InterviewRoom {
         : null,
     consent: row.consent_given_at ? { givenAt: row.consent_given_at.toISOString() } : null,
     completedAt: row.completed_at ? row.completed_at.toISOString() : null,
+    plan: row.plan ?? null,
+    outcome: row.outcome ?? null,
+    decision: row.decision ?? null,
   };
 }
 
-const integritySummarySchema = reportIntegritySchema.pick({
-  probability: true,
-  level: true,
-});
+function jsonOrNull(value: unknown): string | null {
+  return value === null || value === undefined ? null : JSON.stringify(value);
+}
 
 export function getPostgresInterviewRepository(): InterviewRepository {
   return {
     async save(room: InterviewRoom): Promise<void> {
       await ensureSchema();
       await getPool().query(
-        `INSERT INTO interviews (id, title, candidate_name, status, created_at, expires_at,
-             recruiter_name, candidate_email, role_title, difficulty, duration_minutes, jd_source, jd_text,
-             resume_file_name, resume_text, resume_unreadable, consent_given_at, completed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        `INSERT INTO interviews (${ROOM_COLUMNS})
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                 $19, $20, $21, $22)
          ON CONFLICT (id) DO UPDATE SET
            title = EXCLUDED.title,
            candidate_name = EXCLUDED.candidate_name,
@@ -192,7 +206,11 @@ export function getPostgresInterviewRepository(): InterviewRepository {
            resume_text = EXCLUDED.resume_text,
            resume_unreadable = EXCLUDED.resume_unreadable,
            consent_given_at = EXCLUDED.consent_given_at,
-           completed_at = EXCLUDED.completed_at`,
+           completed_at = EXCLUDED.completed_at,
+           plan = EXCLUDED.plan,
+           outcome = EXCLUDED.outcome,
+           decision = EXCLUDED.decision,
+           voice_mode = EXCLUDED.voice_mode`,
         [
           room.id,
           room.title,
@@ -212,6 +230,10 @@ export function getPostgresInterviewRepository(): InterviewRepository {
           room.resume?.unreadable ?? null,
           room.consent?.givenAt ?? null,
           room.completedAt,
+          jsonOrNull(room.plan),
+          jsonOrNull(room.outcome),
+          jsonOrNull(room.decision),
+          room.voiceMode,
         ],
       );
     },
@@ -219,10 +241,7 @@ export function getPostgresInterviewRepository(): InterviewRepository {
     async get(id: string): Promise<InterviewRoom | null> {
       await ensureSchema();
       const result = await getPool().query<InterviewRow>(
-        `SELECT id, title, candidate_name, status, created_at, expires_at,
-              recruiter_name, candidate_email, role_title, difficulty, duration_minutes, jd_source, jd_text,
-              resume_file_name, resume_text, resume_unreadable, consent_given_at, completed_at
-         FROM interviews WHERE id = $1`,
+        `SELECT ${ROOM_COLUMNS} FROM interviews WHERE id = $1`,
         [id],
       );
       const row = result.rows[0];
@@ -239,10 +258,7 @@ export function getPostgresInterviewRepository(): InterviewRepository {
         conditions.push(`candidate_email ILIKE $${params.length}`);
       }
 
-      let sql = `SELECT id, title, candidate_name, status, created_at, expires_at,
-          recruiter_name, candidate_email, role_title, jd_source, jd_text,
-          resume_file_name, resume_text, resume_unreadable, consent_given_at, completed_at
-        FROM interviews`;
+      let sql = `SELECT ${ROOM_COLUMNS} FROM interviews`;
       if (conditions.length > 0) sql += ` WHERE ${conditions.join(" AND ")}`;
       sql += " ORDER BY created_at DESC";
       if (filter?.limit && Number.isFinite(filter.limit) && filter.limit > 0) {
@@ -258,108 +274,162 @@ export function getPostgresInterviewRepository(): InterviewRepository {
       return result.rows.map(rowToRoom);
     },
 
-    async claimForAgent(roomId: string, workerId: string, ttlSeconds: number): Promise<boolean> {
+    async appendTurns(roomId: string, turns: readonly InterviewTurnInput[]): Promise<void> {
+      if (turns.length === 0) return;
       await ensureSchema();
-      // Atomic conditional update: the row lock makes the check-and-set a
-      // single step, so concurrent workers cannot both win.
-      const result = await getPool().query(
-        `UPDATE interviews
-         SET agent_claimed_by = $2, agent_claimed_at = now()
-         WHERE id = $1
-           AND (agent_claimed_by IS NULL
-                OR agent_claimed_by = ''
-                OR agent_claimed_at IS NULL
-                OR agent_claimed_at < now() - make_interval(secs => $3))
-         RETURNING id`,
-        [roomId, workerId, ttlSeconds],
-      );
-      return (result.rowCount ?? 0) === 1;
-    },
-
-    async releaseAgentClaim(roomId: string, workerId: string): Promise<void> {
-      await ensureSchema();
-      await getPool().query(
-        `UPDATE interviews
-         SET agent_claimed_by = NULL, agent_claimed_at = NULL
-         WHERE id = $1 AND agent_claimed_by = $2`,
-        [roomId, workerId],
-      );
-    },
-
-    async appendTurn(roomId: string, turn: InterviewTurnInput): Promise<void> {
-      await ensureSchema();
-      // The sub-select assigns the next sequence number atomically under the
-      // row lock of the aggregate, so concurrent appends stay ordered.
-      await getPool().query(
-        `INSERT INTO interview_turns (room_id, seq, speaker, text, asked_at, answered_at, latency_ms)
-         VALUES ($1,
-                 (SELECT COALESCE(MAX(seq), 0) + 1 FROM interview_turns WHERE room_id = $1),
-                 $2, $3, $4, $5, $6)`,
-        [roomId, turn.speaker, turn.text, turn.askedAt, turn.answeredAt, turn.latencyMs],
-      );
+      const client = await getPool().connect();
+      try {
+        await client.query("BEGIN");
+        // One writer per interview (its agent job), serialized by this lock so
+        // sequence numbers stay gapless and ordered across batches.
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`turns:${roomId}`]);
+        const next = await client.query<{ next: number }>(
+          "SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM interview_turns WHERE room_id = $1",
+          [roomId],
+        );
+        let seq = next.rows[0].next;
+        for (const turn of turns) {
+          await client.query(
+            `INSERT INTO interview_turns
+               (room_id, seq, speaker, text, started_at, ended_at, response_latency_ms,
+                interrupted, phase, competency_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [
+              roomId,
+              seq,
+              turn.speaker,
+              turn.text,
+              turn.startedAt,
+              turn.endedAt,
+              turn.responseLatencyMs,
+              turn.interrupted,
+              turn.phase,
+              turn.competencyId,
+            ],
+          );
+          seq += 1;
+        }
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async getTurns(roomId: string): Promise<InterviewTurn[]> {
       await ensureSchema();
       const result = await getPool().query<TurnRow>(
-        `SELECT room_id, seq, speaker, text, asked_at, answered_at, latency_ms
+        `SELECT room_id, seq, speaker, text, started_at, ended_at, response_latency_ms,
+                interrupted, phase, competency_id
          FROM interview_turns WHERE room_id = $1 ORDER BY seq ASC`,
         [roomId],
       );
       return result.rows.map(turnRowToTurn);
     },
 
-    async completeSession(roomId: string): Promise<void> {
+    async appendEvents(roomId: string, events: readonly InterviewEventInput[]): Promise<void> {
+      if (events.length === 0) return;
       await ensureSchema();
-      await getPool().query(
-        `UPDATE interviews
-         SET status = 'completed', completed_at = now()
-         WHERE id = $1 AND status IN ('scheduled', 'waiting', 'active')`,
-        [roomId],
-      );
+      const client = await getPool().connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`events:${roomId}`]);
+        const next = await client.query<{ next: number }>(
+          "SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM interview_events WHERE room_id = $1",
+          [roomId],
+        );
+        let seq = next.rows[0].next;
+        for (const event of events) {
+          await client.query(
+            "INSERT INTO interview_events (room_id, seq, type, at, data) VALUES ($1, $2, $3, $4, $5)",
+            [roomId, seq, event.type, event.at, JSON.stringify(event.data)],
+          );
+          seq += 1;
+        }
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
-    async saveReport(report: InterviewReport): Promise<void> {
+    async getEvents(roomId: string): Promise<InterviewEvent[]> {
+      await ensureSchema();
+      const result = await getPool().query<{
+        room_id: string;
+        seq: number;
+        type: string;
+        at: Date;
+        data: Record<string, unknown> | null;
+      }>(
+        "SELECT room_id, seq, type, at, data FROM interview_events WHERE room_id = $1 ORDER BY seq ASC",
+        [roomId],
+      );
+      return result.rows.map((row) => ({
+        roomId: row.room_id,
+        seq: row.seq,
+        type: row.type,
+        at: row.at.toISOString(),
+        data: row.data ?? {},
+      }));
+    },
+
+    async saveScorecard(scorecard: Scorecard): Promise<void> {
       await ensureSchema();
       await getPool().query(
-        `INSERT INTO reports (room_id, report, generated_at)
+        `INSERT INTO scorecards (room_id, scorecard, generated_at)
          VALUES ($1, $2, now())
          ON CONFLICT (room_id) DO UPDATE SET
-           report = EXCLUDED.report,
+           scorecard = EXCLUDED.scorecard,
            generated_at = now()`,
-        [report.roomId, JSON.stringify(report)],
+        [scorecard.roomId, JSON.stringify(scorecard)],
       );
     },
 
-    async getReport(roomId: string): Promise<InterviewReport | null> {
+    async getScorecard(roomId: string): Promise<Scorecard | null> {
       await ensureSchema();
-      const result = await getPool().query<{ report: unknown }>(
-        "SELECT report FROM reports WHERE room_id = $1",
+      const result = await getPool().query<{ scorecard: Scorecard }>(
+        "SELECT scorecard FROM scorecards WHERE room_id = $1",
         [roomId],
       );
-      const row = result.rows[0];
-      return row ? parseStoredReport(row.report) : null;
+      return result.rows[0]?.scorecard ?? null;
     },
 
-    async getReportIntegrity(
+    async getScorecardSummaries(
       roomIds: readonly string[],
-    ): Promise<Map<string, ReportIntegritySummary>> {
-      const result = new Map<string, ReportIntegritySummary>();
+    ): Promise<Map<string, ScorecardSummary>> {
+      const result = new Map<string, ScorecardSummary>();
       if (roomIds.length === 0) return result;
 
       await ensureSchema();
-      const query = await getPool().query<{ room_id: string; integrity: unknown }>(
-        `SELECT room_id, report -> 'integrity' AS integrity
-         FROM reports
+      const query = await getPool().query<{
+        room_id: string;
+        overall: number | null;
+        suggestion: string | null;
+        review: boolean | null;
+        factors: ScorecardSummary["overall"];
+      }>(
+        `SELECT room_id,
+                (scorecard ->> 'overallScore')::float AS overall,
+                scorecard ->> 'suggestion' AS suggestion,
+                (scorecard ->> 'needsHumanReview')::boolean AS review,
+                scorecard -> 'overall' AS factors
+         FROM scorecards
          WHERE room_id = ANY($1)`,
         [[...roomIds]],
       );
 
       for (const row of query.rows) {
-        const parsed = integritySummarySchema.safeParse(row.integrity);
-        if (parsed.success) {
-          result.set(row.room_id, parsed.data);
-        }
+        result.set(row.room_id, {
+          overallScore: row.overall,
+          suggestion: (row.suggestion ?? "insufficient") as ScorecardSummary["suggestion"],
+          needsHumanReview: row.review ?? false,
+          overall: row.factors ?? null,
+        });
       }
       return result;
     },
@@ -371,9 +441,12 @@ interface TurnRow {
   seq: number;
   speaker: string;
   text: string;
-  asked_at: Date | null;
-  answered_at: Date | null;
-  latency_ms: number | null;
+  started_at: Date | null;
+  ended_at: Date | null;
+  response_latency_ms: number | null;
+  interrupted: boolean | null;
+  phase: string | null;
+  competency_id: string | null;
 }
 
 function turnRowToTurn(row: TurnRow): InterviewTurn {
@@ -382,8 +455,11 @@ function turnRowToTurn(row: TurnRow): InterviewTurn {
     seq: row.seq,
     speaker: row.speaker === "candidate" ? "candidate" : "interviewer",
     text: row.text,
-    askedAt: row.asked_at ? row.asked_at.toISOString() : null,
-    answeredAt: row.answered_at ? row.answered_at.toISOString() : null,
-    latencyMs: row.latency_ms,
+    startedAt: row.started_at ? row.started_at.toISOString() : null,
+    endedAt: row.ended_at ? row.ended_at.toISOString() : null,
+    responseLatencyMs: row.response_latency_ms,
+    interrupted: row.interrupted ?? false,
+    phase: row.phase,
+    competencyId: row.competency_id,
   };
 }

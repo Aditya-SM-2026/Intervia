@@ -53,7 +53,7 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
           value={candidateUrl}
           aria-label="Candidate link"
           onFocus={(event) => event.currentTarget.select()}
-          className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm"
+          className="w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm"
         />
         {manualCopyNeeded && (
           <p className="mt-1 text-xs text-muted">
@@ -62,6 +62,29 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
           </p>
         )}
       </div>
+
+      {room.plan && (
+        <div>
+          <p className="mb-1 text-sm font-medium">
+            Interview plan: {room.durationMinutes} minutes, {room.plan.competencies.length} topics,{" "}
+            {room.voiceMode === "rolling" ? "lower-cost voice" : "standard voice"}
+          </p>
+          {room.plan.source === "fallback" && (
+            <p className="mb-2 text-xs text-amber-600 dark:text-amber-400">
+              A tailored plan could not be generated, so a generic plan is used. Create the
+              interview again to retry.
+            </p>
+          )}
+          <ol className="grid list-decimal gap-2 rounded-lg border border-border bg-background py-3 pl-8 pr-3 text-sm">
+            {room.plan.competencies.map((competency) => (
+              <li key={competency.id}>
+                <span className="font-medium">{competency.name}.</span>{" "}
+                <span className="text-muted">{competency.question}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <button
@@ -89,8 +112,9 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
       </div>
 
       <p className="text-xs text-muted">
-        Share this link only with the candidate. Anyone who has it can join the
-        interview room{room.expiresAt ? ` until ${formatDateTime(room.expiresAt)}` : ""}.
+        Share this link only with the candidate. It opens only for the invited email
+        address{room.expiresAt ? `, until ${formatDateTime(room.expiresAt)}` : ""}. The scorecard
+        appears on the dashboard when the interview ends.
       </p>
     </div>
   );

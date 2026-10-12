@@ -7,6 +7,7 @@ import {
 } from "@/lib/interviews/interview.validation";
 import type { InterviewApiError } from "@/lib/interviews/interview.types";
 import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
+import { requireRecruiter } from "@/lib/auth/guards";
 
 function invalidInput(message: string) {
   const body: InterviewApiError = { error: { code: "INVALID_INPUT", message } };
@@ -14,11 +15,15 @@ function invalidInput(message: string) {
 }
 
 /**
- * Creates an interview session. Accepts multipart form data so the resume
- * (PDF) and optionally the job description (PDF) can be uploaded in the same
- * request as the session fields.
+ * Creates an interview session (signed-in recruiters only). Accepts multipart
+ * form data so the resume (PDF) and optionally the job description (PDF) can
+ * be uploaded in the same request as the session fields. The interview plan
+ * is generated here, so the response takes a few seconds.
  */
 export async function POST(request: NextRequest) {
+  const denied = await requireRecruiter();
+  if (denied) return denied;
+
   let form: FormData;
   try {
     form = await request.formData();
@@ -39,6 +44,7 @@ export async function POST(request: NextRequest) {
     roleTitle: text("roleTitle"),
     durationMinutes: text("durationMinutes"),
     difficulty: text("difficulty"),
+    voiceMode: text("voiceMode"),
     jobDescriptionText: text("jobDescriptionText"),
   });
   if (!parsed.success) {
@@ -80,7 +86,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof PdfExtractionError) {
       // A scanned or unreadable resume must not block the interview; the
-      // brain runs JD-only and the report notes the gap.
+      // plan is built from the job description alone and the scorecard notes it.
       resume = { fileName: resumeFile.name, text: "", unreadable: true };
     } else {
       throw error;

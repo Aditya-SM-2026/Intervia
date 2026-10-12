@@ -1,47 +1,41 @@
 import "server-only";
 import type {
   DashboardListFilter,
+  InterviewEvent,
+  InterviewEventInput,
   InterviewRepository,
   InterviewRoom,
   InterviewTurn,
   InterviewTurnInput,
 } from "@/lib/interviews/interview.types";
-import type {
-  InterviewReport,
-  ReportIntegritySummary,
-} from "@/lib/interviews/report.types";
+import type { Scorecard, ScorecardSummary } from "@/lib/interviews/scorecard.types";
 
 /**
- * In-memory interview session store (temporary until a database is
- * configured). The object is kept on globalThis so Next.js hot reload in
- * development does not wipe it on every module reload.
- *
- * Ownership: rooms and reports are written here; transcript turns are
- * written by the interview pipeline (in-memory dev mirror) and only read.
+ * In-memory store for zero-setup local development. Kept on globalThis so
+ * Next.js hot reload does not wipe it. The agent worker never touches this
+ * directly: it reads and writes through /api/agent/*, so a local interview
+ * works end to end without a database. Data is lost when the dev server stops.
  */
 
 interface InterviewStore {
   rooms: Map<string, InterviewRoom>;
-  /** roomId -> { workerId, claimedAtMs } for exclusive agent claims. */
-  claims: Map<string, { workerId: string; claimedAtMs: number }>;
-/** roomId -> transcript turns in insertion order. */
   turns: Map<string, InterviewTurn[]>;
-  /** roomId -> generated report (dashboard-owned). */
-  reports: Map<string, InterviewReport>;
+  events: Map<string, InterviewEvent[]>;
+  scorecards: Map<string, Scorecard>;
 }
 
-const globalStore = globalThis as unknown as { __interviewStore?: InterviewStore };
+const globalStore = globalThis as unknown as { __interviewStoreV2?: InterviewStore };
 
 function getStore(): InterviewStore {
-  if (!globalStore.__interviewStore) {
-    globalStore.__interviewStore = {
+  if (!globalStore.__interviewStoreV2) {
+    globalStore.__interviewStoreV2 = {
       rooms: new Map(),
-      claims: new Map(),
       turns: new Map(),
-      reports: new Map(),
+      events: new Map(),
+      scorecards: new Map(),
     };
   }
-  return globalStore.__interviewStore;
+  return globalStore.__interviewStoreV2;
 }
 
 export function getInMemoryInterviewRepository(): InterviewRepository {
@@ -74,28 +68,11 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
       return rooms;
     },
 
-    async claimForAgent(roomId: string, workerId: string, ttlSeconds: number): Promise<boolean> {
-      // No rooms.has() guard: this store belongs to the worker process, which
-      // never creates interview rows itself (they live in the web process or
-      // the database). Any roomId may be claimed; TTLs keep it safe.
-      const existing = store.claims.get(roomId);
-      const fresh = existing && Date.now() - existing.claimedAtMs < ttlSeconds * 1000;
-      if (fresh && existing.workerId !== workerId) return false;
-      store.claims.set(roomId, { workerId, claimedAtMs: Date.now() });
-      return true;
-    },
-
-    async releaseAgentClaim(roomId: string, workerId: string): Promise<void> {
-      const existing = store.claims.get(roomId);
-      if (existing && existing.workerId === workerId) {
-        store.claims.delete(roomId);
-      }
-    },
-
-async appendTurn(roomId: string, turn: InterviewTurnInput): Promise<void> {
+    async appendTurns(roomId: string, turns: readonly InterviewTurnInput[]): Promise<void> {
       const list = store.turns.get(roomId) ?? [];
-      const stored: InterviewTurn = { roomId, seq: list.length + 1, ...turn };
-      list.push(stored);
+      for (const turn of turns) {
+        list.push({ roomId, seq: list.length + 1, ...turn });
+      }
       store.turns.set(roomId, list);
     },
 
@@ -103,36 +80,38 @@ async appendTurn(roomId: string, turn: InterviewTurnInput): Promise<void> {
       return [...(store.turns.get(roomId) ?? [])];
     },
 
-    async completeSession(roomId: string): Promise<void> {
-      const room = store.rooms.get(roomId);
-      if (!room || room.status === "completed" || room.status === "expired" || room.status === "cancelled") {
-        return;
+    async appendEvents(roomId: string, events: readonly InterviewEventInput[]): Promise<void> {
+      const list = store.events.get(roomId) ?? [];
+      for (const event of events) {
+        list.push({ roomId, seq: list.length + 1, ...event });
       }
-      store.rooms.set(roomId, {
-        ...room,
-        status: "completed",
-        completedAt: new Date().toISOString(),
-      });
+      store.events.set(roomId, list);
     },
 
-    async saveReport(report: InterviewReport): Promise<void> {
-      store.reports.set(report.roomId, report);
+    async getEvents(roomId: string): Promise<InterviewEvent[]> {
+      return [...(store.events.get(roomId) ?? [])];
     },
 
-    async getReport(roomId: string): Promise<InterviewReport | null> {
-      return store.reports.get(roomId) ?? null;
+    async saveScorecard(scorecard: Scorecard): Promise<void> {
+      store.scorecards.set(scorecard.roomId, scorecard);
     },
 
-    async getReportIntegrity(
+    async getScorecard(roomId: string): Promise<Scorecard | null> {
+      return store.scorecards.get(roomId) ?? null;
+    },
+
+    async getScorecardSummaries(
       roomIds: readonly string[],
-    ): Promise<Map<string, ReportIntegritySummary>> {
-      const result = new Map<string, ReportIntegritySummary>();
+    ): Promise<Map<string, ScorecardSummary>> {
+      const result = new Map<string, ScorecardSummary>();
       for (const roomId of roomIds) {
-        const report = store.reports.get(roomId);
-        if (report) {
+        const scorecard = store.scorecards.get(roomId);
+        if (scorecard) {
           result.set(roomId, {
-            probability: report.integrity.probability,
-            level: report.integrity.level,
+            overallScore: scorecard.overallScore,
+            suggestion: scorecard.suggestion,
+            needsHumanReview: scorecard.needsHumanReview,
+            overall: scorecard.overall ?? null,
           });
         }
       }

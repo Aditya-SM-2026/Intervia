@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { InterviewRoom } from "@/lib/interviews/interview.types";
 import { CreateInterviewForm, type CreateInterviewFormValues } from "./CreateInterviewForm";
 import { InterviewLinkResult } from "./InterviewLinkResult";
@@ -11,6 +12,7 @@ interface CreateResult {
 }
 
 export function CreateInterviewPanel() {
+  const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CreateResult | null>(null);
@@ -27,6 +29,7 @@ export function CreateInterviewPanel() {
       form.set("roleTitle", values.roleTitle);
       form.set("durationMinutes", String(values.durationMinutes));
       form.set("difficulty", values.difficulty);
+      form.set("voiceMode", values.voiceMode);
       if (values.jobDescriptionPdf) {
         form.set("jobDescriptionPdf", values.jobDescriptionPdf);
       } else if (values.jobDescriptionText) {
@@ -35,6 +38,10 @@ export function CreateInterviewPanel() {
       form.set("resume", values.resume);
 
       const response = await fetch("/api/interviews", { method: "POST", body: form });
+      if (response.status === 401) {
+        router.replace("/login?next=/recruiter");
+        return;
+      }
       const data = await response.json();
 
       if (!response.ok) {
@@ -56,11 +63,15 @@ export function CreateInterviewPanel() {
   }
 
   if (result) {
-    return <InterviewLinkResult result={result} onReset={() => setResult(null)} />;
+    return (
+      <div className="rounded-2xl border border-border bg-surface p-5 sm:p-7">
+        <InterviewLinkResult result={result} onReset={() => setResult(null)} />
+      </div>
+    );
   }
 
   return (
-    <div className="grid h-full gap-3">
+    <div className="grid gap-4">
       {error && (
         <p
           role="alert"

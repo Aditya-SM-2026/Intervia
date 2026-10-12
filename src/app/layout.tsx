@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Bricolage_Grotesque, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -9,6 +9,13 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+// Headings: a grotesque with some character, so the product does not read as
+// a generic dashboard. Body text stays in Geist for long transcripts.
+const display = Bricolage_Grotesque({
+  variable: "--font-display-face",
   subsets: ["latin"],
 });
 
@@ -22,7 +29,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${display.variable}`}>
       <body className="min-h-dvh bg-background font-sans text-foreground antialiased">
         {children}
       </body>

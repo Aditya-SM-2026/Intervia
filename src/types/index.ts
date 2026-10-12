@@ -7,9 +7,12 @@ export type {
 } from "@/lib/ai/ai.types";
 export type {
   ConsentRecord,
+  CoverageEntry,
   CreateInterviewInput,
   DashboardListFilter,
+  HumanDecision,
   InterviewApiError,
+  InterviewEvent,
   InterviewRepository,
   InterviewRoom,
   InterviewStatus,
@@ -19,20 +22,18 @@ export type {
   Participant,
   ParticipantRole,
   ResumeInfo,
+  SessionOutcome,
+  TranscriptSpeaker,
 } from "@/lib/interviews/interview.types";
+export type { InterviewPlan, PlanCompetency, RatingAnchors } from "@/lib/interviews/plan.types";
 export type {
+  CompetencyScore,
   DashboardInterviewSummary,
   DashboardInterviewsResponse,
-  InterviewReport,
-  InterviewReportResponse,
-  IntegrityLevel,
-  IntegritySignal,
-  JdCoverageEntry,
-  ReportAnalysis,
-  ReportEngineMeta,
-  ReportIntegrity,
-  ReportIntegritySummary,
-  ReportTopicSummary,
-  TranscriptSpeaker,
-  TranscriptTurn,
-} from "@/lib/interviews/report.types";
+  IntegritySignals,
+  InterviewDetailResponse,
+  ScoreEvidence,
+  Scorecard,
+  ScorecardSummary,
+  ScoreSuggestion,
+} from "@/lib/interviews/scorecard.types";

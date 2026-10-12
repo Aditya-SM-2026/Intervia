@@ -1,143 +1,158 @@
 import Link from "next/link";
+import { BrandMark } from "@/components/brand/BrandMark";
 
 const steps = [
   {
-    actor: "Recruiter",
-    action: "Create an interview and add the role details.",
+    title: "Add the role and the resume",
+    body: "Intervia turns the job description into an interview plan: the competencies that matter, one core question for each, and what a strong answer looks like.",
   },
   {
-    actor: "Candidate",
-    action: "Join through a secure shareable link.",
+    title: "The candidate talks to the interviewer",
+    body: "A live spoken conversation in the browser. The interviewer follows the plan, asks follow-ups on what the candidate actually said, and keeps to time.",
   },
   {
-    actor: "Intervia",
-    action: "Conduct a structured AI-led video interview.",
+    title: "You read the scorecard and decide",
+    body: "Each competency is scored 1 to 5 and backed by the candidate's own words, linked to the transcript. The decision stays with you.",
   },
 ];
 
+const SPECIMEN_BARS = [3, 6, 10, 15, 9, 13, 18, 12, 7, 14, 9, 5, 11, 6, 3];
+
 export default function Home() {
   return (
-    <div className="min-h-dvh bg-background">
-      {/* Header */}
-      <header className="border-b border-border">
-        <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-6">
-          <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-            {/* <span className="grid size-8 place-items-center rounded-lg bg-accent text-sm text-white"> */}
-              {/* I */}
-            {/* </span> */}
-            Intervia
-          </Link>
-
-          <div className="flex items-center gap-2">
-            <Link
-              href="/dashboard"
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-surface"
-            >
-              Dashboard
-            </Link>
-            <Link
-              href="/recruiter"
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-surface"
-            >
-              Sign in
-            </Link>
-          </div>
-        </div>
+    <div className="min-h-dvh">
+      <header className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
+        <BrandMark />
+        <Link
+          href="/dashboard"
+          className="rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium transition hover:border-accent"
+        >
+          Recruiter sign-in
+        </Link>
       </header>
 
-      {/* Hero */}
-      <main className="mx-auto max-w-5xl px-6 py-16 sm:py-24">
-        <div className="mx-auto max-w-2xl text-center">
-          <p className="mb-4 text-sm font-medium text-accent">
-            AI-powered interviews for modern hiring
-          </p>
-
-          <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-5xl">
-            Run better interviews with AI
-          </h1>
-
-          <p className="mx-auto mt-4 max-w-xl text-muted">
-            Create a shareable interview link and let candidates speak with your
-            AI interviewer in a live video conversation.
-          </p>
-
-          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Link
-              href="/recruiter"
-              className="w-full rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90 sm:w-auto"
-            >
-              Create an interview
-            </Link>
-
-            <Link
-              href="/how-it-works"
-              className="w-full rounded-lg border border-border px-5 py-2.5 text-sm font-medium transition hover:bg-surface sm:w-auto"
-            >
-              How it works
-            </Link>
-          </div>
-        </div>
-
-        {/* Steps */}
-        <section className="mt-16 sm:mt-20">
-          <div className="grid gap-4 sm:grid-cols-3">
-            {steps.map(({ actor, action }, index) => (
-              <div
-                key={actor}
-                className="rounded-xl border border-border bg-surface p-5"
+      <main className="mx-auto max-w-6xl px-5 sm:px-8">
+        <section className="grid items-center gap-10 py-12 lg:grid-cols-[1.05fr_1fr] lg:gap-16 lg:py-20">
+          <div>
+            <h1 className="text-4xl font-semibold leading-[1.05] sm:text-6xl">
+              A real interview, held by voice, scored on evidence.
+            </h1>
+            <p className="mt-5 max-w-xl text-lg leading-relaxed text-muted">
+              Intervia interviews each candidate out loud, to a plan built from your job
+              description, and gives you a scorecard where every score points to what the
+              candidate said.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link
+                href="/recruiter"
+                className="rounded-md bg-accent px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
               >
-                <p className="text-xs font-medium uppercase tracking-wide text-muted">
-                  Step {index + 1}
-                </p>
-
-                <h2 className="mt-2 font-semibold">{actor}</h2>
-                <p className="mt-1 text-sm text-muted">{action}</p>
-              </div>
-            ))}
+                Create an interview
+              </Link>
+              <a
+                href="#how-it-works"
+                className="rounded-md border border-border bg-surface px-5 py-3 text-sm font-semibold transition hover:border-accent"
+              >
+                See how it works
+              </a>
+            </div>
           </div>
+
+          {/* A specimen of the product: one exchange and the score it produced. */}
+          <figure className="rounded-2xl border border-border bg-surface p-6 sm:p-7">
+            <div className="flex h-12 items-center gap-1" aria-hidden="true">
+              {SPECIMEN_BARS.map((height, index) => (
+                <span
+                  key={index}
+                  className={`w-1.5 rounded-full ${index < 8 ? "bg-accent" : "bg-candidate"}`}
+                  style={{ height: `${height * 2.4}px` }}
+                />
+              ))}
+            </div>
+            <dl className="mt-5 grid gap-4 text-[15px] leading-relaxed">
+              <div>
+                <dt className="text-sm font-medium text-accent">Interviewer</dt>
+                <dd>How did you check that no balances drifted during the cutover?</dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-candidate">Candidate</dt>
+                <dd>
+                  We ran both systems side by side for two weeks and only switched once the
+                  mismatch rate had been zero for five days.
+                </dd>
+              </div>
+            </dl>
+            <figcaption className="mt-6 border-t border-border pt-5">
+              <div className="flex items-center justify-between gap-4">
+                <span className="font-medium">Zero-downtime migrations</span>
+                <span className="flex items-center gap-2 text-sm font-semibold tabular-nums">
+                  <span className="flex gap-1" aria-hidden="true">
+                    {[1, 2, 3, 4, 5].map((step) => (
+                      <span
+                        key={step}
+                        className={`h-2 w-5 rounded-sm ${step <= 4 ? "bg-accent" : "bg-border"}`}
+                      />
+                    ))}
+                  </span>
+                  4 of 5
+                </span>
+              </div>
+              <p className="mt-2 border-l-2 border-candidate pl-3 text-sm text-muted">
+                “only switched once the mismatch rate had been zero for five days”
+              </p>
+            </figcaption>
+          </figure>
         </section>
 
-        {/* Simple trust section */}
-        <section className="mt-16 rounded-xl border border-border bg-surface p-6 sm:mt-20 sm:p-8">
-          <div className="grid gap-6 sm:grid-cols-3">
-            <div>
-              <h3 className="font-medium">Consistent interviews</h3>
-              <p className="mt-1 text-sm text-muted">
-                Every candidate receives the same structured experience.
-              </p>
-            </div>
+        <section id="how-it-works" className="scroll-mt-8 border-t border-border py-14">
+          <h2 className="text-2xl font-semibold sm:text-3xl">How it works</h2>
+          <ol className="mt-8 grid gap-8 md:grid-cols-3">
+            {steps.map((step, index) => (
+              <li key={step.title}>
+                <span className="font-display text-3xl font-semibold text-accent">{index + 1}</span>
+                <h3 className="mt-2 font-semibold">{step.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted">{step.body}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
 
-            <div>
-              <h3 className="font-medium">Faster screening</h3>
-              <p className="mt-1 text-sm text-muted">
-                Review responses and move strong candidates forward quickly.
-              </p>
-            </div>
-
-            <div>
-              <h3 className="font-medium">Simple workflow</h3>
-              <p className="mt-1 text-sm text-muted">
-                Create, share, and manage interviews from one place.
-              </p>
-            </div>
+        <section className="grid gap-8 border-t border-border py-14 md:grid-cols-2">
+          <div>
+            <h2 className="text-2xl font-semibold sm:text-3xl">The same interview for every candidate</h2>
+            <p className="mt-3 max-w-md leading-relaxed text-muted">
+              Everyone applying for a role is asked the same core questions and graded on the
+              same scale, so two scorecards can be compared.
+            </p>
           </div>
+          <ul className="divide-y divide-border border-y border-border text-[15px] leading-relaxed">
+            <li className="py-4">
+              <span className="font-semibold">Scores you can check.</span>{" "}
+              <span className="text-muted">
+                A score is only shown when its quotes are found in the transcript.
+              </span>
+            </li>
+            <li className="py-4">
+              <span className="font-semibold">Integrity signals that are measured.</span>{" "}
+              <span className="text-muted">
+                Time away from the interview tab and connection drops are counted. Voice, face
+                and gaze are not analysed.
+              </span>
+            </li>
+            <li className="py-4">
+              <span className="font-semibold">A person decides.</span>{" "}
+              <span className="text-muted">
+                The scorecard advises. Advance, hold or reject is recorded by the recruiter.
+              </span>
+            </li>
+          </ul>
         </section>
       </main>
 
-      {/* Footer */}
       <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-3 px-6 py-6 text-sm text-muted sm:flex-row">
-          <p>© {new Date().getFullYear()} Intervia</p>
-
-          <div className="flex items-center gap-4">
-            <Link href="/privacy" className="hover:text-foreground">
-              Privacy
-            </Link>
-            <Link href="/terms" className="hover:text-foreground">
-              Terms
-            </Link>
-          </div>
-        </div>
+        <p className="mx-auto max-w-6xl px-5 py-6 text-sm text-muted sm:px-8">
+          © {new Date().getFullYear()} Intervia
+        </p>
       </footer>
     </div>
   );

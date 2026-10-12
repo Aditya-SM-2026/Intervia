@@ -7,3 +7,9 @@ node_modules
 *.txt
 .dockerignore
 .gcloudignore
+.data
+.mux
+graphify-out
+agent/.venv
+agent/tests
+**/__pycache__

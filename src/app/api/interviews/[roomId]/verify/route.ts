@@ -17,13 +17,15 @@ import {
 } from "@/lib/interviews/email-attempts";
 import { getLiveKitRoomName } from "@/lib/livekit/room";
 import { generateLiveKitToken } from "@/lib/livekit/token";
+import { createRecordingToken } from "@/lib/auth/session";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
 
 /**
  * Candidate email gate: verifies the email matches the session and that
- * consent was given, then issues join credentials in the same response.
- * Failed attempts are rate-limited per link.
+ * consent was given, then issues join credentials in the same response. The
+ * token also dispatches the interviewer agent to the room, so it is already
+ * there when the candidate connects. Failed attempts are rate-limited per link.
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   const { roomId } = await params;
@@ -67,9 +69,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       roomName: getLiveKitRoomName(roomId),
       identity,
       displayName,
+      dispatchInterviewId: roomId,
     });
     await activateRoom(roomId);
-    return NextResponse.json({ ...credentials, identity });
+    return NextResponse.json({
+      ...credentials,
+      identity,
+      // Lets this participant upload their own recording, nothing else.
+      recordingToken: await createRecordingToken(roomId, identity),
+    });
   } catch (error) {
     console.error("LiveKit token generation failed:", error);
     return interviewErrorResponse(

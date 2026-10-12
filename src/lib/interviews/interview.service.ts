@@ -3,19 +3,21 @@ import { randomBytes } from "node:crypto";
 import type {
   CreateInterviewInput,
   DashboardListFilter,
+  HumanDecision,
   InterviewApiError,
   InterviewRepository,
   InterviewRoom,
   InterviewStatus,
+  SessionOutcome,
 } from "./interview.types";
-import type { DashboardInterviewSummary } from "./report.types";
+import { generateInterviewPlan } from "./plan.service";
+import type { DashboardInterviewSummary } from "./scorecard.types";
 import { getInterviewRepository } from "@/server/repositories";
 
 const MS_PER_MINUTE = 60_000;
-// The interview length (5-10 min) is enforced by the agent session; the link
-// itself stays joinable for a day so candidates are not blocked by short
-// durations between creation and joining.
-const LINK_VALIDITY_HOURS = 24;
+// The interview length is enforced by the agent's controller; the link itself
+// stays joinable for three days so the candidate can pick a time.
+const LINK_VALIDITY_HOURS = 72;
 // 16 random bytes → 22 URL-safe base64 characters, well above the minimum
 // length the room ID validation pattern requires.
 const ROOM_ID_RANDOM_BYTES = 16;
@@ -40,6 +42,16 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
   const createdAt = new Date().toISOString();
   const expiresAt = new Date(Date.now() + LINK_VALIDITY_HOURS * 60 * MS_PER_MINUTE).toISOString();
 
+  // The plan is fixed before the candidate ever joins: it is what makes the
+  // interview structured and the scorecard comparable across candidates.
+  const plan = await generateInterviewPlan({
+    roleTitle: input.roleTitle,
+    durationMinutes: input.durationMinutes,
+    difficulty: input.difficulty,
+    jobDescription: input.jobDescription,
+    resume: input.resume,
+  });
+
   const room: InterviewRoom = {
     id,
     title: input.title || input.roleTitle,
@@ -52,10 +64,14 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     roleTitle: input.roleTitle,
     difficulty: input.difficulty,
     durationMinutes: input.durationMinutes,
+    voiceMode: input.voiceMode,
     jobDescription: input.jobDescription,
     resume: input.resume,
     consent: null,
     completedAt: null,
+    plan,
+    outcome: null,
+    decision: null,
   };
 
   await repository.save(room);
@@ -165,20 +181,38 @@ export async function verifyCandidateEmail(
 }
 
 /**
- * Marks a finished session completed (status + completedAt). Terminal states
- * (expired/cancelled/completed) are never overwritten.
+ * Records how the live interview ended (written by the agent worker). The
+ * session is marked completed unless the agent reports an early drop, in
+ * which case the link stays usable. Terminal states are never overwritten.
  */
-export async function completeSession(roomId: string): Promise<void> {
+export async function recordSessionOutcome(
+  roomId: string,
+  outcome: SessionOutcome,
+  completed: boolean,
+): Promise<InterviewRoom | null> {
   const repository = getInterviewRepository();
   const room = await repository.get(roomId);
-  if (!room || room.status === "completed") return;
+  if (!room) return null;
+  if (room.status === "expired" || room.status === "cancelled") return room;
 
-  if (room.status === "expired" || room.status === "cancelled") return;
-  await repository.save({
-    ...room,
-    status: "completed",
-    completedAt: new Date().toISOString(),
-  });
+  const updated: InterviewRoom = completed
+    ? { ...room, outcome, status: "completed", completedAt: outcome.endedAt }
+    : { ...room, outcome };
+  await repository.save(updated);
+  return updated;
+}
+
+/** Stores the recruiter's hiring decision for an interview. */
+export async function recordDecision(
+  roomId: string,
+  decision: HumanDecision,
+): Promise<InterviewRoom | null> {
+  const repository = getInterviewRepository();
+  const room = await repository.get(roomId);
+  if (!room) return null;
+  const updated: InterviewRoom = { ...room, decision };
+  await repository.save(updated);
+  return updated;
 }
 
 function normalizeEmail(email: string): string {
@@ -186,21 +220,26 @@ function normalizeEmail(email: string): string {
 }
 
 /**
- * Sessions for the recruiter dashboard, newest first, each with the report's
- * integrity summary when a report exists. Expiry is applied for display only
- * (no writes) so listing never mutates rooms. Supports the email filter and
- * pagination from the dashboard UI.
+ * Sessions for the recruiter dashboard, newest first, each with its scorecard
+ * summary when one exists. Expiry is applied for display only (no writes).
+ * Heavy fields the list does not show are stripped from the payload.
  */
 export async function listDashboardInterviews(
   filter?: DashboardListFilter,
 ): Promise<DashboardInterviewSummary[]> {
   const repository = getInterviewRepository();
   const rooms = await repository.list(filter);
-  const integrity = await repository.getReportIntegrity(rooms.map((room) => room.id));
+  const summaries = await repository.getScorecardSummaries(rooms.map((room) => room.id));
 
   return rooms.map((room) => ({
-    room: { ...room, status: displayStatus(room) },
-    integrity: integrity.get(room.id) ?? null,
+    room: {
+      ...room,
+      status: displayStatus(room),
+      jobDescription: null,
+      resume: null,
+      plan: null,
+    },
+    scorecard: summaries.get(room.id) ?? null,
   }));
 }
 

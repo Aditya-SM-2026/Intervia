@@ -1,22 +1,20 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { AppShell } from "@/components/layout/AppShell";
 import { CreateInterviewPanel } from "@/components/recruiter/CreateInterviewPanel";
 
 export const metadata: Metadata = {
-  title: "Create an interview",
+  title: "New interview",
 };
 
 export default function RecruiterPage() {
   return (
-<main className="mx-auto flex min-h-dvh w-full flex-col p-4 sm:p-6">
-      <Link href="/" className="mb-4 inline-flex items-center gap-2 font-semibold tracking-tight">
-        <span className="grid size-9 place-items-center rounded-xl bg-accent text-sm text-white">I</span>
-        Intervia
-      </Link>
-      <h1 className="mb-4 text-2xl font-semibold tracking-tight">Create an interview</h1>
-      <div className="flex-1 rounded-2xl border border-border bg-surface p-5 sm:p-6">
-        <CreateInterviewPanel />
-      </div>
-    </main>
+    <AppShell current="new" wide>
+      <h1 className="text-3xl font-semibold">New interview</h1>
+      <p className="mt-1 mb-6 max-w-2xl text-muted">
+        The job description and resume become the interview plan. You will see the plan
+        before you send the link.
+      </p>
+      <CreateInterviewPanel />
+    </AppShell>
   );
 }

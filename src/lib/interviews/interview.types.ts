@@ -1,8 +1,5 @@
-import type {
-  InterviewReport,
-  ReportIntegritySummary,
-} from "./report.types";
-import type { TranscriptTurn } from "./report.types";
+import type { InterviewPlan } from "./plan.types";
+import type { Scorecard, ScorecardSummary } from "./scorecard.types";
 
 /** Lifecycle states for an interview room (status transitions land in Phase 2). */
 export type InterviewStatus =
@@ -17,10 +14,20 @@ export type InterviewStatus =
 export type ParticipantRole = "candidate" | "interviewer" | "ai_agent";
 
 /**
- * Interviewer personality: how hard the AI interviewer pushes. Each level has
- * its own prompt section (see buildSystemPrompt in the agent session).
+ * Interviewer style: how hard the AI interviewer pushes and how many
+ * follow-ups it asks per topic (see agent/intervia_agent/prompts.py).
  */
 export type DifficultyLevel = "easy" | "medium" | "hard" | "extra-hard";
+
+/**
+ * How the live voice model is run for an interview (see agent worker).
+ * "standard": one model session for the whole interview.
+ * "rolling": a fresh model session at each topic change and every minute or
+ * two, carrying the conversation as text, so earlier audio is not re-billed.
+ */
+export type VoiceMode = "standard" | "rolling";
+
+export const VOICE_MODES: readonly VoiceMode[] = ["standard", "rolling"];
 
 export interface Participant {
   id: string;
@@ -50,11 +57,43 @@ export interface ConsentRecord {
   givenAt: string;
 }
 
-/**
- * The interview session record. Older sessions only carry the original
- * fields; everything the pre-interview pipeline adds (email, role, JD,
- * resume, consent, …) is read defensively by the dashboard.
- */
+/** How one planned competency went, as recorded by the agent's controller. */
+export interface CoverageEntry {
+  competencyId: string;
+  name: string;
+  status: "covered" | "skipped" | "pending";
+  startedAtSeconds: number | null;
+  endedAtSeconds: number | null;
+  budgetSeconds: number | null;
+  /** The interviewer's one-line note when it left the topic. */
+  interviewerSummary: string | null;
+  interviewerEvidence: string | null;
+  /** "controller" when the time budget, not the interviewer, moved it on. */
+  advancedBy: "interviewer" | "controller" | null;
+}
+
+/** Written once by the agent worker when the live interview ends. */
+export interface SessionOutcome {
+  /** interviewer_ended, time_up, candidate_left, session_closed. */
+  reason: string;
+  startedAt: string | null;
+  endedAt: string;
+  elapsedSeconds: number;
+  coverage: CoverageEntry[];
+  /** Model usage as reported by the voice session (for cost tracking). */
+  usage: unknown[];
+  /** How many voice-model sessions the interview used (1 in standard mode). */
+  modelSessions?: number;
+}
+
+/** The hiring decision. Always made by a person; the scorecard only advises. */
+export interface HumanDecision {
+  outcome: "advance" | "hold" | "reject";
+  note: string;
+  decidedAt: string;
+}
+
+/** The interview session record. */
 export interface InterviewRoom {
   /** Opaque, URL-safe identifier used in candidate links. */
   id: string;
@@ -71,15 +110,21 @@ export interface InterviewRoom {
   /** The only email that may open this link; the join token is issued after it matches. */
   candidateEmail: string | null;
   roleTitle: string | null;
-  /** Interviewer personality chosen by the recruiter (default: medium). */
+  /** Interviewer style chosen by the recruiter (default: medium). */
   difficulty: DifficultyLevel;
-  /** Interview length in minutes (5-10); enforced by the agent session. */
+  /** Interview length in minutes (10-45); enforced by the agent's controller. */
   durationMinutes: number;
+  /** How the voice model is run; chosen by the recruiter (default: standard). */
+  voiceMode: VoiceMode;
   jobDescription: JobDescription | null;
   resume: ResumeInfo | null;
   consent: ConsentRecord | null;
   /** ISO 8601 timestamp set when the agent session ends. */
   completedAt: string | null;
+  /** Structured plan the interviewer follows and the scorecard grades against. */
+  plan: InterviewPlan | null;
+  outcome: SessionOutcome | null;
+  decision: HumanDecision | null;
 }
 
 export interface CreateInterviewInput {
@@ -89,25 +134,55 @@ export interface CreateInterviewInput {
   candidateName: string;
   candidateEmail: string;
   roleTitle: string;
-  /** Interview length in minutes (5-10). Drives agent pacing and enforcement. */
+  /** Interview length in minutes (10-45). Drives the plan size and pacing. */
   durationMinutes: number;
   /** How hard the interviewer pushes (default: medium). */
   difficulty: DifficultyLevel;
+  voiceMode: VoiceMode;
   jobDescription: JobDescription | null;
   resume: ResumeInfo | null;
 }
 
-/** One transcript turn of a session, persisted incrementally by the agent. */
-export interface InterviewTurn extends TranscriptTurn {
-  roomId: string;
+export type TranscriptSpeaker = "interviewer" | "candidate";
+
+/** One spoken turn, captured by the agent worker during the interview. */
+export interface InterviewTurnInput {
+  speaker: TranscriptSpeaker;
+  text: string;
+  /** ISO 8601 — when the speaker started and stopped talking. */
+  startedAt: string | null;
+  endedAt: string | null;
+  /**
+   * Candidate turns only: milliseconds between the interviewer finishing
+   * and the candidate starting to speak. Null when they overlapped.
+   */
+  responseLatencyMs: number | null;
+  /** The turn was cut short by the other side speaking. */
+  interrupted: boolean;
+  /** Interview phase when it was said: intro, topic, candidate_questions, closing. */
+  phase: string | null;
+  /** The plan competency under discussion, when in a topic. */
+  competencyId: string | null;
 }
 
-export interface InterviewTurnInput {
-  speaker: "interviewer" | "candidate";
-  text: string;
-  askedAt: string | null;
-  answeredAt: string | null;
-  latencyMs: number | null;
+export interface InterviewTurn extends InterviewTurnInput {
+  roomId: string;
+  /** Order within the interview, assigned by the store. */
+  seq: number;
+}
+
+/** One entry of the append-only interview event log. */
+export interface InterviewEventInput {
+  /** e.g. interview_started, topic_changed, client_tab_hidden, candidate_state. */
+  type: string;
+  /** ISO 8601. */
+  at: string;
+  data: Record<string, unknown>;
+}
+
+export interface InterviewEvent extends InterviewEventInput {
+  roomId: string;
+  seq: number;
 }
 
 /** Optional filters/slicing for the recruiter dashboard list. */
@@ -133,44 +208,24 @@ export interface InterviewApiError {
 }
 
 /**
- * Storage boundary for interview rooms. Storage is deliberately isolated
- * behind this interface so the in-memory store can later be swapped for a
- * database without touching route handlers or services.
+ * Storage boundary. Postgres when DATABASE_URL is set, in-memory otherwise;
+ * route handlers and services only ever see this interface.
  *
- * Sessions and transcript turns are WRITTEN by the pre-interview pipeline
- * workstream; the dashboard side only reads them. Reports are owned by the
- * dashboard side.
+ * Turns, events and the outcome are written by the agent worker through
+ * /api/agent/*; scorecards by the scoring pipeline; decisions by recruiters.
  */
 export interface InterviewRepository {
   save(room: InterviewRoom): Promise<void>;
   get(id: string): Promise<InterviewRoom | null>;
-  /**
-   * Sessions, newest first, with optional dashboard filters. Only fields
-   * that exist in storage are returned; absent pipeline fields stay undefined.
-   */
+  /** Sessions, newest first, with optional dashboard filters. */
   list(filter?: DashboardListFilter): Promise<InterviewRoom[]>;
-  /**
-   * Exclusive claim so only one agent worker joins a room (several workers
-   * poll the same rooms). Returns false when another worker holds a fresh
-   * claim. Claims expire after ttlSeconds so a crashed worker's room is
-   * recoverable.
-   */
-  claimForAgent(roomId: string, workerId: string, ttlSeconds: number): Promise<boolean>;
-  /** Releases this worker's claim (agent left the room normally). */
-  releaseAgentClaim(roomId: string, workerId: string): Promise<void>;
-/** Persists one transcript turn (seq is assigned by the store). */
-  appendTurn(roomId: string, turn: InterviewTurnInput): Promise<void>;
-  /** Full ordered transcript for a room (each turn carries its roomId). */
+  /** Appends turns in order (seq is assigned by the store). */
+  appendTurns(roomId: string, turns: readonly InterviewTurnInput[]): Promise<void>;
   getTurns(roomId: string): Promise<InterviewTurn[]>;
-  /** Marks a session completed once the agent has left (sets completedAt). */
-  completeSession(roomId: string): Promise<void>;
-  /** Stores a generated report, replacing any previous one for the room. */
-  saveReport(report: InterviewReport): Promise<void>;
-  /** The generated report, or null when none exists yet. */
-  getReport(roomId: string): Promise<InterviewReport | null>;
-  /**
-   * Integrity summaries for many rooms in one call (dashboard list badges).
-   * Rooms without a report are simply absent from the map.
-   */
-  getReportIntegrity(roomIds: readonly string[]): Promise<Map<string, ReportIntegritySummary>>;
+  appendEvents(roomId: string, events: readonly InterviewEventInput[]): Promise<void>;
+  getEvents(roomId: string): Promise<InterviewEvent[]>;
+  saveScorecard(scorecard: Scorecard): Promise<void>;
+  getScorecard(roomId: string): Promise<Scorecard | null>;
+  /** Scorecard summaries for many rooms in one call (dashboard list badges). */
+  getScorecardSummaries(roomIds: readonly string[]): Promise<Map<string, ScorecardSummary>>;
 }

@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { verifyEndpoint, type LiveKitJoinCredentials } from "@/lib/livekit/client";
+import { BrandMark } from "@/components/brand/BrandMark";
+import { MicCheck } from "./MicCheck";
 
 interface JoinInterviewFormProps {
   roomId: string;
   roomTitle: string;
   candidateName: string | null;
   recruiterName: string | null;
+  durationMinutes: number;
   /** Called with the join credentials once the email gate passes. */
   onVerified: (credentials: LiveKitJoinCredentials) => void;
   /** Called with the acquired stream once the candidate chooses to join. */
@@ -27,7 +30,7 @@ const PREVIEW_CONSTRAINTS: MediaStreamConstraints = {
 
 const fieldLabelClasses = "mb-1 block text-sm font-medium";
 const fieldInputClasses =
-  "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition focus:border-accent";
+  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent";
 
 function toDeviceError(error: unknown): DeviceError {
   if (error instanceof DOMException) {
@@ -58,6 +61,7 @@ export function JoinInterviewForm({
   roomTitle,
   candidateName,
   recruiterName,
+  durationMinutes,
   onVerified,
   onProceed,
 }: JoinInterviewFormProps) {
@@ -157,14 +161,20 @@ export function JoinInterviewForm({
 
   const header = (
     <div>
-      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-accent">Intervia</p>
-      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">Interview room</p>
+      <div className="mb-4 flex justify-center">
+        <BrandMark href={null} />
+      </div>
       <h1 className="text-2xl font-semibold">{roomTitle}</h1>
-      {candidateName && (
-        <p className="mt-1 text-sm">
-          You are joining as <strong>{candidateName}</strong>.
-        </p>
-      )}
+      <p className="mt-1 text-sm text-muted">
+        {candidateName ? (
+          <>
+            Interview for <strong className="text-foreground">{candidateName}</strong>, about{" "}
+            {durationMinutes} minutes
+          </>
+        ) : (
+          <>About {durationMinutes} minutes</>
+        )}
+      </p>
     </div>
   );
 
@@ -203,7 +213,10 @@ export function JoinInterviewForm({
               ) : (
                 <> on behalf of the recruiter</>
               )}
-              , with the conversation transcribed and evaluated for this hiring decision.
+              . I understand that the audio and video of this interview are recorded and
+              transcribed, that an AI system produces an assessment of my answers, and that a
+              person at the hiring company makes the final decision. I can ask the recruiter to
+              delete my recording and data.
             </span>
           </label>
         </div>
@@ -252,10 +265,12 @@ export function JoinInterviewForm({
         </ol>
       )}
 
+      {preview?.getAudioTracks()[0] && <MicCheck track={preview.getAudioTracks()[0]} />}
+
       <p className="text-xs text-muted">
-        Email verified. Your camera and microphone are used to show you and to let
-        you speak with Intervia AI. The conversation is transcribed and used to
-        evaluate this interview.
+        Email verified. The interview takes about {durationMinutes} minutes and is a spoken
+        conversation with Intervia AI. Use headphones if you can, and find a quiet place.
+        Recording starts when you join.
       </p>
 
       {error && (

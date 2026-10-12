@@ -2,298 +2,239 @@
 
 AI-powered conversations for better hiring.
 
-Intervia is an AI video-interview platform: a recruiter creates a session
-(role, candidate name + email, job description as text or PDF, resume PDF),
-and the candidate opens the link, verifies their email (only the invited
-address works), gives consent, and talks with Intervia AI in a real-time
-LiveKit room. The interviewer's brain is assembled from the job description
-and the candidate's resume, and every spoken turn is persisted incrementally
-as a transcript with per-answer latency — the data the post-interview reports
-and dashboard consume (see `docs/` for both workstream plans).
+A recruiter creates an interview from a job description and a resume. The
+candidate opens a link, verifies their email, gives consent, and has a live
+spoken interview with an AI interviewer. When it ends, the recruiter gets a
+scorecard: a 1–5 score per competency, each backed by the candidate's own
+words, plus the full transcript.
 
-Built in four phases — **all four are complete and deployed to GCP**: foundation;
-recruiter link creation and the candidate join screen; the live LiveKit
-camera/microphone room; and the AI agent voice conversation. On top of the
-base product there are three switchable voice pipelines (below) and a
-production deployment (Cloud Run web, Cloud SQL Postgres, and the AI agent
-worker on a Compute Engine VM).
+This is the v2 rebuild (see `docs/REDESIGN_PLAN.md` for the research and the
+decisions behind it).
 
-## Voice pipelines
+## How it works
 
-The candidate-facing voice is one env switch (`NEXT_PUBLIC_VOICE_PROVIDER`),
-no code changes:
+```
+Recruiter (signed in)
+  └─ POST /api/interviews ─► interview plan generated from JD + resume
+                             (competencies, core questions, rating anchors)
 
-| Provider | Candidate hears | How |
-| --- | --- | --- |
-| `agent` (default) | Browser's built-in speech synthesis | Agent replies as text over the data channel; the browser speaks them |
-| `cascade` (production) | Google Cloud TTS (Chirp 3 HD) | The agent worker synthesizes each sentence of its Ominibot-written reply and streams MP3 chunks over the data channel (`ai-audio-chunk` / `ai-audio-end`); the browser only decodes and plays, never speaking itself (`ai-message` carries `spoken: true` so the two voices can never overlap) |
-| `gemini-live` | Gemini Live native audio | The browser streams the microphone straight to the Gemini Live API with a server-minted ephemeral token (`/api/ai/live-token`); try it at `/lab` |
+Candidate browser ──WebRTC mic + camera──► LiveKit room
+                                              │  agent dispatched by the join token
+                                              ▼
+                              Interviewer agent (agent/, Python)
+                                ├─ Gemini Live: hears the audio track, speaks back
+                                ├─ Controller: plan, time budget, wrap-up
+                                └─ writes turns + events ─► /api/agent/*
 
-All three share the same conversation flow: browser speech recognition →
-transcript on the LiveKit data channel → agent worker → reply voice.
+Interview ends ─► scorecard: two independent gradings of the transcript,
+                  quotes verified against the stored turns
+Recruiter ─► /dashboard: scorecard, evidence, transcript, decision
+```
 
-## Stack
+Three ideas carry the design:
 
-- Next.js 16 (App Router) + React 19 + TypeScript (strict)
-- Tailwind CSS v4 for styling (theme tokens in `src/app/globals.css`)
-- Route handlers as the backend (Node.js runtime; secrets stay server-side)
-- LiveKit (`livekit-client`, `livekit-server-sdk`, `@livekit/components-react`) for real-time audio/video
-- Zod for input validation
-- Storage: Postgres (Cloud SQL in production) when `DATABASE_URL` is set, in-memory otherwise — both behind the same `InterviewRepository` interface
-- Speech: Web Speech API (recognition), Cloud TTS (`@google-cloud/text-to-speech`), Gemini Live (`@google/genai`)
+- **The model talks; the code steers.** Gemini Live owns the voice and the
+  natural back-and-forth. The controller (`agent/intervia_agent/controller.py`)
+  owns which competency is being discussed and how much time is left. The model
+  moves through the plan by calling the `start_next_topic` tool; if a topic or
+  the interview overruns, the controller moves it on.
+- **Audio goes through LiveKit.** The agent hears the candidate's WebRTC audio
+  track on the server. Nothing is recognized or synthesized in the browser, so
+  it works in any WebRTC browser with the browser's echo cancellation.
+- **Scoring is separate from the interview.** The live agent never sees the
+  rating scale. Scores are produced afterwards from the stored transcript and
+  can be regenerated.
 
-## Run
+## Run locally
+
+Requirements: Node 22+, [uv](https://docs.astral.sh/uv/), Docker (for a local
+LiveKit server), a Gemini API key.
 
 ```bash
+cp .env.example .env          # fill in GEMINI_API_KEY, AGENT_API_SECRET, RECRUITER_PASSWORD
 npm install
-npm run dev        # http://localhost:3000
-npm run agent      # AI agent worker (joins interview rooms and talks with candidates)
+
+# 1. LiveKit dev server (API key "devkey", secret "secret")
+docker run --rm -p 7880:7880 -p 7881:7881 -p 7882:7882/udp \
+  livekit/livekit-server --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+
+# 2. Web app
+npm run dev                   # http://localhost:3000
+
+# 3. Interviewer agent
+npm run agent                 # = cd agent && uv run main.py dev
 ```
 
-With `DATABASE_URL` pointed at Cloud SQL, local testing also needs
-[Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/sql-proxy)
-(listening on `127.0.0.1:5432`) so the dev server and the worker can reach the
-database. Without `DATABASE_URL` everything runs in-memory with zero setup.
-`/lab` is the Gemini Live playground (needs `GEMINI_API_KEY`).
+Then: sign in at `/login`, create an interview at `/recruiter`, open the
+candidate link, and afterwards open `/dashboard`.
 
-Other commands:
+Without `DATABASE_URL` everything is kept in the web app's memory (lost on
+restart); the agent reads and writes through the web app's API, so no database
+is needed to try it.
+
+Checks:
 
 ```bash
-npm run typecheck  # tsc --noEmit
-npm run lint       # eslint
-npm run build      # production build
+npm run typecheck && npm run lint && npm run build
+npm run agent:test            # controller unit tests
 ```
 
-## Environment variables
+### Simulated candidate
 
-Copy `.env.example` to `.env` and fill in values. `.env` is gitignored; nothing
-secret is ever exposed to the browser (the only `NEXT_PUBLIC_` variable is the
-non-secret voice-provider switch).
+`agent/scripts/simulate_candidate.py` joins an interview room and speaks
+scripted answers as real audio (macOS `say`), so the whole voice path can be
+tested without a browser or a person:
 
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `OMINIBOT_API_KEY` | For Ominibot provider | API key for the Ominibot LLM service (server-only) |
-| `OMINIBOT_API_BASE_URL` | No (defaults to `https://api.ominibot.com/v1`) | LLM API base URL |
-| `OMINIBOT_MODEL` | No (defaults to `ominibot`) | Model used for text generation |
-| `OMINIBOT_PROVIDER` | No | `mock` forces the mock provider; `ominibot` forces Ominibot; empty = Ominibot if a key is set, otherwise mock |
-| `LIVEKIT_URL` | For the interview room | LiveKit server URL (e.g. `ws://localhost:7880` in dev) |
-| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | For the interview room | LiveKit credentials for server-side token generation |
-| `DATABASE_URL` | No | Postgres connection string; when set, interview rooms persist in Postgres (Cloud SQL in production) and the agent worker takes exclusive claims through it. Without it: in-memory |
-| `NEXT_PUBLIC_VOICE_PROVIDER` | No (`agent`) | `agent`, `cascade`, or `gemini-live` — see Voice pipelines |
-| `AGENT_TTS_PROVIDER` | No | `cloud` makes the agent worker speak replies through Google Cloud TTS and stream the audio to the room (cascade pipeline) |
-| `CLOUD_TTS_VOICE` | No (`en-US-Chirp3-HD-Charon`) | Cloud TTS voice name (30 Chirp 3 HD voices available) |
-| `MEETINGBOT_ROOM_PREFIX` | No (`interview-`) | LiveKit room name prefix; set e.g. `dev-` locally so local test rooms stay away from a deployed agent watching the same LiveKit project |
-| `AGENT_ENABLED` | No | `false` keeps the worker process alive (health endpoint) but never joins rooms — used when Gemini Live replaces the room agent |
-| `GEMINI_API_KEY` | For gemini-live | Google AI Studio key, used server-side only to mint short-lived ephemeral Live tokens |
-| `GEMINI_BACKEND` | No (`studio`) | `studio` (AI Studio key) or `vertex` (Google Cloud Vertex AI) |
-| `GEMINI_LIVE_MODEL` | No (`gemini-2.5-flash-native-audio-latest`) | Live model used by the `/lab` pipeline |
+```bash
+cd agent
+uv run scripts/simulate_candidate.py --interview-id <id> --answers answers.txt --stay
+```
 
-## Architecture
+It prints the conversation and how long the interviewer took to start each
+reply.
+
+## Layout
 
 ```
+agent/                          # Python interviewer agent (LiveKit Agents + Gemini Live)
+  intervia_agent/
+    worker.py                   #   job entrypoint, session, capture, shutdown
+    controller.py               #   plan state machine and time budgets (pure, tested)
+    prompts.py                  #   interviewer instructions
+    plan.py                     #   interview context from the web API
+    backend.py                  #   buffered writes to /api/agent/*
+  scripts/simulate_candidate.py
+  tests/
 src/
   app/
-    page.tsx                # landing page
-    recruiter/page.tsx      # create an interview link (Phase 2)
-    interview/[roomId]/page.tsx   # candidate join screen with validation (Phase 2)
-    lab/page.tsx            # Gemini Live playground (voice-pipeline A/B)
-    api/
-      interviews/route.ts         # POST — create a session (multipart: fields +
-                                  # resume PDF + optional JD PDF)
-      interviews/[roomId]/route.ts# GET  — room lookup / access validation
-      interviews/[roomId]/verify/route.ts
-                                  # POST — candidate email gate: verifies the
-                                  # email + consent, issues join credentials
-      ai/live-token/route.ts      # POST — ephemeral Gemini Live token (lab)
-  components/
-    recruiter/              # CreateInterviewPanel, CreateInterviewForm, InterviewLinkResult
-    interview/              # InterviewRoom, JoinInterviewForm, CandidateVideo,
-                            # MediaControls, ConnectionStatus, AiStatus, JoinError
-  lib/
-    ai/                     # LLM provider layer
-      ai.types.ts           #   AiMessage, ProviderResponse, LlmProvider interface
-      llm-provider.ts       #   createLlmProvider() — single factory
-      llm-error.ts          #   LlmError with safe (non-secret) messages
-      ominibot-provider.ts  #   Ominibot adapter (OpenAI-compatible Chat Completions)
-      mock-provider.ts      #   deterministic mock for local development
-      agent-protocol.ts     #   data-channel message contract (ai-message with
-                            #   spoken flag, ai-status, ai-audio-chunk, ai-audio-end)
-    ai-live/                # Gemini Live: interviewer persona + connect constraints
-    interviews/             # interview.types.ts, interview.validation.ts,
-                            # interview.service.ts (create/get/validate room access)
-    livekit/
-      config.ts             # LiveKit env config (server-only)
-      token.ts              # generateLiveKitToken() — short-lived server-side JWTs
-      room.ts               # interview room id → LiveKit room name
-      client.ts             # shared client/server join contract (no secrets)
-    speech/                 # browser-edge voice:
-      browser-speech.ts     #   Web Speech API recognition (Chrome/Edge)
-      browser-tts.ts        #   speechSynthesis playback (agent pipeline)
-      agent-audio-player.ts #   Web Audio playback of streamed cascade chunks
-      gemini-live.ts        #   Gemini Live browser client (lab)
-    config/env.ts           # Ominibot + Gemini Live env config (server-only)
-  agent/                   # AI agent worker (separate Node process, Phase 4)
-    main.ts                #   worker entry: discovery, claims, sessions, health endpoint
-    room-discovery.ts      #   LiveKit server API polling for active rooms
-    interview-agent-session.ts  # one room: greeting, transcript handling, replies
-    tts.ts                 #   Cloud TTS engine: sentence splitting + synthesis (cascade)
-  server/repositories/      # index.ts (DATABASE_URL selector),
-                            # postgres-interview-repository.ts (Cloud SQL),
-                            # in-memory-interview-repository.ts (zero-setup dev)
-  types/                    # shared type re-exports
+    recruiter/, dashboard/, login/        # recruiter pages (sign-in required)
+    interview/[roomId]/                   # candidate page
+    api/interviews/                       # create (recruiter), email gate + join token (candidate)
+    api/agent/interviews/[roomId]/        # context, events, complete (agent secret)
+    api/dashboard/interviews/             # list, detail + scorecard, regenerate, decision
+    api/auth/                             # login, logout
+  proxy.ts                                # redirects signed-out visitors to /login
+  components/interview/InterviewRoom.tsx  # LiveKit room, captions, tab-focus events
+  components/dashboard/                   # list and scorecard views
+  lib/interviews/
+    plan.service.ts                       # plan generation (Gemini text model)
+    scorecard.service.ts                  # grading, evidence verification, integrity signals
+    interview.service.ts                  # sessions, outcome, decision
+  lib/auth/                               # session cookie, route guards
+  lib/ai/structured.ts                    # JSON generation, schema-validated
+  server/repositories/                    # Postgres and in-memory stores
 ```
 
-Key boundaries:
+## Data
 
-- **Route handlers / services → `LlmProvider` interface only.** Providers are
-  created by `createLlmProvider()` (src/lib/ai/llm-provider.ts); switching
-  providers never touches call sites.
-- **Storage → `InterviewRepository` interface** (src/lib/interviews/interview.types.ts),
-  implemented by the Postgres store (Cloud SQL) and the in-memory store, with
-  exclusive agent claims (`claimForAgent`/`releaseAgentClaim`) so two workers
-  (deployed VM + a local dev worker polling the same database) can never both
-  join one interview.
-- **Secrets** (`OMINIBOT_API_KEY`, LiveKit keys, `GEMINI_API_KEY`,
-  `DATABASE_URL`) are read only by `server-only` modules (src/lib/config/env.ts,
-  src/lib/livekit/config.ts). The client receives tokens and room URLs from
-  the backend, never env values — even Gemini Live gets an ephemeral token,
-  not the API key.
+`InterviewRepository` (`src/lib/interviews/interview.types.ts`) has a Postgres
+and an in-memory implementation. Postgres bootstraps its schema on first use:
 
-## Interview API (Phase 2)
+- `interviews` — session, plan, outcome (end reason, coverage, model usage), decision
+- `interview_turns` — every spoken turn with start/end time, the competency
+  under discussion, and for candidate turns the pause before answering
+- `interview_events` — append-only log: topic changes, controller directives,
+  speech state changes, tab/window focus, disconnects, recording
+- `scorecards` — the generated scorecard
 
-- `POST /api/interviews` — multipart form: session fields (`recruiterName`,
-  `candidateName`, `candidateEmail`, `roleTitle`, `durationMinutes` 5–10 with
-  a range slider defaulting to 5, `difficulty` easy/medium/hard/extra-hard
-  defaulting to medium), the job description (text field or PDF), and the
-  resume (PDF, required) → `201 { room, candidateUrl }`.
-- `GET /api/interviews/:roomId` — returns `{ room }` or an error body
-  `{ error: { code, message } }`: `400 INVALID_INPUT` (bad ID format),
-  `404 ROOM_NOT_FOUND`, `410 ROOM_EXPIRED`, `409 ROOM_UNAVAILABLE`.
-- Rooms are created `scheduled`; links stay valid for 24 hours (the interview
-  length is enforced by the agent, not the link). Issuing join credentials
-  marks the room `active`. Statuses: scheduled, waiting, active, completed,
-  expired, cancelled.
-- The difficulty level is the AI interviewer's personality (see the persona
-  prompts in `src/agent/interview-agent-session.ts`): easy is relaxed and
-  encouraging, medium probes one level deeper, hard drills into past
-  experience and problems solved, and extra-hard follows the top-MNC
-  bar-raiser playbook (constraint pivots, multi-level "why" chases, stories
-  drilled until thin, cold delivery). The agent enforces the duration clock
-  itself: it announces the wrap-up when time is up and leaves shortly after.
+## Access
 
-## LiveKit room (Phase 3)
+- **Recruiters**: one shared password (`RECRUITER_PASSWORD`) and a signed
+  session cookie. `/recruiter`, `/dashboard` and their APIs require it. In
+  production, access is refused until the password is set.
+- **Candidates**: the link only issues a join token for the invited email
+  address, after consent; five wrong attempts lock it for 15 minutes.
+- **Agent**: `/api/agent/*` requires `AGENT_API_SECRET`.
 
-- `POST /api/interviews/:roomId/verify` — the candidate email gate: body
-  `{ email, consent }` → on a match, `{ token, url, identity }` (join
-  credentials issued in the same response) and the room is marked `active`.
-  Five wrong attempts lock the link for 15 minutes.
-- The candidate flow: grant camera + microphone → local preview →
-  `Join interview` → connects to the LiveKit room and publishes both tracks.
-- The candidate video is rendered client-side from the acquired tracks; mute,
-  camera on/off and leave are handled in the browser with clear error states
-  for permission denial, missing devices, token failure and disconnection.
-- `AiStatus` shows the live conversation state: connecting, listening,
-  processing, speaking, error, disconnected.
+## Scoring
 
-## AI voice conversation (Phase 4)
+The overall score (0-100) is a weighted average of four factors, each shown
+with its evidence on the interview page:
 
-Because the LLM API returns **text only**, speech lives at the edges:
+- **Answer quality** — 1-5 per planned question against the role's rating
+  scale, with verified quotes.
+- **Resume match** — whether the candidate's own account backs up the resume.
+- **Own answers** — signs that answers were read out or prompted by an AI tool.
+- **On-camera behaviour** — moments in the candidate's recording worth watching.
 
+Models supply observations; the numbers are computed in
+`src/lib/interviews/scoring.ts` (`npm test`). Weights: `SCORE_WEIGHTS`. A
+factor that cannot be scored is left out of the total.
+
+## Recording and on-camera analysis
+
+The candidate's browser records their own camera and microphone and uploads
+the file a few seconds at a time (`src/lib/recordings/`); only the candidate
+is recorded. Files are kept under `RECORDINGS_DIR` (default `.data/recordings`)
+and play back only through the recruiter-only route.
+
+After the interview the recording is cut into short clips (bundled ffmpeg) and
+a video model reports, for each answer, where the candidate looked while
+listening and while answering. Code then looks for one pattern: returning to
+the same spot off the screen answer after answer. A single look away counts
+for nothing. Findings are clips to watch, never a verdict. Legal review of
+using this in a hiring score is parked: see section 15 of
+`docs/REDESIGN_PLAN.md`.
+
+## Voice modes
+
+Chosen per interview on the New interview form:
+
+- **Standard**: one Gemini Live session for the whole interview.
+- **Lower cost**: a fresh session at each topic change and every
+  `INTERVIA_ROLLING_SECONDS` (default 90), carrying the conversation as text.
+  The candidate's audio is held for the fraction of a second the swap takes,
+  so no words are lost.
+
+Each interview's dashboard page shows its mode, session count and estimated
+voice cost.
+
+## Analysis provider
+
+Plans, scorecards, resume match, own-answer signals and video analysis run on
+Ominibot when `OMINIBOT_API_KEY` is set, with Gemini as the fallback
+(`ANALYSIS_PROVIDER=gemini` reverses the order).
+
+## Integrity
+
+Measured, not guessed: time spent outside the interview tab, window blurs,
+connection drops, and the pause before each answer. The grader may add notes
+(for example, an answer that contradicts an earlier one), each tied to
+transcript turns. There is no "cheating probability"; voice and facial
+expression are not analysed.
+
+## Deployment
+
+v2 runs in the `court-siva-nikhil` project beside the earlier deployment and
+shares only the Cloud SQL instance, the LiveKit project and the agent VM:
+
+```bash
+scripts/deploy-v2-secrets.sh   # once: intervia-v2-* secrets and database user
+scripts/deploy-v2.sh           # build, web, agent (or name the steps to run)
 ```
-browser mic ──Web Speech API STT──▶ transcript ──LiveKit data channel──▶
-agent worker ──▶ Ominibot LLM ──▶ reply ──voice pipeline──▶ candidate
-```
 
-- **Agent worker** (`npm run agent`) is a separate Node process built on
-  `@livekit/rtc-node`. It polls the LiveKit server API for active interview
-  rooms, takes an exclusive claim on each interview before joining (so two
-  workers never double-join; claims expire after 120s and renew every 45s so a
-  crashed worker's room is recoverable), joins as the `ai-interviewer`
-  participant, greets the candidate (LLM-generated, with a static fallback),
-  handles candidate transcripts sent over the data channel (see
-  `src/lib/ai/agent-protocol.ts`), maintains a capped conversation history,
-  and leaves when the room is empty. It shares the provider layer with the
-  Next.js server and is launched with the `react-server` conditions flag
-  because it imports `server-only` modules.
-- **Cascade pipeline** (`AGENT_TTS_PROVIDER=cloud`): the worker splits its
-  reply into sentences, synthesizes each with Cloud TTS (MP3, 24kHz), and
-  streams ≤12KB base64 chunks on the data channel terminated by `ai-audio-end`.
-  The browser decodes and schedules them back-to-back with the Web Audio API
-  (`src/lib/speech/agent-audio-player.ts`) — speech starts before later
-  sentences finish synthesizing. If the worker can't speak, the browser voice
-  takes over deterministically (never both).
-- **Candidate browser**: speech recognition (Web Speech API — Chrome/Edge;
-  it uses the OS **default** microphone, so a silent default input device
-  means the interviewer will never hear the candidate), recognition paused
-  while the agent is processing or speaking (prevents the agent reacting to
-  its own voice), transcript panel + provider-specific playback.
-- The agent only accepts transcripts from `candidate-*` identities and sends
-  replies addressed to those identities; messages are reliable data-channel
-  publishes on the `interview-ai` topic.
+- **Web**: Cloud Run service `intervia-v2-web` (`Dockerfile.web`, image
+  `meetingbot/web-v2`), database `intervia_v2`. One instance, CPU always on,
+  because scoring runs after the agent's request has returned.
+- **Agent**: container `intervia-v2-agent` on `meetingbot-agent-vm`
+  (`agent/Dockerfile`, image `meetingbot/agent-v2`). It needs outbound UDP for
+  WebRTC, so it cannot run on Cloud Run. It needs `LIVEKIT_*`,
+  `GEMINI_API_KEY`, `AGENT_API_SECRET` and `INTERVIA_WEB_URL`.
+- **Recordings**: a private bucket mounted on the web service at
+  `RECORDINGS_DIR`.
+- **Rooms**: `MEETINGBOT_ROOM_PREFIX=v2-interview-`. The earlier agent joins
+  every `interview-` room in the shared LiveKit project, so v2 rooms must not
+  start with that.
 
-## Deployment (GCP)
+## Not built yet / not yet verified
 
-Production runs in project `court-siva-nikhil` (asia-south1):
-
-- **`meetingbot-web`** — Cloud Run (standalone Next build, `Dockerfile.web`
-  built by `cloudbuild-web.yaml`; `NEXT_PUBLIC_VOICE_PROVIDER` is a build
-  arg baked into the client bundle). Runtime secrets are injected from
-  Secret Manager.
-- **`meetingbot-db`** — Cloud SQL Postgres 16 (public IP, `requireSsl=false`,
-  allowlisted to the agent VM's static address only; Cloud Run reaches it via
-  the socket path).
-- **`meetingbot-agent-vm`** — Compute Engine VM (e2-small, COS) running the
-  agent container from Artifact Registry
-  (`asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/agent:latest`,
-  built by `cloudbuild-agent.yaml`). A metadata startup-script fetches the
-  five secrets from Secret Manager, rewrites the socket-form database URL to
-  the allowlisted TCP address, and starts the container with
-  `--restart=always` plus the cascade TTS env. The VM has a **static external
-  IP** (34.14.222.222) because the database allowlist depends on it.
-- **Secrets** (Secret Manager): `meetingbot-ominibot-api-key`,
-  `meetingbot-livekit-url/-api-key/-api-secret`, `meetingbot-database-url`,
-  all granted to the `meetingbot-runtime` service account.
-
-The VM is why the agent is not on Cloud Run: Cloud Run sandboxes have no
-outbound UDP, which WebRTC requires. Rebuilding either image is one command:
-`gcloud builds submit --config cloudbuild-agent.yaml` (then restart the VM
-container) or `gcloud builds submit --config cloudbuild-web.yaml` (then
-`gcloud run deploy`).
-
-## Ominibot integration status
-
-Verified with a real key:
-
-- OpenAI-compatible Chat Completions at `https://api.ominibot.com/v1`, Bearer
-  auth (`omk_` key); unauthenticated requests return `401`.
-- The model ID is `ominibot` (no org prefix needed).
-- The API returns **text only** — `/audio/speech` and `/audio/transcriptions`
-  return 404 — hence the browser-edge speech pipeline above.
-- It is a reasoning model: `choices[0].message.content` can be `null` if
-  `max_tokens` is set too low (reasoning consumes the budget); the provider
-  therefore does not set `max_tokens`.
-
-## Phase status
-
-- [x] **Phase 1** — foundation: scaffold, env validation, types, provider layer, docs
-- [x] **Phase 2** — recruiter link + room creation (join screen)
-- [x] **Phase 3** — LiveKit camera/microphone room (tokens, media controls, errors)
-- [x] **Phase 4** — AI agent voice conversation (STT/TTS, agent worker, live transcript)
-- [x] **Deployed** — Cloud Run web, Cloud SQL storage, agent VM with cascade voice
-- [x] **Voice pipelines** — agent / cascade / gemini-live behind one env switch
-
-## Current limitations
-
-- Rooms without a duration never expire, and `waiting`/`completed`/
-  `cancelled` transitions have no UI yet.
-- Tokens are valid 120 minutes; a session that outlives the token needs a
-  page reload (re-issued token). No mid-session token refresh yet.
-- Speech recognition uses the Web Speech API: Chrome/Edge only, `en-US`
-  locale, no barge-in (the candidate cannot interrupt the AI mid-reply), and
-  it always captures the OS **default microphone** — a silent default input
-  device is indistinguishable from a quiet candidate.
-- The first interviewer reply after a candidate joins takes ~10–20s (the
-  worker discovers rooms on a 4-second poll); subsequent replies are ~2–4s.
-- No video intelligence, recording, scoring, resume parsing or analytics —
-  post-interview behavioral reports (via LiveKit Egress + a vision pass) are
-  the planned next step.
+- Video analysis has run end to end on a sample clip, but not yet on a real
+  candidate at a laptop; how reliably a model reads gaze direction is unproven.
+- Recordings are stored on the web server's disk; production needs shared
+  storage (the agent-side egress-to-bucket path exists but is untested).
+- Individual recruiter accounts and organisations (one shared password today).
+- Re-transcribing the recording for scoring (scorecards use the live transcript).
+- Editing the generated plan before sending the link.
+- Languages other than English.
+- Automated browser tests of the candidate page.
+- Further voice cost reduction (cascaded pipeline): section 13 of `docs/REDESIGN_PLAN.md`.

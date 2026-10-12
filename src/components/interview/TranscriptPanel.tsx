@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react";
 
 export interface TranscriptEntry {
+  /** Stable id of the caption segment; lets a streaming entry update in place. */
+  id?: string;
   role: "candidate" | "interviewer";
   text: string;
 }
@@ -27,7 +29,7 @@ export function TranscriptPanel({ entries, interim }: TranscriptPanelProps) {
     <div
       ref={scrollRef}
       aria-label="Interview transcript"
-      className="h-64 overflow-y-auto rounded-xl border border-border bg-surface p-4 text-sm leading-relaxed lg:h-auto lg:min-h-0 lg:flex-1"
+      className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border bg-background p-4 text-sm leading-relaxed"
     >
       {entries.length === 0 && !interim && (
         <p className="text-xs text-muted">
@@ -36,13 +38,13 @@ export function TranscriptPanel({ entries, interim }: TranscriptPanelProps) {
       )}
       <ul className="grid gap-2">
         {entries.map((entry, index) => (
-          <li key={index} className={entry.role === "candidate" ? "" : "text-left"}>
+          <li key={entry.id ?? index} className={entry.role === "candidate" ? "" : "text-left"}>
             <span
-              className={`mb-0.5 block text-[10px] font-medium uppercase tracking-wide ${
-                entry.role === "candidate" ? "text-muted" : "text-accent"
+              className={`mb-0.5 block text-xs font-semibold ${
+                entry.role === "candidate" ? "text-candidate" : "text-accent"
               }`}
             >
-              {entry.role === "candidate" ? "You" : "Intervia AI"}
+              {entry.role === "candidate" ? "You" : "Interviewer"}
             </span>
             {entry.text}
           </li>
