@@ -10,6 +10,11 @@ interface CreateResult {
   candidateUrl: string;
 }
 
+/** Per-file upload cap; anything larger must be compressed before use. */
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+/** Combined cap: the platform rejects requests over ~32 MB outright. */
+const MAX_UPLOAD_TOTAL_BYTES = 28 * 1024 * 1024;
+
 export function CreateInterviewPanel() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,6 +23,18 @@ export function CreateInterviewPanel() {
   async function handleSubmit(values: CreateInterviewFormValues) {
     setIsSubmitting(true);
     setError(null);
+
+    const totalBytes = values.resume.size + (values.jobDescriptionPdf?.size ?? 0);
+    if (values.resume.size > MAX_UPLOAD_BYTES || (values.jobDescriptionPdf?.size ?? 0) > MAX_UPLOAD_BYTES) {
+      setIsSubmitting(false);
+      setError("Each file must be under 20 MB. Compress the PDF, or paste the job description as text.");
+      return;
+    }
+    if (totalBytes > MAX_UPLOAD_TOTAL_BYTES) {
+      setIsSubmitting(false);
+      setError("The resume and job description together must stay under 28 MB. Compress them and try again.");
+      return;
+    }
 
     try {
       const form = new FormData();
@@ -35,12 +52,30 @@ export function CreateInterviewPanel() {
       form.set("resume", values.resume);
 
       const response = await fetch("/api/interviews", { method: "POST", body: form });
-      const data = await response.json();
+      // Failure responses are not always JSON (proxies return HTML/plain
+      // errors, oversized uploads are cut off) — never trust response.json().
+      const raw = await response.text();
+      let data: unknown = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = null;
+      }
+      const message =
+        typeof (data as { error?: { message?: string } | null })?.error?.message === "string"
+          ? (data as { error: { message: string } }).error.message
+          : null;
 
       if (!response.ok) {
+        if (response.status === 413) {
+          throw new Error("The upload is too large. Keep each file under 20 MB.");
+        }
         throw new Error(
-          data?.error?.message ?? "Could not create the interview. Please try again.",
+          message ?? `Could not create the interview (HTTP ${response.status}). Please try again.`,
         );
+      }
+      if (!data || typeof data !== "object") {
+        throw new Error("The server returned an unexpected response. Please try again.");
       }
 
       setResult(data as CreateResult);

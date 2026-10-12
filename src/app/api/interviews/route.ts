@@ -19,6 +19,22 @@ function invalidInput(message: string) {
  * request as the session fields.
  */
 export async function POST(request: NextRequest) {
+  // Reject oversized uploads before parsing the multipart body: the platform
+  // (Cloud Run) cuts requests over ~32 MB with an opaque error, so the form
+  // must receive a clear one instead.
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (contentLength > 30 * 1024 * 1024) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "PAYLOAD_TOO_LARGE",
+          message: "Uploads must be under 30 MB in total. Compress the PDFs and try again.",
+        },
+      },
+      { status: 413 },
+    );
+  }
+
   let form: FormData;
   try {
     form = await request.formData();
