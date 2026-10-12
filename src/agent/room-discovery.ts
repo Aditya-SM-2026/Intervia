@@ -1,7 +1,7 @@
 import "server-only";
 import { AccessToken } from "livekit-server-sdk";
 import { getLiveKitConfig } from "@/lib/livekit/config";
-import { ROOM_NAME_PREFIX } from "@/lib/livekit/room";
+import { getRoomNamePrefix } from "@/lib/livekit/room";
 import { AI_AGENT_IDENTITY } from "@/lib/ai/agent-protocol";
 
 /**
@@ -63,7 +63,7 @@ export async function findRoomsNeedingAgent(): Promise<string[]> {
 
   const interviewRooms = rooms.filter((room) => {
     const participantCount = room.num_participants ?? room.numParticipants ?? 0;
-    return room.name.startsWith(ROOM_NAME_PREFIX) && participantCount > 0;
+    return room.name.startsWith(getRoomNamePrefix()) && participantCount > 0;
   });
 
   const needingAgent: string[] = [];

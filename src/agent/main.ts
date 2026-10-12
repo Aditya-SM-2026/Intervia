@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { InterviewAgentSession } from "./interview-agent-session";
 import { findRoomsNeedingAgent } from "./room-discovery";
-import { ROOM_NAME_PREFIX } from "@/lib/livekit/room";
+import { getRoomNamePrefix } from "@/lib/livekit/room";
 import { getLiveKitConfig } from "@/lib/livekit/config";
 import { getLlmProviderName } from "@/lib/config/env";
 import { getInterviewRepository } from "@/server/repositories";
@@ -39,7 +39,7 @@ async function pollOnce(): Promise<void> {
     const roomNames = await findRoomsNeedingAgent();
 
     for (const roomName of roomNames) {
-      const roomId = roomName.slice(ROOM_NAME_PREFIX.length);
+      const roomId = roomName.slice(getRoomNamePrefix().length);
       if (!roomIdSchema.safeParse(roomId).success) continue;
       if (sessions.has(roomId)) continue;
 
