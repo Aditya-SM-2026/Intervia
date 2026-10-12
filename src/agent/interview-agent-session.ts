@@ -34,7 +34,7 @@ const MAX_HISTORY_MESSAGES = 20;
 const MAX_JD_PROMPT_CHARS = 6_000;
 const MAX_RESUME_PROMPT_CHARS = 4_000;
 /** Grace period after the time-up announcement before the agent leaves. */
-const WRAP_UP_GRACE_MS = 45_000;
+const WRAP_UP_TAIL_MS = 6_000;
 const DEFAULT_INTERVIEW_MINUTES = 5;
 
 const BASE_PERSONA_PROMPT = [
@@ -167,6 +167,8 @@ export class InterviewAgentSession {
   private nextReplyId = 0;
   private history: AiMessage[] = [];
   private isProcessing = false;
+  /** Set when the session clock runs out: no further turns are accepted. */
+  private wrappingUp = false;
   private stopping = false;
   private greetingTimer: ReturnType<typeof setTimeout> | null = null;
   private emptyRoomTimer: ReturnType<typeof setTimeout> | null = null;
@@ -321,15 +323,35 @@ export class InterviewAgentSession {
   }
 
   private onInterviewTimerFired(): void {
-    if (this.stopping) return;
+    if (this.stopping || this.wrappingUp) return;
     console.log(`[agent] interview time reached in ${this.roomId}, wrapping up`);
-    void this.speakReply(WRAP_UP_MESSAGE).then(() => {
-      if (this.stopping) return;
-      this.wrapUpTimer = setTimeout(() => {
-        this.wrapUpTimer = null;
-        void this.stop();
-      }, WRAP_UP_GRACE_MS);
-    });
+    this.wrappingUp = true;
+    void this.runWrapUp();
+  }
+
+  /**
+   * Ends the session cleanly: any reply that is being generated or spoken
+   * finishes first, then the wrap-up is spoken alone (never interleaved with
+   * a question), and the meeting ends shortly after the goodbye — nothing
+   * more is said. Transcripts arriving from the timer onward are ignored.
+   */
+  private async runWrapUp(): Promise<void> {
+    while (this.isProcessing && !this.stopping) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (this.stopping) return;
+    this.replyEpoch += 1; // discard any half-synthesized work
+    this.pendingInterrupt = null;
+    try {
+      await this.speakReply(WRAP_UP_MESSAGE);
+    } catch {
+      // A failed goodbye must not hang the session.
+    }
+    if (this.stopping) return;
+    this.wrapUpTimer = setTimeout(() => {
+      this.wrapUpTimer = null;
+      void this.stop();
+    }, WRAP_UP_TAIL_MS);
   }
 
   private scheduleEmptyRoomShutdown(): void {
@@ -342,7 +364,15 @@ export class InterviewAgentSession {
   }
 
   private async sendGreeting(): Promise<void> {
-    if (this.isProcessing) return; // the candidate spoke before the greeting fired
+    if (this.isProcessing || this.wrappingUp) {
+      // The candidate spoke before the greeting fired, or the session clock
+      // has already run out — the interview has begun or is over. The
+      // greeting must never fire mid-conversation or after the wrap-up, so
+      // it is retired permanently (otherwise every later participant change
+      // would replay it).
+      this.greetingSent = true;
+      return;
+    }
     this.isProcessing = true;
     this.greetingSent = true;
     let text = FALLBACK_GREETING;
@@ -374,6 +404,13 @@ export class InterviewAgentSession {
   private async handleTranscript(text: string): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) return; // empty speech
+
+    // The session clock has run out: the meeting is over, nothing is
+    // answered — not even as an interrupt.
+    if (this.wrappingUp) {
+      console.log(`[agent] transcript ignored in ${this.roomId}: wrap-up in progress`);
+      return;
+    }
 
     if (this.isProcessing || this.stopping) {
       // Barge-in: the candidate talked over the agent. Cancel whatever reply
