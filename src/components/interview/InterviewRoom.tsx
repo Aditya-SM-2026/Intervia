@@ -391,14 +391,20 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
             speakingRef.current = false;
             setAiState("processing");
           }
-          holdTimerRef.current = setTimeout(publishStagedTranscript, TRANSCRIPT_HOLD_MS);
+          holdTimerRef.current = setTimeout(
+            publishStagedTranscript,
+            holdForUtterance(stagedTranscriptRef.current),
+          );
         },
         onInterimTranscript: (text) => {
           setInterimTranscript(text || null);
           // Speech resumed while a fragment is staged — keep holding.
           if (stagedTranscriptRef.current && holdTimerRef.current) {
             clearTimeout(holdTimerRef.current);
-            holdTimerRef.current = setTimeout(publishStagedTranscript, TRANSCRIPT_HOLD_MS);
+            holdTimerRef.current = setTimeout(
+              publishStagedTranscript,
+              holdForUtterance(stagedTranscriptRef.current),
+            );
           }
         },
         onError: (message) => setVoiceNotice(message),
@@ -629,6 +635,18 @@ const BACKCHANNEL_WORDS = new Set([
 
 /** How long a final transcript waits for more speech before it is sent. */
 const TRANSCRIPT_HOLD_MS = 3000;
+
+/**
+ * How long to wait before publishing the staged transcript. A finished
+ * sentence should ship almost immediately — the full hold is only for
+ * fragments, where a thinking pause likely continues the same thought.
+ */
+function holdForUtterance(text: string): number {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  if (/[.!?]["')\]]?$/.test(text.trim())) return words >= 4 ? 1200 : 1800;
+  if (words >= 8) return 2000;
+  return TRANSCRIPT_HOLD_MS;
+}
 
 function tokensOf(value: string): Set<string> {
   return new Set(
