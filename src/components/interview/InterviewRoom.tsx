@@ -57,6 +57,8 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
   const [credentials, setCredentials] = useState<LiveKitJoinCredentials | null>(null);
   const [connectionStage, setConnectionStage] = useState<ConnectionStage>("connecting");
   const [muted, setMuted] = useState(false);
+  /** Mirror of `muted` for callbacks that must not restart the recognizer. */
+  const mutedRef = useRef(false);
   const [cameraOff, setCameraOff] = useState(false);
   const [localTracks, setLocalTracks] = useState<{
     video: MediaStreamTrack | null;
@@ -110,9 +112,10 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
   function startListeningIfReady() {
     // Cascade keeps the recognizer live even while the agent speaks or thinks:
     // the candidate can barge in mid-sentence. Other providers pause the mic
-    // during playback so it cannot hear the page speaking.
+    // during playback so it cannot hear the page speaking. A muted candidate
+    // never listens — this also runs from the audio-drain handler.
     const canListen =
-      VOICE_PROVIDER === "cascade" || !speakingRef.current;
+      (VOICE_PROVIDER === "cascade" || !speakingRef.current) && !mutedRef.current;
     if (agentPresentRef.current && canListen) {
       recognitionRef.current?.start();
     }
@@ -126,6 +129,7 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
   async function handleProceed(mediaStream: MediaStream) {
     streamRef.current = mediaStream;
     setFailure(null);
+    mutedRef.current = false;
     setMuted(false);
     setCameraOff(false);
     setLocalTracks({
@@ -419,7 +423,22 @@ export function InterviewRoom({ roomId, roomTitle, candidateName, recruiterName 
     const track = streamRef.current?.getAudioTracks()[0];
     if (!track) return;
     const nextMuted = !muted;
+    mutedRef.current = nextMuted;
     track.enabled = !nextMuted;
+    // The speech recognizer taps the microphone independently of the WebRTC
+    // track, so muting must stop it too — and drop any staged fragment so a
+    // half-finished thought is not published after the mute.
+    if (nextMuted) {
+      recognitionRef.current?.stop();
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+      stagedTranscriptRef.current = null;
+      setInterimTranscript(null);
+    } else {
+      startListeningIfReady();
+    }
     setMuted(nextMuted);
   }
 
