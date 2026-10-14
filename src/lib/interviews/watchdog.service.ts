@@ -34,8 +34,9 @@ export async function runInterviewWatchdogOnce(): Promise<number> {
   let closed = 0;
 
   for (const room of rooms) {
-    if (interviewDeadline(room) + GRACE_MS > now) continue;
-    if (await hasEndedEvent(room.id)) continue;
+    const events = await repository.getEvents(room.id);
+    if (events.some((event) => event.type === "interview_ended")) continue;
+    if (interviewDeadline(room, events) + GRACE_MS > now) continue;
     closed++;
     await closeInterview(room);
   }
@@ -43,15 +44,16 @@ export async function runInterviewWatchdogOnce(): Promise<number> {
   return closed;
 }
 
-/** When the interview must end: its start (scheduled or created) plus duration. */
-function interviewDeadline(room: InterviewRoom): number {
-  const start = Date.parse(room.scheduledAt ?? room.createdAt);
+/**
+ * When the interview must end: its actual start plus duration. The scheduled
+ * time is only a fallback — a recruiter often schedules an interview days
+ * ahead and the candidate joins early, so the clock that matters is the one
+ * that starts when the session really begins (the first logged event).
+ */
+function interviewDeadline(room: InterviewRoom, events: readonly { at: string }[]): number {
+  const firstEvent = events[0]?.at;
+  const start = Date.parse(firstEvent ?? room.scheduledAt ?? room.createdAt);
   return (Number.isFinite(start) ? start : Date.now()) + room.durationMinutes * 60_000;
-}
-
-async function hasEndedEvent(roomId: string): Promise<boolean> {
-  const events = await getInterviewRepository().getEvents(roomId);
-  return events.some((event) => event.type === "interview_ended");
 }
 
 async function closeInterview(room: InterviewRoom): Promise<void> {
