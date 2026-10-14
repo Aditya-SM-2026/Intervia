@@ -6,6 +6,7 @@ import {
   createSessionToken,
   getAuthMode,
   isPasswordCorrect,
+  isUsernameCorrect,
 } from "@/lib/auth/session";
 
 const MAX_FAILURES = 8;
@@ -40,15 +41,21 @@ export async function POST(request: NextRequest) {
     return failure("Too many attempts. Try again in a few minutes.", 429);
   }
 
+  let username = "";
   let password = "";
   try {
-    const body = (await request.json()) as { password?: unknown };
+    const body = (await request.json()) as { username?: unknown; password?: unknown };
+    if (typeof body.username === "string") username = body.username;
     if (typeof body.password === "string") password = body.password;
   } catch {
     // Treated as a wrong password below.
   }
 
-  if (!(await isPasswordCorrect(password))) {
+  // Both checks run before any branch so a wrong login ID and a wrong
+  // password are indistinguishable in timing and response.
+  const usernameOk = await isUsernameCorrect(username);
+  const passwordOk = await isPasswordCorrect(password);
+  if (!usernameOk || !passwordOk) {
     const next = state ?? { failures: 0, lockedUntil: 0 };
     next.failures += 1;
     if (next.failures >= MAX_FAILURES) {
@@ -56,7 +63,7 @@ export async function POST(request: NextRequest) {
       next.lockedUntil = Date.now() + LOCK_MS;
     }
     attempts.set(key, next);
-    return failure("Incorrect password.", 401);
+    return failure("Incorrect login ID or password.", 401);
   }
 
   attempts.delete(key);

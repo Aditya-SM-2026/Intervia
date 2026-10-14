@@ -105,6 +105,14 @@ export interface InterviewRoom {
   createdAt: string;
   /** ISO 8601 timestamp after which the link can no longer be joined. */
   expiresAt: string | null;
+  /** ISO 8601 moment the interview is scheduled for; null when it may start any time. */
+  scheduledAt: string | null;
+  /** ISO 8601 moment the 30-minute reminder email was sent; null while pending. */
+  reminderSentAt: string | null;
+  /** Secret token for the candidate's one-time resume-upload link. */
+  uploadToken: string | null;
+  /** ISO 8601 moment the upload link was consumed; the link is one-time. */
+  uploadUsedAt: string | null;
   /** Session fields (see docs/PRE_INTERVIEW_PLAN.md). */
   recruiterName: string | null;
   /** The only email that may open this link; the join token is issued after it matches. */
@@ -151,6 +159,8 @@ export interface CreateInterviewInput {
   /** How hard the interviewer pushes (default: medium). */
   difficulty: DifficultyLevel;
   voiceMode: VoiceMode;
+  /** ISO 8601 scheduled moment, or null when the link may be used immediately. */
+  scheduledAt?: string | null;
   jobDescription: JobDescription | null;
   resume: ResumeInfo | null;
 }
@@ -201,6 +211,8 @@ export interface InterviewEvent extends InterviewEventInput {
 export interface DashboardListFilter {
   /** Case-insensitive substring match on candidate email. */
   email?: string;
+  /** Keep only rooms whose raw status matches one of these. */
+  status?: InterviewStatus[];
   limit?: number;
   offset?: number;
 }
@@ -228,6 +240,22 @@ export interface InterviewApiError {
  */
 export interface InterviewRepository {
   save(room: InterviewRoom): Promise<void>;
+  /**
+   * Atomically claims every interview whose reminder is due (scheduled,
+   * not yet joined, reminder not sent, scheduled 0-30 minutes from `now`)
+   * by stamping reminder_sent_at, and returns the claimed room ids. Safe to
+   * call concurrently (multiple server instances never double-send).
+   */
+  claimDueReminders(now: string): Promise<string[]>;
+  /**
+   * Inserts a new room while holding a per-duplicate-key lock, so two
+   * simultaneous identical creations cannot both succeed. Returns the
+   * existing room when another creation of the same slot won the race.
+   */
+  insertRoomAtomically(
+    room: InterviewRoom,
+    duplicateKey: string,
+  ): Promise<{ created: true } | { created: false; existing: InterviewRoom }>;
   get(id: string): Promise<InterviewRoom | null>;
   /** Sessions, newest first, with optional dashboard filters. */
   list(filter?: DashboardListFilter): Promise<InterviewRoom[]>;

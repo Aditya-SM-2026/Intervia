@@ -7,6 +7,11 @@ interface InterviewLinkResultProps {
   result: {
     room: InterviewRoom;
     candidateUrl: string;
+    uploadUrl?: string | null;
+    inviteEmail?: {
+      status: "sent" | "failed" | "not_configured";
+      detail?: string;
+    };
   };
   onReset: () => void;
 }
@@ -14,7 +19,7 @@ interface InterviewLinkResultProps {
 const COPY_FEEDBACK_MS = 2000;
 
 export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProps) {
-  const { room, candidateUrl } = result;
+  const { room, candidateUrl, uploadUrl, inviteEmail } = result;
   const [copied, setCopied] = useState(false);
   const [manualCopyNeeded, setManualCopyNeeded] = useState(false);
   const copyTimer = useRef<number | null>(null);
@@ -45,6 +50,39 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
         {room.candidateName && <> for candidate {room.candidateName}</>}.
       </p>
 
+      {inviteEmail && (
+        <p className="text-sm">
+          {inviteEmail.status === "sent" && (
+            <span className="text-muted">
+              Invitation email sent to <span className="font-medium">{room.candidateEmail}</span>.
+            </span>
+          )}
+          {inviteEmail.status === "failed" && (
+            <span className="text-amber-600 dark:text-amber-400">
+              Invitation email could not be sent — copy the link above and share it with{" "}
+              <span className="font-medium">{room.candidateEmail}</span> yourself.
+            </span>
+          )}
+          {inviteEmail.status === "not_configured" && (
+            <span className="text-muted">
+              Email sending is not configured — copy the link above and share it with{" "}
+              <span className="font-medium">{room.candidateEmail}</span>.
+            </span>
+          )}
+        </p>
+      )}
+
+      {room.scheduledAt && (
+        <p className="text-sm">
+          <span className="font-medium">Scheduled for</span>{" "}
+          {new Date(room.scheduledAt).toLocaleString(undefined, {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })}{" "}
+          <span className="text-muted">(your local time)</span>
+        </p>
+      )}
+
       <div>
         <p className="mb-1 text-sm font-medium">Candidate link</p>
         <input
@@ -62,6 +100,24 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
           </p>
         )}
       </div>
+
+      {uploadUrl && !room.resume && (
+        <div>
+          <p className="mb-1 text-sm font-medium">Resume upload link for the candidate</p>
+          <input
+            type="text"
+            readOnly
+            value={uploadUrl}
+            aria-label="Resume upload link"
+            onFocus={(event) => event.currentTarget.select()}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm"
+          />
+          <p className="mt-1 text-xs text-muted">
+            The candidate can upload their resume (PDF, DOC, DOCX) here; the link works once
+            and expires after 24 hours.
+          </p>
+        </div>
+      )}
 
       {room.plan && (
         <div>

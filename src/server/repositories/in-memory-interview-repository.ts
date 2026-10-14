@@ -58,8 +58,43 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
       return store.rooms.get(id) ?? null;
     },
 
+    async insertRoomAtomically(
+      room: InterviewRoom,
+      _duplicateKey: string,
+    ): Promise<{ created: true } | { created: false; existing: InterviewRoom }> {
+      const existing = [...store.rooms.values()].find(
+        (candidate) =>
+          candidate.candidateEmail === room.candidateEmail &&
+          candidate.roleTitle?.toLowerCase() === room.roleTitle?.toLowerCase() &&
+          candidate.status === "scheduled" &&
+          candidate.completedAt === null &&
+          candidate.scheduledAt === room.scheduledAt,
+      );
+      if (existing) return { created: false, existing };
+      store.rooms.set(room.id, room);
+      return { created: true };
+    },
+
+    async claimDueReminders(now: string): Promise<string[]> {
+      const nowMs = Date.parse(now);
+      const claimed: string[] = [];
+      for (const room of store.rooms.values()) {
+        if (room.reminderSentAt) continue;
+        if (room.status !== "scheduled" || !room.scheduledAt) continue;
+        const due = Date.parse(room.scheduledAt);
+        if (Number.isNaN(due) || due <= nowMs || due > nowMs + 30 * 60_000) continue;
+        room.reminderSentAt = now;
+        claimed.push(room.id);
+      }
+      return claimed;
+    },
+
     async list(filter?: DashboardListFilter): Promise<InterviewRoom[]> {
       let rooms = [...store.rooms.values()];
+      if (filter?.status && filter.status.length > 0) {
+        const wanted = new Set(filter.status);
+        rooms = rooms.filter((room) => wanted.has(room.status));
+      }
       const email = filter?.email?.trim().toLowerCase();
       if (email) {
         rooms = rooms.filter(
