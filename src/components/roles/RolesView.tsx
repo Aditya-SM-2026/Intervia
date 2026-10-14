@@ -1,12 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { RoleStatus, RoleSummary, RolesResponse } from "@/lib/roles/role.types";
+import type { RoleCandidateSummary, RoleCandidatesResponse, RoleStatus, RoleSummary, RolesResponse } from "@/lib/roles/role.types";
+import {
+  compareByHirePriority,
+  deriveHireStage,
+  HIRE_STAGE_LABELS,
+  HIRE_STAGE_STYLES,
+  type HireStage,
+} from "@/lib/roles/hire-stage";
 
 /**
  * Roles list: real roles with their live candidate statistics, a search and
- * status filter, and an inline create form. Loads through GET /api/roles.
+ * status filter, and an inline create form. Each role card expands in place
+ * to show its candidates ranked to hire — score and stage — so an HR can
+ * scan and act without leaving the page. Loads through GET /api/roles.
  */
 
 const STATUS_LABELS: Record<RoleStatus, string> = {
@@ -33,6 +42,170 @@ async function fetchRoles(q: string | undefined, status: RoleStatus | undefined)
     throw new Error(data.error?.message ?? "Could not load the roles. Please try again.");
   }
   return data.roles;
+}
+
+async function fetchCandidates(roleId: string): Promise<RoleCandidateSummary[]> {
+  const response = await fetch(`/api/roles/${roleId}/candidates?limit=50&offset=0`);
+  const data = (await response.json()) as RoleCandidatesResponse & { error?: { message?: string } };
+  if (!response.ok || !data.candidates) {
+    throw new Error(data.error?.message ?? "Could not load the candidates.");
+  }
+  return data.candidates;
+}
+
+/** One role card: header toggles the inline, score-ranked candidate list. */
+function RoleCard({ role }: { role: RoleSummary }) {
+  const [expanded, setExpanded] = useState(false);
+  const [candidates, setCandidates] = useState<RoleCandidateSummary[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  function toggle() {
+    setExpanded((open) => !open);
+    if (!expanded && candidates === null && !loadError) {
+      fetchCandidates(role.id)
+        .then((result) => setCandidates(result))
+        .catch((cause: unknown) => {
+          setLoadError(cause instanceof Error ? cause.message : "Something went wrong.");
+        });
+    }
+  }
+
+  const ranked = useMemo(() => {
+    if (candidates === null) return [];
+    return candidates
+      .map((candidate) => ({
+        candidate,
+        stage: deriveHireStage({
+          status: candidate.latestStatus,
+          overallScore: candidate.overallScore,
+          decision: candidate.decision?.outcome ?? null,
+          cutoff: null,
+        }) as HireStage,
+      }))
+      .sort((a, b) =>
+        compareByHirePriority(
+          { stage: a.stage, overallScore: a.candidate.overallScore },
+          { stage: b.stage, overallScore: b.candidate.overallScore },
+        ),
+      );
+  }, [candidates]);
+
+  return (
+    <li>
+      <div className="rounded-lg border border-border bg-surface transition hover:border-accent/50 hover:shadow-sm">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={expanded}
+          className="block w-full rounded-lg p-5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="text-lg font-semibold">{role.title}</h3>
+            <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[role.status]}`}>
+              {STATUS_LABELS[role.status]}
+            </span>
+            <span className="grow" />
+            {role.deadline && (
+              <span className="text-xs text-muted">Closes {formatDate(role.deadline)}</span>
+            )}
+            <span aria-hidden className="text-xs text-muted">{expanded ? "▲ Hide candidates" : "▼ Show candidates"}</span>
+          </div>
+          <p className="mt-1 line-clamp-2 text-sm text-muted">{role.description}</p>
+          {role.skills.length > 0 && (
+            <p className="mt-2 flex flex-wrap gap-1">
+              {role.skills.slice(0, 6).map((skill) => (
+                <span key={skill} className="rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
+                  {skill}
+                </span>
+              ))}
+              {role.skills.length > 6 && (
+                <span className="text-xs text-muted">+{role.skills.length - 6} more</span>
+              )}
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted">
+            <span>
+              <strong className="text-foreground">{role.stats.candidates}</strong> candidates
+            </span>
+            <span>
+              <strong className="text-foreground">{role.stats.interviews}</strong> interviews
+            </span>
+            <span>
+              <strong className="text-foreground">{role.stats.completed}</strong> scored ·{" "}
+              <strong className="text-foreground">{role.stats.pending}</strong> pending
+            </span>
+            {role.stats.avgOverallScore !== null && (
+              <span>
+                Avg score <strong className="text-foreground">{role.stats.avgOverallScore}</strong>/100
+              </span>
+            )}
+          </div>
+        </button>
+
+        {expanded && (
+          <div className="border-t border-border px-5 pb-5 pt-4">
+            {loadError ? (
+              <p role="alert" className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
+            ) : candidates === null ? (
+              <div aria-hidden className="space-y-2">
+                <div className="h-10 animate-pulse rounded-md border border-border bg-background" />
+                <div className="h-10 animate-pulse rounded-md border border-border bg-background" />
+              </div>
+            ) : ranked.length === 0 ? (
+              <p className="text-sm text-muted">
+                No candidates have interviewed for this role yet.
+              </p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-muted">
+                    <th scope="col" className="py-1.5 pr-3">Candidate</th>
+                    <th scope="col" className="py-1.5 pr-3">Score</th>
+                    <th scope="col" className="py-1.5 pr-3">Stage</th>
+                    <th scope="col" className="py-1.5 pr-3">Last interview</th>
+                    <th scope="col" className="py-1.5"><span className="sr-only">Open</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ranked.map(({ candidate, stage }) => (
+                    <tr key={candidate.candidateId} className="border-t border-border">
+                      <td className="py-2 pr-3">
+                        <span className="font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
+                        <span className="block text-xs text-muted">{candidate.candidateEmail}</span>
+                      </td>
+                      <td className="py-2 pr-3 font-semibold">
+                        {candidate.overallScore === null ? <span className="font-normal text-muted">—</span> : `${candidate.overallScore}/100`}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${HIRE_STAGE_STYLES[stage]}`}>
+                          {HIRE_STAGE_LABELS[stage]}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-3 text-xs text-muted">{formatDate(candidate.latestInterviewAt)}</td>
+                      <td className="py-2 text-right">
+                        <Link
+                          href={`/dashboard/roles/${role.id}/candidates/${encodeURIComponent(candidate.candidateId)}`}
+                          className="text-xs font-medium text-accent hover:underline"
+                        >
+                          View
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <p className="mt-3 text-xs text-muted">
+              <Link href={`/dashboard/roles/${role.id}`} className="font-medium text-accent hover:underline">
+                Open full role view
+              </Link>{" "}
+              (leaderboard with bulk advance/reject)
+            </p>
+          </div>
+        )}
+      </div>
+    </li>
+  );
 }
 
 export function RolesView() {
@@ -235,53 +408,7 @@ export function RolesView() {
       {roles !== null && roles.length > 0 && (
         <ul className="grid gap-3">
           {roles.map((role) => (
-            <li key={role.id}>
-              <Link
-                href={`/dashboard/roles/${role.id}`}
-                className="block rounded-lg border border-border bg-surface p-5 transition hover:border-accent/50 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-              >
-                <div className="flex flex-wrap items-center gap-3">
-                  <h3 className="text-lg font-semibold">{role.title}</h3>
-                  <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[role.status]}`}>
-                    {STATUS_LABELS[role.status]}
-                  </span>
-                  <span className="grow" />
-                  {role.deadline && (
-                    <span className="text-xs text-muted">Closes {formatDate(role.deadline)}</span>
-                  )}
-                </div>
-                <p className="mt-1 line-clamp-2 text-sm text-muted">{role.description}</p>
-                {role.skills.length > 0 && (
-                  <p className="mt-2 flex flex-wrap gap-1">
-                    {role.skills.slice(0, 6).map((skill) => (
-                      <span key={skill} className="rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
-                        {skill}
-                      </span>
-                    ))}
-                    {role.skills.length > 6 && (
-                      <span className="text-xs text-muted">+{role.skills.length - 6} more</span>
-                    )}
-                  </p>
-                )}
-                <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted">
-                  <span>
-                    <strong className="text-foreground">{role.stats.candidates}</strong> candidates
-                  </span>
-                  <span>
-                    <strong className="text-foreground">{role.stats.interviews}</strong> interviews
-                  </span>
-                  <span>
-                    <strong className="text-foreground">{role.stats.completed}</strong> scored ·{" "}
-                    <strong className="text-foreground">{role.stats.pending}</strong> pending
-                  </span>
-                  {role.stats.avgOverallScore !== null && (
-                    <span>
-                      Avg score <strong className="text-foreground">{role.stats.avgOverallScore}</strong>/100
-                    </span>
-                  )}
-                </div>
-              </Link>
-            </li>
+            <RoleCard key={role.id} role={role} />
           ))}
         </ul>
       )}
