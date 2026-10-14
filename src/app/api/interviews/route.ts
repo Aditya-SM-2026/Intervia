@@ -174,6 +174,10 @@ export async function POST(request: NextRequest) {
  * headers take precedence when present.
  */
 function publicOrigin(request: NextRequest): string {
+  // An explicitly configured origin wins: behind Cloud Run the forwarded
+  // headers are usually right, but a pinned value can never drift.
+  const configured = process.env.INTERVIA_PUBLIC_ORIGIN?.trim();
+  if (configured) return configured.replace(/\/$/, "");
   const forwardedProto = request.headers
     .get("x-forwarded-proto")
     ?.split(",")[0]

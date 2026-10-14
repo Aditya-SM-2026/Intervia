@@ -45,7 +45,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   }
 
   const headers = new Headers({
-    "Content-Type": "video/mp4",
+    "Content-Type": recording.object.path.endsWith(".mp4") ? "video/mp4" : "video/webm",
     "Accept-Ranges": "bytes",
     // Candidate video: never stored by shared caches.
     "Cache-Control": "private, no-store",

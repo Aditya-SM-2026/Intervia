@@ -4,6 +4,7 @@ import {
   sendInterviewReminder,
 } from "@/lib/emails/email.service";
 import { getInterviewRepository } from "@/server/repositories";
+import { runInterviewWatchdogOnce } from "@/lib/interviews/watchdog.service";
 
 /** How often the reminder scan runs. */
 const SCAN_INTERVAL_MS = 60_000;
@@ -67,6 +68,9 @@ export function startReminderScheduler(): void {
   const timer = setInterval(() => {
     runReminderScanOnce().catch((cause) => {
       console.error("[reminders] scan error:", cause);
+    });
+    runInterviewWatchdogOnce().catch((cause) => {
+      console.error("[watchdog] error:", cause);
     });
   }, SCAN_INTERVAL_MS);
   timer.unref?.();

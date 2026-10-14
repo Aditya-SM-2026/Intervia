@@ -96,10 +96,19 @@ export function InterviewRoom({
   const recorderRef = useRef<CandidateRecorder | null>(null);
   const leftIntentionallyRef = useRef(false);
   const agentJoinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Server-side deadline. The interviewer agent normally ends the interview;
+   * if it never joins (or hangs), the candidate's session must still end when
+   * the time budget is spent, so the recording finalises and the report is
+   * generated. A minute of grace lets a present agent say goodbye first.
+   */
+  const hardStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function releaseMedia() {
     if (agentJoinTimerRef.current) clearTimeout(agentJoinTimerRef.current);
     agentJoinTimerRef.current = null;
+    if (hardStopTimerRef.current) clearTimeout(hardStopTimerRef.current);
+    hardStopTimerRef.current = null;
     // Stop recording before the tracks end, so the last piece is uploaded.
     // The upload finishes in the background; this page stays open after an
     // interview, on the "complete" screen.
@@ -312,6 +321,17 @@ export function InterviewRoom({
 
       setConnectionStage("connected");
       setStage("connected");
+
+      hardStopTimerRef.current = setTimeout(() => {
+        hardStopTimerRef.current = null;
+        const live = roomRef.current;
+        if (!live) return;
+        leftIntentionallyRef.current = true;
+        roomRef.current = null;
+        void live.disconnect().catch(() => {});
+        releaseMedia();
+        setStage("ended");
+      }, durationMinutes * 60_000 + 60_000);
     } catch (cause) {
       leftIntentionallyRef.current = true;
       await room.disconnect().catch(() => {});
