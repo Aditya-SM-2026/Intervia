@@ -2,6 +2,12 @@
 # Build from the repository root: docker build -f agent/Dockerfile agent
 FROM python:3.13-slim AS base
 
+# Root certificates: the slim image ships none, so the Gemini client cannot
+# build its TLS context and every live session fails on SSL.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1
 
