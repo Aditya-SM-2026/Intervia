@@ -32,6 +32,17 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+function initials(name: string): string {
+  const parts = name.split(/[\s@._-]+/).filter(Boolean);
+  return (parts[0]?.[0] ?? "?").concat(parts[1]?.[0] ?? "").toUpperCase();
+}
+
+function scoreBadgeClass(score: number): string {
+  if (score >= 70) return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300";
+  if (score >= 50) return "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300";
+  return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300";
+}
+
 async function fetchRoles(q: string | undefined, status: RoleStatus | undefined): Promise<RoleSummary[]> {
   const params = new URLSearchParams();
   if (q) params.set("q", q);
@@ -168,26 +179,39 @@ function RoleCard({ role }: { role: RoleSummary }) {
                 </thead>
                 <tbody>
                   {ranked.map(({ candidate, stage }) => (
-                    <tr key={candidate.candidateId} className="border-t border-border">
-                      <td className="py-2 pr-3">
-                        <span className="font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
-                        <span className="block text-xs text-muted">{candidate.candidateEmail}</span>
+                    <tr key={candidate.candidateId} className="group border-t border-border transition hover:bg-background">
+                      <td className="py-2.5 pr-3">
+                        <div className="flex items-center gap-2.5">
+                          <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
+                            {initials(candidate.candidateName ?? candidate.candidateEmail)}
+                          </span>
+                          <span>
+                            <span className="font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
+                            <span className="block text-xs text-muted">{candidate.candidateEmail}</span>
+                          </span>
+                        </div>
                       </td>
-                      <td className="py-2 pr-3 font-semibold">
-                        {candidate.overallScore === null ? <span className="font-normal text-muted">—</span> : `${candidate.overallScore}/100`}
+                      <td className="py-2.5 pr-3">
+                        {candidate.overallScore === null ? (
+                          <span className="text-muted">—</span>
+                        ) : (
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${scoreBadgeClass(candidate.overallScore)}`}>
+                            {candidate.overallScore}/100
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2 pr-3">
+                      <td className="py-2.5 pr-3">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${HIRE_STAGE_STYLES[stage]}`}>
                           {HIRE_STAGE_LABELS[stage]}
                         </span>
                       </td>
-                      <td className="py-2 pr-3 text-xs text-muted">{formatDate(candidate.latestInterviewAt)}</td>
-                      <td className="py-2 text-right">
+                      <td className="py-2.5 pr-3 text-xs text-muted">{formatDate(candidate.latestInterviewAt)}</td>
+                      <td className="py-2.5 text-right">
                         <Link
                           href={`/dashboard/roles/${role.id}/candidates/${encodeURIComponent(candidate.candidateId)}`}
-                          className="text-xs font-medium text-accent hover:underline"
+                          className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5"
                         >
-                          View
+                          View report
                         </Link>
                       </td>
                     </tr>

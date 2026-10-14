@@ -43,6 +43,17 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+function initials(name: string): string {
+  const parts = name.split(/[\s@._-]+/).filter(Boolean);
+  return (parts[0]?.[0] ?? "?").concat(parts[1]?.[0] ?? "").toUpperCase();
+}
+
+function scoreBadgeClass(score: number): string {
+  if (score >= 70) return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300";
+  if (score >= 50) return "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300";
+  return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300";
+}
+
 interface LeaderRow {
   candidate: RoleCandidateSummary;
   stage: HireStage;
@@ -502,14 +513,23 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                       />
                     </td>
                     <td className="px-3 py-2.5">
-                      <span className="font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
-                      <span className="block text-xs text-muted">{candidate.candidateEmail}</span>
+                      <div className="flex items-center gap-2.5">
+                        <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
+                          {initials(candidate.candidateName ?? candidate.candidateEmail)}
+                        </span>
+                        <span>
+                          <span className="font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
+                          <span className="block text-xs text-muted">{candidate.candidateEmail}</span>
+                        </span>
+                      </div>
                     </td>
                     <td className="px-3 py-2.5">
                       {candidate.overallScore === null ? (
                         <span className="text-muted">—</span>
                       ) : (
-                        <span className="font-semibold">{candidate.overallScore}<span className="text-xs font-normal text-muted">/100</span></span>
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${scoreBadgeClass(candidate.overallScore)}`}>
+                          {candidate.overallScore}/100
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-2.5">
@@ -527,9 +547,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                     <td className="px-3 py-2.5 text-right">
                       <Link
                         href={`/dashboard/roles/${roleId}/candidates/${encodeURIComponent(candidate.candidateId)}`}
-                        className="font-medium text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                        className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
                       >
-                        View
+                        View report
                       </Link>
                     </td>
                   </tr>
