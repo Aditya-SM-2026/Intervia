@@ -272,7 +272,15 @@ export function getPostgresRolesRepository(): RoleRepository {
       const titles = roles.map((role) => role.title);
       const result = await getPool().query(
         `WITH assoc AS (
-           SELECT i.role_id, i.id, i.status, LOWER(COALESCE(i.candidate_email, '')) AS email
+           -- Legacy-title matches have a NULL role_id; map the matched title
+           -- back to its role id (ids and titles arrive in the same order) so
+           -- every association groups under a real role.
+           SELECT (CASE
+                     WHEN i.role_id IS NOT NULL THEN i.role_id
+                     ELSE (SELECT t.rid FROM unnest($2::text[], $1::text[]) AS t(title, rid)
+                           WHERE t.title = i.role_title LIMIT 1)
+                   END) AS role_id,
+             i.id, i.status, LOWER(COALESCE(i.candidate_email, '')) AS email
            FROM interviews i
            WHERE ${roleAssociationSql("$1::text[]", "$2::text[]")}
          )
