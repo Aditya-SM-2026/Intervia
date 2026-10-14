@@ -20,7 +20,7 @@ export interface CreateInterviewFormValues {
   scheduledTime?: string;
   jobDescriptionText?: string;
   jobDescriptionPdf?: File;
-  resume: File;
+  resume?: File;
 }
 
 interface CreateInterviewFormProps {
@@ -171,11 +171,6 @@ export function CreateInterviewForm({ onSubmit, isSubmitting }: CreateInterviewF
       setLocalError("Add the job description: paste the text or choose a PDF.");
       return;
     }
-    if (!resume) {
-      setLocalError("Choose the candidate's resume (PDF).");
-      return;
-    }
-
     onSubmit({
       recruiterName: recruiterName.trim(),
       candidateName: candidateName.trim(),
@@ -186,7 +181,7 @@ export function CreateInterviewForm({ onSubmit, isSubmitting }: CreateInterviewF
       voiceMode,
       ...(scheduledDate ? { scheduledDate, scheduledTime } : {}),
       ...(jobDescriptionPdf ? { jobDescriptionPdf } : { jobDescriptionText: jobDescriptionText.trim() }),
-      resume,
+      ...(resume ? { resume } : {}),
     });
   }
 
@@ -451,8 +446,11 @@ export function CreateInterviewForm({ onSubmit, isSubmitting }: CreateInterviewF
           </div>
 
           <div>
-            <span className={labelClasses}>Candidate resume</span>
+            <span className={labelClasses}>Candidate resume (optional)</span>
             <PdfPicker file={resume} onChange={setResume} prompt="or drop it here" />
+            <p className="mt-1.5 text-xs text-muted">
+              No resume yet? A one-time upload link is generated for the candidate.
+            </p>
           </div>
         </fieldset>
       </div>

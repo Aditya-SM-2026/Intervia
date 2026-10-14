@@ -11,6 +11,7 @@ import type {
   SessionOutcome,
 } from "./interview.types";
 import { DuplicateInterviewError } from "./interview-errors";
+import { generateUploadToken } from "@/lib/uploads/resume-upload";
 import { generateInterviewPlan } from "./plan.service";
 import type { DashboardInterviewSummary } from "./scorecard.types";
 import { getInterviewRepository } from "@/server/repositories";
@@ -112,6 +113,8 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     recruiterName: input.recruiterName,
     scheduledAt: input.scheduledAt ?? null,
     reminderSentAt: null,
+    uploadToken: generateUploadToken(),
+    uploadUsedAt: null,
     candidateEmail: input.candidateEmail,
     roleTitle: input.roleTitle,
     difficulty: input.difficulty,

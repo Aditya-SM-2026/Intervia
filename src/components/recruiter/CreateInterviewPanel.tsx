@@ -14,6 +14,7 @@ interface InviteEmailStatus {
 interface CreateResult {
   room: InterviewRoom;
   candidateUrl: string;
+  uploadUrl?: string | null;
   duplicate?: boolean;
   inviteEmail?: InviteEmailStatus;
 }
@@ -46,7 +47,9 @@ export function CreateInterviewPanel() {
       } else if (values.jobDescriptionText) {
         form.set("jobDescriptionText", values.jobDescriptionText);
       }
-      form.set("resume", values.resume);
+      if (values.resume) {
+        form.set("resume", values.resume);
+      }
 
       const response = await fetch("/api/interviews", { method: "POST", body: form });
       if (response.status === 401) {

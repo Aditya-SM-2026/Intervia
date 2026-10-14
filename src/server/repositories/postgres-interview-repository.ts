@@ -55,6 +55,8 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS consent_given_at TIMESTAMPTZ;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS upload_token TEXT;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS upload_used_at TIMESTAMPTZ;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS plan JSONB;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS outcome JSONB;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS decision JSONB;
@@ -90,7 +92,7 @@ CREATE TABLE IF NOT EXISTS scorecards (
 const ROOM_COLUMNS = `id, title, candidate_name, status, created_at, expires_at,
   recruiter_name, scheduled_at, candidate_email, role_title, difficulty, duration_minutes, jd_source, jd_text,
   resume_file_name, resume_text, resume_unreadable, consent_given_at, completed_at,
-  plan, outcome, decision, voice_mode, reminder_sent_at`;
+  plan, outcome, decision, voice_mode, reminder_sent_at, upload_token, upload_used_at`;
 
 function getPool(): Pool {
   if (!globalRefs.__interviewPgPool) {
@@ -140,6 +142,8 @@ interface InterviewRow {
   completed_at: Date | null;
   scheduled_at: Date | null;
   reminder_sent_at: Date | null;
+  upload_token: string | null;
+  upload_used_at: Date | null;
   plan: InterviewPlan | null;
   outcome: SessionOutcome | null;
   decision: HumanDecision | null;
@@ -158,6 +162,8 @@ function rowToRoom(row: InterviewRow): InterviewRoom {
     recruiterName: row.recruiter_name,
     scheduledAt: row.scheduled_at ? row.scheduled_at.toISOString() : null,
     reminderSentAt: row.reminder_sent_at ? row.reminder_sent_at.toISOString() : null,
+    uploadToken: row.upload_token,
+    uploadUsedAt: row.upload_used_at ? row.upload_used_at.toISOString() : null,
     candidateEmail: row.candidate_email,
     roleTitle: row.role_title,
     difficulty: (row.difficulty as DifficultyLevel | null) ?? "medium",
@@ -194,7 +200,7 @@ export function getPostgresInterviewRepository(): InterviewRepository {
       await getPool().query(
         `INSERT INTO interviews (${ROOM_COLUMNS})
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                 $19, $20, $21, $22, $23, $24)
+                 $19, $20, $21, $22, $23, $24, $25, $26)
          ON CONFLICT (id) DO UPDATE SET
            title = EXCLUDED.title,
            candidate_name = EXCLUDED.candidate_name,
@@ -218,7 +224,9 @@ export function getPostgresInterviewRepository(): InterviewRepository {
            outcome = EXCLUDED.outcome,
            decision = EXCLUDED.decision,
            voice_mode = EXCLUDED.voice_mode,
-           reminder_sent_at = EXCLUDED.reminder_sent_at`,
+           reminder_sent_at = EXCLUDED.reminder_sent_at,
+           upload_token = EXCLUDED.upload_token,
+           upload_used_at = EXCLUDED.upload_used_at`,
         [
           room.id,
           room.title,
@@ -244,6 +252,8 @@ export function getPostgresInterviewRepository(): InterviewRepository {
           jsonOrNull(room.decision),
           room.voiceMode,
           room.reminderSentAt,
+          room.uploadToken,
+          room.uploadUsedAt,
         ],
       );
     },

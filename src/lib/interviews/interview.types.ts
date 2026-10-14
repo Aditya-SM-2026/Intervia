@@ -109,6 +109,10 @@ export interface InterviewRoom {
   scheduledAt: string | null;
   /** ISO 8601 moment the 30-minute reminder email was sent; null while pending. */
   reminderSentAt: string | null;
+  /** Secret token for the candidate's one-time resume-upload link. */
+  uploadToken: string | null;
+  /** ISO 8601 moment the upload link was consumed; the link is one-time. */
+  uploadUsedAt: string | null;
   /** Session fields (see docs/PRE_INTERVIEW_PLAN.md). */
   recruiterName: string | null;
   /** The only email that may open this link; the join token is issued after it matches. */

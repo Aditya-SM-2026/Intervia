@@ -7,6 +7,7 @@ interface InterviewLinkResultProps {
   result: {
     room: InterviewRoom;
     candidateUrl: string;
+    uploadUrl?: string | null;
     inviteEmail?: {
       status: "sent" | "failed" | "not_configured";
       detail?: string;
@@ -18,7 +19,7 @@ interface InterviewLinkResultProps {
 const COPY_FEEDBACK_MS = 2000;
 
 export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProps) {
-  const { room, candidateUrl, inviteEmail } = result;
+  const { room, candidateUrl, uploadUrl, inviteEmail } = result;
   const [copied, setCopied] = useState(false);
   const [manualCopyNeeded, setManualCopyNeeded] = useState(false);
   const copyTimer = useRef<number | null>(null);
@@ -99,6 +100,24 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
           </p>
         )}
       </div>
+
+      {uploadUrl && !room.resume && (
+        <div>
+          <p className="mb-1 text-sm font-medium">Resume upload link for the candidate</p>
+          <input
+            type="text"
+            readOnly
+            value={uploadUrl}
+            aria-label="Resume upload link"
+            onFocus={(event) => event.currentTarget.select()}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm"
+          />
+          <p className="mt-1 text-xs text-muted">
+            The candidate can upload their resume (PDF, DOC, DOCX) here; the link works once
+            and expires after 24 hours.
+          </p>
+        </div>
+      )}
 
       {room.plan && (
         <div>

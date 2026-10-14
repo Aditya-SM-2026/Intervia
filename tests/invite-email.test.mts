@@ -19,6 +19,8 @@ const room: InterviewRoom = {
   expiresAt: "2026-10-15T06:00:00.000Z",
   scheduledAt: "2026-10-20T10:00:00.000Z",
   reminderSentAt: null,
+  uploadToken: "a".repeat(32),
+  uploadUsedAt: null,
   recruiterName: "Priya Sharma",
   candidateEmail: "candidate@example.com",
   roleTitle: "Backend Engineer",

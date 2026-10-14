@@ -82,8 +82,10 @@ export async function POST(request: NextRequest) {
 
   const resumeFile = form.get("resume");
   const jdFile = form.get("jobDescriptionPdf");
-  if (!(resumeFile instanceof File) || resumeFile.size === 0) {
-    return invalidInput("Resume (PDF) is required.");
+  // The resume is optional: when the recruiter has none at hand, the
+  // candidate can upload it through the one-time upload link instead.
+  if (resumeFile !== null && (!(resumeFile instanceof File) || resumeFile.size === 0)) {
+    return invalidInput("The resume upload must be a non-empty file.");
   }
   if (jdFile !== null && !(jdFile instanceof File)) {
     return invalidInput("Job description upload must be a file.");
@@ -106,19 +108,21 @@ export async function POST(request: NextRequest) {
     return invalidInput("A job description is required: paste text or upload a PDF.");
   }
 
-  let resume: { fileName: string; text: string; unreadable?: boolean };
-  try {
-    resume = {
-      fileName: resumeFile.name,
-      text: await extractPdfText(resumeFile, "Resume"),
-    };
-  } catch (error) {
-    if (error instanceof PdfExtractionError) {
-      // A scanned or unreadable resume must not block the interview; the
-      // plan is built from the job description alone and the scorecard notes it.
-      resume = { fileName: resumeFile.name, text: "", unreadable: true };
-    } else {
-      throw error;
+  let resume: { fileName: string; text: string; unreadable?: boolean } | null = null;
+  if (resumeFile instanceof File && resumeFile.size > 0) {
+    try {
+      resume = {
+        fileName: resumeFile.name,
+        text: await extractPdfText(resumeFile, "Resume"),
+      };
+    } catch (error) {
+      if (error instanceof PdfExtractionError) {
+        // A scanned or unreadable resume must not block the interview; the
+        // plan is built from the job description alone and the scorecard notes it.
+        resume = { fileName: resumeFile.name, text: "", unreadable: true };
+      } else {
+        throw error;
+      }
     }
   }
 
@@ -139,7 +143,11 @@ export async function POST(request: NextRequest) {
     invitationInputFromRoom(room, candidateUrl),
   );
 
-  return NextResponse.json({ room, candidateUrl, inviteEmail }, { status: 201 });
+  const uploadUrl = room.uploadToken
+    ? new URL(`/upload/${room.uploadToken}`, publicOrigin(request)).toString()
+    : null;
+
+  return NextResponse.json({ room, candidateUrl, uploadUrl, inviteEmail }, { status: 201 });
 }
 
 /**
