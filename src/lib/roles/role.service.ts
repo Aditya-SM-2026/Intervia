@@ -1,4 +1,6 @@
 import "server-only";
+import type { HumanDecision } from "@/lib/interviews/interview.types";
+import { recordDecision } from "@/lib/interviews/interview.service";
 import type { RoleCandidateSummary, RoleSummary } from "@/lib/roles/role.types";
 import { createRoleSchema, updateRoleSchema } from "@/lib/roles/role.validation";
 import {
@@ -133,3 +135,57 @@ export async function exportRoleCandidates(roleId: string) {
   );
   return { role, candidates: page.candidates };
 }
+/** Max candidates a single bulk decision may touch. */
+const DECIDE_MAX_CANDIDATES = 100;
+
+/**
+ * Bulk hiring decisions from the leaderboard: apply one decision to many
+ * candidates at once. Each candidate's most recent interview in the role
+ * receives the decision — that is the interview the scorecard advises on.
+ * Per-candidate failures are reported, one bad row never blocks the rest.
+ */
+export async function decideRoleCandidates(
+  roleId: string,
+  candidateIds: readonly string[],
+  outcome: HumanDecision["outcome"],
+  note = "",
+): Promise<{
+  roleTitle: string;
+  decided: { candidateId: string; roomId: string; candidateName: string | null }[];
+  failed: { candidateId: string; error: string }[];
+} | null> {
+  const role = await repository().getRole(roleId);
+  if (!role) return null;
+  const page = await repository().listRoleCandidates(
+    roleId,
+    role.title,
+    DECIDE_MAX_CANDIDATES,
+    0,
+  );
+  const byId = new Map(page.candidates.map((row) => [row.candidateId, row]));
+  const decided: { candidateId: string; roomId: string; candidateName: string | null }[] = [];
+  const failed: { candidateId: string; error: string }[] = [];
+  for (const candidateId of candidateIds) {
+    const row = byId.get(candidateId);
+    if (!row) {
+      failed.push({ candidateId, error: "Candidate not found in this role" });
+      continue;
+    }
+    const room = await recordDecision(row.roomId, {
+      outcome,
+      note,
+      decidedAt: new Date().toISOString(),
+    });
+    if (!room) {
+      failed.push({ candidateId, error: "Interview not found (may have been deleted)" });
+      continue;
+    }
+    decided.push({
+      candidateId,
+      roomId: row.roomId,
+      candidateName: row.candidateName,
+    });
+  }
+  return { roleTitle: role.title, decided, failed };
+}
+
