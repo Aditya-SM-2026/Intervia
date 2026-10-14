@@ -6,10 +6,16 @@ import type { InterviewRoom } from "@/lib/interviews/interview.types";
 import { CreateInterviewForm, type CreateInterviewFormValues } from "./CreateInterviewForm";
 import { InterviewLinkResult } from "./InterviewLinkResult";
 
+interface InviteEmailStatus {
+  status: "sent" | "failed" | "not_configured";
+  detail?: string;
+}
+
 interface CreateResult {
   room: InterviewRoom;
   candidateUrl: string;
   duplicate?: boolean;
+  inviteEmail?: InviteEmailStatus;
 }
 
 export function CreateInterviewPanel() {
@@ -62,7 +68,7 @@ export function CreateInterviewPanel() {
         );
       }
 
-      setResult(data as CreateResult);
+      setResult({ ...(data as CreateResult), duplicate: undefined });
     } catch (cause) {
       setError(
         cause instanceof Error

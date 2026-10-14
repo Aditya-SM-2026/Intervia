@@ -7,6 +7,10 @@ interface InterviewLinkResultProps {
   result: {
     room: InterviewRoom;
     candidateUrl: string;
+    inviteEmail?: {
+      status: "sent" | "failed" | "not_configured";
+      detail?: string;
+    };
   };
   onReset: () => void;
 }
@@ -14,7 +18,7 @@ interface InterviewLinkResultProps {
 const COPY_FEEDBACK_MS = 2000;
 
 export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProps) {
-  const { room, candidateUrl } = result;
+  const { room, candidateUrl, inviteEmail } = result;
   const [copied, setCopied] = useState(false);
   const [manualCopyNeeded, setManualCopyNeeded] = useState(false);
   const copyTimer = useRef<number | null>(null);
@@ -44,6 +48,28 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
         <span className="font-medium">{room.title}</span>
         {room.candidateName && <> for candidate {room.candidateName}</>}.
       </p>
+
+      {inviteEmail && (
+        <p className="text-sm">
+          {inviteEmail.status === "sent" && (
+            <span className="text-muted">
+              Invitation email sent to <span className="font-medium">{room.candidateEmail}</span>.
+            </span>
+          )}
+          {inviteEmail.status === "failed" && (
+            <span className="text-amber-600 dark:text-amber-400">
+              Invitation email could not be sent — copy the link above and share it with{" "}
+              <span className="font-medium">{room.candidateEmail}</span> yourself.
+            </span>
+          )}
+          {inviteEmail.status === "not_configured" && (
+            <span className="text-muted">
+              Email sending is not configured — copy the link above and share it with{" "}
+              <span className="font-medium">{room.candidateEmail}</span>.
+            </span>
+          )}
+        </p>
+      )}
 
       {room.scheduledAt && (
         <p className="text-sm">

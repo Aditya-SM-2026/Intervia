@@ -9,6 +9,10 @@ import {
 import type { InterviewApiError } from "@/lib/interviews/interview.types";
 import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
 import { requireRecruiter } from "@/lib/auth/guards";
+import {
+  invitationInputFromRoom,
+  sendInterviewInvitation,
+} from "@/lib/emails/email.service";
 
 function invalidInput(message: string) {
   const body: InterviewApiError = { error: { code: "INVALID_INPUT", message } };
@@ -129,7 +133,13 @@ export async function POST(request: NextRequest) {
     publicOrigin(request),
   ).toString();
 
-  return NextResponse.json({ room, candidateUrl }, { status: 201 });
+  // The invitation must never block scheduling: the send reports its own
+  // status and swallows SMTP errors.
+  const inviteEmail = await sendInterviewInvitation(
+    invitationInputFromRoom(room, candidateUrl),
+  );
+
+  return NextResponse.json({ room, candidateUrl, inviteEmail }, { status: 201 });
 }
 
 /**
