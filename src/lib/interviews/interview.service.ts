@@ -314,7 +314,9 @@ export async function listDashboardInterviews(
 
 /** Expiry shown lazily for display; the stored row is not rewritten here. */
 function displayStatus(room: InterviewRoom): InterviewStatus {
-  return isExpired(room) ? "expired" : room.status;
+  // Only sessions that never finished flip to "expired"; completed or active
+  // interviews keep their real status even after the link validity passes.
+  return isActiveStatus(room.status) && isExpired(room) ? "expired" : room.status;
 }
 
 async function generateUnusedRoomId(repository: InterviewRepository): Promise<string> {
