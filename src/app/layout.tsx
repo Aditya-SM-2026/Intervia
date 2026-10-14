@@ -29,7 +29,23 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${display.variable}`}>
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} ${display.variable}`}
+      suppressHydrationWarning
+    >
+      <head>
+        {/*
+          Resolves the theme before first paint: saved preference wins,
+          otherwise the system preference. Inline and blocking on purpose —
+          a deferred script would let the wrong theme flash.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem("intervia-theme");var t=s==="light"||s==="dark"?s:"system";var d=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);var e=document.documentElement;e.classList.toggle("dark",d);e.style.colorScheme=d?"dark":"light";}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="min-h-dvh bg-background font-sans text-foreground antialiased">
         {children}
       </body>

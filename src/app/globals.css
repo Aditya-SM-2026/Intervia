@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Class-based theming: the inline script in app/layout.tsx resolves `.dark`
+   before first paint from the saved preference (intervia-theme) or the system
+   preference, so the media query below is only the pre-JS fallback. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -7,6 +12,7 @@
   --color-border: var(--border);
   --color-muted: var(--muted);
   --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
   --color-candidate: var(--candidate);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
@@ -24,19 +30,37 @@
   --border: #e1e5ec;
   --muted: #5d6779;
   --accent: #2f5fe0;
+  --accent-soft: rgba(47, 95, 224, 0.08);
   --candidate: #17976a;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not(.light) {
     --background: #0c111b;
     --foreground: #e8ecf5;
     --surface: #141b29;
     --border: #263048;
     --muted: #93a0b8;
     --accent: #7aa7ff;
+    --accent-soft: rgba(122, 167, 255, 0.12);
     --candidate: #6fd3a8;
   }
+}
+
+.dark {
+  --background: #0c111b;
+  --foreground: #e8ecf5;
+  --surface: #141b29;
+  --border: #263048;
+  --muted: #93a0b8;
+  --accent: #7aa7ff;
+  --accent-soft: rgba(122, 167, 255, 0.12);
+  --candidate: #6fd3a8;
+  color-scheme: dark;
+}
+
+:root:not(.dark) {
+  color-scheme: light;
 }
 
 h1,

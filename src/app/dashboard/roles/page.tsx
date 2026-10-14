@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { AppShell } from "@/components/layout/AppShell";
+import { TopNav } from "@/components/dashboard/TopNav";
+import { ThemeProvider } from "@/components/dashboard/theme";
 import { RolesView } from "@/components/roles/RolesView";
 
 export const metadata: Metadata = {
@@ -8,12 +9,12 @@ export const metadata: Metadata = {
 
 export default function RolesPage() {
   return (
-    <AppShell current="roles">
+    <ThemeProvider><TopNav /><main className="mx-auto w-full max-w-7xl px-4 pb-16 sm:px-6">
       <h1 className="text-3xl font-semibold">Roles</h1>
       <p className="mt-1 mb-6 text-muted">
         Open a role to see its candidates, their interview results and to export a hiring report.
       </p>
       <RolesView />
-    </AppShell>
+    </main></ThemeProvider>
   );
 }
