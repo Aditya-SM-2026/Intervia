@@ -235,6 +235,15 @@ export interface InterviewRepository {
    * call concurrently (multiple server instances never double-send).
    */
   claimDueReminders(now: string): Promise<string[]>;
+  /**
+   * Inserts a new room while holding a per-duplicate-key lock, so two
+   * simultaneous identical creations cannot both succeed. Returns the
+   * existing room when another creation of the same slot won the race.
+   */
+  insertRoomAtomically(
+    room: InterviewRoom,
+    duplicateKey: string,
+  ): Promise<{ created: true } | { created: false; existing: InterviewRoom }>;
   get(id: string): Promise<InterviewRoom | null>;
   /** Sessions, newest first, with optional dashboard filters. */
   list(filter?: DashboardListFilter): Promise<InterviewRoom[]>;

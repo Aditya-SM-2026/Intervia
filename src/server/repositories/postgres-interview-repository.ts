@@ -258,6 +258,76 @@ export function getPostgresInterviewRepository(): InterviewRepository {
       );
     },
 
+    async insertRoomAtomically(
+      room: InterviewRoom,
+      duplicateKey: string,
+    ): Promise<{ created: true } | { created: false; existing: InterviewRoom }> {
+      await ensureSchema();
+      const client = await getPool().connect();
+      try {
+        await client.query("BEGIN");
+        // One writer per logical slot: identical candidate + role + schedule
+        // serialize here, so the duplicate check inside the transaction is
+        // race-free.
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [duplicateKey]);
+        const existing = await client.query<InterviewRow>(
+          `SELECT ${ROOM_COLUMNS} FROM interviews
+           WHERE candidate_email = $1
+             AND lower(role_title) = lower($2)
+             AND status = 'scheduled'
+             AND completed_at IS NULL
+             AND ((scheduled_at IS NULL AND $3::timestamptz IS NULL)
+                  OR scheduled_at = $3::timestamptz)
+           LIMIT 1`,
+          [room.candidateEmail, room.roleTitle, room.scheduledAt],
+        );
+        if (existing.rows.length > 0) {
+          await client.query("COMMIT");
+          return { created: false, existing: rowToRoom(existing.rows[0]) };
+        }
+        await client.query(
+          `INSERT INTO interviews (${ROOM_COLUMNS})
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                   $19, $20, $21, $22, $23, $24, $25, $26)`,
+          [
+            room.id,
+            room.title,
+            room.candidateName,
+            room.status,
+            room.createdAt,
+            room.expiresAt,
+            room.recruiterName,
+            room.scheduledAt,
+            room.candidateEmail,
+            room.roleTitle,
+            room.difficulty,
+            room.durationMinutes,
+            room.jobDescription?.source ?? null,
+            room.jobDescription?.text ?? null,
+            room.resume?.fileName ?? null,
+            room.resume?.text ?? null,
+            room.resume?.unreadable ?? null,
+            room.consent?.givenAt ?? null,
+            room.completedAt,
+            jsonOrNull(room.plan),
+            jsonOrNull(room.outcome),
+            jsonOrNull(room.decision),
+            room.voiceMode,
+            room.reminderSentAt,
+            room.uploadToken,
+            room.uploadUsedAt,
+          ],
+        );
+        await client.query("COMMIT");
+        return { created: true };
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
     async claimDueReminders(now: string): Promise<string[]> {
       await ensureSchema();
       const result = await getPool().query<{ id: string }>(

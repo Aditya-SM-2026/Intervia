@@ -50,6 +50,23 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
       return store.rooms.get(id) ?? null;
     },
 
+    async insertRoomAtomically(
+      room: InterviewRoom,
+      _duplicateKey: string,
+    ): Promise<{ created: true } | { created: false; existing: InterviewRoom }> {
+      const existing = [...store.rooms.values()].find(
+        (candidate) =>
+          candidate.candidateEmail === room.candidateEmail &&
+          candidate.roleTitle?.toLowerCase() === room.roleTitle?.toLowerCase() &&
+          candidate.status === "scheduled" &&
+          candidate.completedAt === null &&
+          candidate.scheduledAt === room.scheduledAt,
+      );
+      if (existing) return { created: false, existing };
+      store.rooms.set(room.id, room);
+      return { created: true };
+    },
+
     async claimDueReminders(now: string): Promise<string[]> {
       const nowMs = Date.parse(now);
       const claimed: string[] = [];

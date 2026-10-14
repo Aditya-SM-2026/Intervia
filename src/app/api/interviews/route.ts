@@ -126,12 +126,30 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const room = await createInterviewRoom({
-    ...parsed.data,
-    scheduledAt: scheduled.value,
-    jobDescription,
-    resume,
-  });
+  let room;
+  try {
+    room = await createInterviewRoom({
+      ...parsed.data,
+      scheduledAt: scheduled.value,
+      jobDescription,
+      resume,
+    });
+  } catch (error) {
+    if (error instanceof DuplicateInterviewError) {
+      // Lost the insert race against an identical simultaneous submission.
+      const candidateUrl = new URL(`/interview/${error.room.id}`, publicOrigin(request)).toString();
+      return NextResponse.json(
+        {
+          room: error.room,
+          candidateUrl,
+          duplicate: true,
+          error: { code: "DUPLICATE_INTERVIEW", message: "This exact interview is already scheduled." },
+        },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
   const candidateUrl = new URL(
     `/interview/${room.id}`,
     publicOrigin(request),

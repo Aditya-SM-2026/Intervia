@@ -129,8 +129,16 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     decision: null,
   };
 
-  await repository.save(room);
+  // The atomic insert closes the race where two identical creations pass the
+  // pre-check above at the same moment and both go on to insert.
+  const outcome = await repository.insertRoomAtomically(room, duplicateKeyFor(room));
+  if (!outcome.created) throw new DuplicateInterviewError(outcome.existing);
   return room;
+}
+
+/** Identity of an interview slot: candidate + role + scheduled moment. */
+function duplicateKeyFor(room: Pick<InterviewRoom, "candidateEmail" | "roleTitle" | "scheduledAt">): string {
+  return `dup:${room.candidateEmail?.toLowerCase()}|${room.roleTitle?.toLowerCase()}|${room.scheduledAt ?? "now"}`;
 }
 
 export async function getInterviewRoom(roomId: string): Promise<InterviewRoom | null> {
