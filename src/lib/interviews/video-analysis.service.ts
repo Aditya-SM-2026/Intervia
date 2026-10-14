@@ -16,7 +16,8 @@ import {
   waitForRecordingFinished,
   type LocalRecording,
 } from "@/lib/recordings/store";
-import { fetchStoredObject, type StoredObject } from "@/lib/storage/gcs";
+import { fetchStoredObject } from "@/lib/storage/gcs";
+import { hasRecording, listRecordings, type RecordingRef } from "./recording-refs";
 import type { InterviewEvent, InterviewTurn } from "./interview.types";
 import { gazePattern, MIN_ANSWERS_FOR_PATTERN, videoBehaviourScore } from "./scoring";
 import type {
@@ -162,36 +163,8 @@ function result(
 
 // --- which recording ---------------------------------------------------------
 
-export type RecordingRef =
-  | { kind: "local"; recording: LocalRecording; startedAt: string }
-  | { kind: "gcs"; object: StoredObject; startedAt: string };
-
-/** Every recording logged for an interview, oldest first. */
-export function listRecordings(events: readonly InterviewEvent[]): RecordingRef[] {
-  const found: RecordingRef[] = [];
-  for (const event of events) {
-    if (event.type !== "recording_started") continue;
-    const { bucket, path: objectPath, storage, recordingId, mimeType } = event.data;
-    if (storage === "local" && typeof recordingId === "string") {
-      found.push({
-        kind: "local",
-        recording: {
-          roomId: event.roomId,
-          recordingId,
-          format: formatFromMime(typeof mimeType === "string" ? mimeType : null),
-        },
-        startedAt: event.at,
-      });
-    } else if (typeof bucket === "string" && typeof objectPath === "string") {
-      found.push({ kind: "gcs", object: { bucket, path: objectPath }, startedAt: event.at });
-    }
-  }
-  return found;
-}
-
-export function hasRecording(events: readonly InterviewEvent[]): boolean {
-  return listRecordings(events).length > 0;
-}
+export type { RecordingRef } from "./recording-refs";
+export { hasRecording, listRecordings } from "./recording-refs";
 
 /**
  * The recording to play and analyse. A candidate who drops and rejoins leaves

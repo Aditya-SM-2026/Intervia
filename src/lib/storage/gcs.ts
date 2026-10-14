@@ -42,6 +42,25 @@ export interface StoredObject {
   path: string;
 }
 
+/** Uploads an object's bytes. Returns true when the upload succeeded. */
+export async function uploadStoredObject(
+  object: StoredObject,
+  body: Uint8Array,
+  mimeType: string,
+): Promise<boolean> {
+  const token = await getStorageAccessToken();
+  if (!token) return false;
+  const url = `https://storage.googleapis.com/upload/storage/v1/b/${encodeURIComponent(
+    object.bucket,
+  )}/o?uploadType=media&name=${encodeURIComponent(object.path)}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": mimeType },
+    body: new Blob([body as BlobPart], { type: mimeType }),
+  });
+  return response.ok;
+}
+
 /** Fetches an object's bytes, optionally a byte range (for video seeking). */
 export async function fetchStoredObject(
   object: StoredObject,

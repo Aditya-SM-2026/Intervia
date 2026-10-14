@@ -24,20 +24,13 @@ const MAX_RECORDING_BYTES = 800 * 1024 * 1024;
 const FINISHED_WAIT_MS = 25_000;
 const UNFINISHED_AFTER_MS = 60_000;
 
-export type RecordingFormat = "webm" | "mp4";
+export { formatFromMime, mimeFor } from "./recording-format";
+import type { RecordingFormat } from "./recording-format";
 
 export interface LocalRecording {
   roomId: string;
   recordingId: string;
   format: RecordingFormat;
-}
-
-export function formatFromMime(mime: string | null | undefined): RecordingFormat {
-  return (mime ?? "").toLowerCase().includes("mp4") ? "mp4" : "webm";
-}
-
-export function mimeFor(format: RecordingFormat): string {
-  return format === "mp4" ? "video/mp4" : "video/webm";
 }
 
 function recordingsDir(): string {
