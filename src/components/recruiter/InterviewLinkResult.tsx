@@ -45,6 +45,17 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
         {room.candidateName && <> for candidate {room.candidateName}</>}.
       </p>
 
+      {room.scheduledAt && (
+        <p className="text-sm">
+          <span className="font-medium">Scheduled for</span>{" "}
+          {new Date(room.scheduledAt).toLocaleString(undefined, {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })}{" "}
+          <span className="text-muted">(your local time)</span>
+        </p>
+      )}
+
       <div>
         <p className="mb-1 text-sm font-medium">Candidate link</p>
         <input

@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { createInterviewRoom } from "@/lib/interviews/interview.service";
+import { createInterviewRoom, findDuplicateInterview, resolveScheduledAt } from "@/lib/interviews/interview.service";
+import { DuplicateInterviewError } from "@/lib/interviews/interview-errors";
 import {
   createInterviewSchema,
   formatValidationIssues,
@@ -42,6 +43,8 @@ export async function POST(request: NextRequest) {
     candidateName: text("candidateName"),
     candidateEmail: text("candidateEmail"),
     roleTitle: text("roleTitle"),
+    scheduledDate: text("scheduledDate"),
+    scheduledTime: text("scheduledTime"),
     durationMinutes: text("durationMinutes"),
     difficulty: text("difficulty"),
     voiceMode: text("voiceMode"),
@@ -49,6 +52,28 @@ export async function POST(request: NextRequest) {
   });
   if (!parsed.success) {
     return invalidInput(formatValidationIssues(parsed.error));
+  }
+
+  const scheduled = resolveScheduledAt(parsed.data.scheduledDate, parsed.data.scheduledTime);
+  if (scheduled.error) return invalidInput(scheduled.error);
+
+  // An accidental re-submit must return the earlier interview, not a second
+  // one — checked before the plan is generated, which takes seconds.
+  const duplicate = await findDuplicateInterview(
+    { candidateEmail: parsed.data.candidateEmail, roleTitle: parsed.data.roleTitle },
+    scheduled.value,
+  );
+  if (duplicate) {
+    const candidateUrl = new URL(`/interview/${duplicate.id}`, publicOrigin(request)).toString();
+    return NextResponse.json(
+      {
+        room: duplicate,
+        candidateUrl,
+        duplicate: true,
+        error: { code: "DUPLICATE_INTERVIEW", message: "This exact interview is already scheduled." },
+      },
+      { status: 409 },
+    );
   }
 
   const resumeFile = form.get("resume");
@@ -95,6 +120,7 @@ export async function POST(request: NextRequest) {
 
   const room = await createInterviewRoom({
     ...parsed.data,
+    scheduledAt: scheduled.value,
     jobDescription,
     resume,
   });

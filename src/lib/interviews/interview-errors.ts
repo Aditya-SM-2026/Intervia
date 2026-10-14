@@ -1,5 +1,17 @@
 import { NextResponse } from "next/server";
-import type { InterviewApiError } from "./interview.types";
+import type { InterviewApiError, InterviewRoom } from "./interview.types";
+
+/**
+ * Thrown when a scheduler re-submits the same candidate, role and moment
+ * while an earlier interview is still open. Carries the existing room so the
+ * API can return its link instead of creating a second interview.
+ */
+export class DuplicateInterviewError extends Error {
+  constructor(readonly room: InterviewRoom) {
+    super("An identical interview is already scheduled for this candidate.");
+    this.name = "DuplicateInterviewError";
+  }
+}
 
 const HTTP_STATUS_BY_CODE = {
   INVALID_INPUT: 400,

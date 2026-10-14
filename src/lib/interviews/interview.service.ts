@@ -10,6 +10,7 @@ import type {
   InterviewStatus,
   SessionOutcome,
 } from "./interview.types";
+import { DuplicateInterviewError } from "./interview-errors";
 import { generateInterviewPlan } from "./plan.service";
 import type { DashboardInterviewSummary } from "./scorecard.types";
 import { getInterviewRepository } from "@/server/repositories";
@@ -36,9 +37,58 @@ export function generateRoomId(): string {
   return randomBytes(ROOM_ID_RANDOM_BYTES).toString("base64url");
 }
 
+/**
+ * Resolves the recruiter's date + time selection to an ISO 8601 instant.
+ * Interpreted in the server's local timezone (the scheduler's timezone) and
+ * stored as UTC. Empty selections mean the link may be used immediately.
+ */
+export function resolveScheduledAt(
+  scheduledDate?: string,
+  scheduledTime?: string,
+): { value: string | null; error?: string } {
+  if (!scheduledDate && !scheduledTime) return { value: null };
+  if (!scheduledDate) return { value: null, error: "Provide an interview date together with a time." };
+  const time = scheduledTime || "09:00";
+  const moment = new Date(`${scheduledDate}T${time}:00`);
+  if (Number.isNaN(moment.getTime())) {
+    return { value: null, error: "The interview date and time are not a valid moment." };
+  }
+  if (moment.getTime() < Date.now() + 60_000) {
+    return { value: null, error: "Schedule the interview for a future date and time." };
+  }
+  if (moment.getTime() > Date.now() + 366 * 24 * 60 * 60_000) {
+    return { value: null, error: "Schedule the interview less than a year ahead." };
+  }
+  return { value: moment.toISOString() };
+}
+
+/**
+ * An accidental re-submit (double click, retry after a timeout) must not
+ * create a second interview for the same candidate, role and moment. Returns
+ * the earlier interview when an open duplicate exists.
+ */
+export async function findDuplicateInterview(
+  input: Pick<CreateInterviewInput, "candidateEmail" | "roleTitle">,
+  scheduledAt: string | null,
+): Promise<InterviewRoom | null> {
+  const repository = getInterviewRepository();
+  const existing = await repository.list({ email: input.candidateEmail });
+  return (
+    existing.find(
+      (room) =>
+        room.status === "scheduled" &&
+        room.completedAt === null &&
+        room.roleTitle?.toLowerCase() === input.roleTitle.toLowerCase() &&
+        room.scheduledAt === scheduledAt,
+    ) ?? null
+  );
+}
+
 export async function createInterviewRoom(input: CreateInterviewInput): Promise<InterviewRoom> {
   const repository = getInterviewRepository();
   const id = await generateUnusedRoomId(repository);
+  const duplicate = await findDuplicateInterview(input, input.scheduledAt ?? null);
+  if (duplicate) throw new DuplicateInterviewError(duplicate);
   const createdAt = new Date().toISOString();
   const expiresAt = new Date(Date.now() + LINK_VALIDITY_HOURS * 60 * MS_PER_MINUTE).toISOString();
 
@@ -60,6 +110,7 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     createdAt,
     expiresAt,
     recruiterName: input.recruiterName,
+    scheduledAt: input.scheduledAt ?? null,
     candidateEmail: input.candidateEmail,
     roleTitle: input.roleTitle,
     difficulty: input.difficulty,

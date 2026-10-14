@@ -9,6 +9,7 @@ import { InterviewLinkResult } from "./InterviewLinkResult";
 interface CreateResult {
   room: InterviewRoom;
   candidateUrl: string;
+  duplicate?: boolean;
 }
 
 export function CreateInterviewPanel() {
@@ -27,6 +28,10 @@ export function CreateInterviewPanel() {
       form.set("candidateName", values.candidateName);
       form.set("candidateEmail", values.candidateEmail);
       form.set("roleTitle", values.roleTitle);
+      if (values.scheduledDate) {
+        form.set("scheduledDate", values.scheduledDate);
+        form.set("scheduledTime", values.scheduledTime ?? "");
+      }
       form.set("durationMinutes", String(values.durationMinutes));
       form.set("difficulty", values.difficulty);
       form.set("voiceMode", values.voiceMode);
@@ -43,6 +48,13 @@ export function CreateInterviewPanel() {
         return;
       }
       const data = await response.json();
+
+      if (response.status === 409 && data?.room && data?.candidateUrl) {
+        // A double submit or a retry hit the same schedule: show the
+        // existing interview instead of an error.
+        setResult({ room: data.room, candidateUrl: data.candidateUrl, duplicate: true });
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(
@@ -65,6 +77,12 @@ export function CreateInterviewPanel() {
   if (result) {
     return (
       <div className="rounded-2xl border border-border bg-surface p-5 sm:p-7">
+        {result.duplicate && (
+          <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+            This interview was already scheduled — showing the existing link instead of creating a
+            second one.
+          </p>
+        )}
         <InterviewLinkResult result={result} onReset={() => setResult(null)} />
       </div>
     );

@@ -105,6 +105,8 @@ export interface InterviewRoom {
   createdAt: string;
   /** ISO 8601 timestamp after which the link can no longer be joined. */
   expiresAt: string | null;
+  /** ISO 8601 moment the interview is scheduled for; null when it may start any time. */
+  scheduledAt: string | null;
   /** Session fields (see docs/PRE_INTERVIEW_PLAN.md). */
   recruiterName: string | null;
   /** The only email that may open this link; the join token is issued after it matches. */
@@ -139,6 +141,8 @@ export interface CreateInterviewInput {
   /** How hard the interviewer pushes (default: medium). */
   difficulty: DifficultyLevel;
   voiceMode: VoiceMode;
+  /** ISO 8601 scheduled moment, or null when the link may be used immediately. */
+  scheduledAt?: string | null;
   jobDescription: JobDescription | null;
   resume: ResumeInfo | null;
 }

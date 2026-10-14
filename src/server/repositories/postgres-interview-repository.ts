@@ -53,6 +53,7 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS resume_text TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS resume_unreadable BOOLEAN;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS consent_given_at TIMESTAMPTZ;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS plan JSONB;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS outcome JSONB;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS decision JSONB;
@@ -86,7 +87,7 @@ CREATE TABLE IF NOT EXISTS scorecards (
 `;
 
 const ROOM_COLUMNS = `id, title, candidate_name, status, created_at, expires_at,
-  recruiter_name, candidate_email, role_title, difficulty, duration_minutes, jd_source, jd_text,
+  recruiter_name, scheduled_at, candidate_email, role_title, difficulty, duration_minutes, jd_source, jd_text,
   resume_file_name, resume_text, resume_unreadable, consent_given_at, completed_at,
   plan, outcome, decision, voice_mode`;
 
@@ -136,6 +137,7 @@ interface InterviewRow {
   resume_unreadable: boolean | null;
   consent_given_at: Date | null;
   completed_at: Date | null;
+  scheduled_at: Date | null;
   plan: InterviewPlan | null;
   outcome: SessionOutcome | null;
   decision: HumanDecision | null;
@@ -152,6 +154,7 @@ function rowToRoom(row: InterviewRow): InterviewRoom {
     createdAt: row.created_at.toISOString(),
     expiresAt: row.expires_at ? row.expires_at.toISOString() : null,
     recruiterName: row.recruiter_name,
+    scheduledAt: row.scheduled_at ? row.scheduled_at.toISOString() : null,
     candidateEmail: row.candidate_email,
     roleTitle: row.role_title,
     difficulty: (row.difficulty as DifficultyLevel | null) ?? "medium",
@@ -188,7 +191,7 @@ export function getPostgresInterviewRepository(): InterviewRepository {
       await getPool().query(
         `INSERT INTO interviews (${ROOM_COLUMNS})
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                 $19, $20, $21, $22)
+                 $19, $20, $21, $22, $23)
          ON CONFLICT (id) DO UPDATE SET
            title = EXCLUDED.title,
            candidate_name = EXCLUDED.candidate_name,
@@ -196,6 +199,7 @@ export function getPostgresInterviewRepository(): InterviewRepository {
            created_at = EXCLUDED.created_at,
            expires_at = EXCLUDED.expires_at,
            recruiter_name = EXCLUDED.recruiter_name,
+           scheduled_at = EXCLUDED.scheduled_at,
            candidate_email = EXCLUDED.candidate_email,
            role_title = EXCLUDED.role_title,
            difficulty = EXCLUDED.difficulty,
@@ -219,6 +223,7 @@ export function getPostgresInterviewRepository(): InterviewRepository {
           room.createdAt,
           room.expiresAt,
           room.recruiterName,
+          room.scheduledAt,
           room.candidateEmail,
           room.roleTitle,
           room.difficulty,

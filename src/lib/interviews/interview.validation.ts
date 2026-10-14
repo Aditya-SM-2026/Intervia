@@ -47,6 +47,20 @@ export const createInterviewSchema = z.object({
     .toLowerCase()
     .email("Candidate email must be a valid email address")
     .max(MAX_NAME_LENGTH, `Candidate email must be at most ${MAX_NAME_LENGTH} characters`),
+  scheduledDate: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Interview date must use the YYYY-MM-DD format")
+      .optional(),
+  ),
+  scheduledTime: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Interview time must use the HH:MM 24-hour format")
+      .optional(),
+  ),
   roleTitle: z
     .string()
     .trim()
