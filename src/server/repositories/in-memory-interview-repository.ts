@@ -50,6 +50,20 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
       return store.rooms.get(id) ?? null;
     },
 
+    async claimDueReminders(now: string): Promise<string[]> {
+      const nowMs = Date.parse(now);
+      const claimed: string[] = [];
+      for (const room of store.rooms.values()) {
+        if (room.reminderSentAt) continue;
+        if (room.status !== "scheduled" || !room.scheduledAt) continue;
+        const due = Date.parse(room.scheduledAt);
+        if (Number.isNaN(due) || due <= nowMs || due > nowMs + 30 * 60_000) continue;
+        room.reminderSentAt = now;
+        claimed.push(room.id);
+      }
+      return claimed;
+    },
+
     async list(filter?: DashboardListFilter): Promise<InterviewRoom[]> {
       let rooms = [...store.rooms.values()];
       const email = filter?.email?.trim().toLowerCase();

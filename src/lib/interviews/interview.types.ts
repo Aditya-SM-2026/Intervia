@@ -107,6 +107,8 @@ export interface InterviewRoom {
   expiresAt: string | null;
   /** ISO 8601 moment the interview is scheduled for; null when it may start any time. */
   scheduledAt: string | null;
+  /** ISO 8601 moment the 30-minute reminder email was sent; null while pending. */
+  reminderSentAt: string | null;
   /** Session fields (see docs/PRE_INTERVIEW_PLAN.md). */
   recruiterName: string | null;
   /** The only email that may open this link; the join token is issued after it matches. */
@@ -220,6 +222,13 @@ export interface InterviewApiError {
  */
 export interface InterviewRepository {
   save(room: InterviewRoom): Promise<void>;
+  /**
+   * Atomically claims every interview whose reminder is due (scheduled,
+   * not yet joined, reminder not sent, scheduled 0-30 minutes from `now`)
+   * by stamping reminder_sent_at, and returns the claimed room ids. Safe to
+   * call concurrently (multiple server instances never double-send).
+   */
+  claimDueReminders(now: string): Promise<string[]>;
   get(id: string): Promise<InterviewRoom | null>;
   /** Sessions, newest first, with optional dashboard filters. */
   list(filter?: DashboardListFilter): Promise<InterviewRoom[]>;

@@ -111,6 +111,7 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     expiresAt,
     recruiterName: input.recruiterName,
     scheduledAt: input.scheduledAt ?? null,
+    reminderSentAt: null,
     candidateEmail: input.candidateEmail,
     roleTitle: input.roleTitle,
     difficulty: input.difficulty,
