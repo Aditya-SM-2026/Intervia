@@ -546,7 +546,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                     <td className="px-3 py-2.5 text-xs text-muted">{formatDate(candidate.latestInterviewAt)}</td>
                     <td className="px-3 py-2.5 text-right">
                       <Link
-                        href={`/dashboard/roles/${roleId}/candidates/${encodeURIComponent(candidate.candidateId)}`}
+                        href={`/dashboard/${candidate.latestInterviewId}`}
                         className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
                       >
                         View report

@@ -208,7 +208,7 @@ function RoleCard({ role }: { role: RoleSummary }) {
                       <td className="py-2.5 pr-3 text-xs text-muted">{formatDate(candidate.latestInterviewAt)}</td>
                       <td className="py-2.5 text-right">
                         <Link
-                          href={`/dashboard/roles/${role.id}/candidates/${encodeURIComponent(candidate.candidateId)}`}
+                          href={`/dashboard/${candidate.latestInterviewId}`}
                           className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5"
                         >
                           View report
