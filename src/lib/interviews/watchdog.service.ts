@@ -24,8 +24,8 @@ import type { InterviewRoom } from "./interview.types";
  * did not). Already-ended interviews are never touched.
  */
 
-/** Grace after the scheduled end before the watchdog steps in. */
-const GRACE_MS = 5 * 60_000;
+/** Grace after the time limit before the watchdog steps in. */
+const GRACE_MS = 90_000;
 
 export async function runInterviewWatchdogOnce(): Promise<number> {
   const repository = getInterviewRepository();

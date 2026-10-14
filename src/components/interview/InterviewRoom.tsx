@@ -331,7 +331,7 @@ export function InterviewRoom({
         void live.disconnect().catch(() => {});
         releaseMedia();
         setStage("ended");
-      }, durationMinutes * 60_000 + 60_000);
+      }, durationMinutes * 60_000 + 30_000);
     } catch (cause) {
       leftIntentionallyRef.current = true;
       await room.disconnect().catch(() => {});

@@ -19,7 +19,8 @@ import { getInterviewRepository } from "@/server/repositories";
 const MS_PER_MINUTE = 60_000;
 // The interview length is enforced by the agent's controller; the link itself
 // stays joinable for three days so the candidate can pick a time.
-const LINK_VALIDITY_HOURS = 72;
+/** How long the candidate can join after the interview is created. */
+const LINK_VALIDITY_HOURS = 24;
 // 16 random bytes → 22 URL-safe base64 characters, well above the minimum
 // length the room ID validation pattern requires.
 const ROOM_ID_RANDOM_BYTES = 16;
