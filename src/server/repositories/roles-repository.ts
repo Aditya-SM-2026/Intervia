@@ -54,7 +54,7 @@ export type CandidateRow = AggregatedCandidate;
 
 /** Roles are linked to interviews two ways: by id (new) or legacy title match. */
 function roleAssociationSql(roleIdsParam: string, roleTitlesParam: string): string {
-  return `(i.role_id = ANY(${roleIdsParam}) OR (i.role_id IS NULL AND i.role_title = ANY(${roleTitlesParam})))`;
+  return `(i.role_id = ANY(${roleIdsParam}) OR (i.role_id IS NULL AND lower(i.role_title) = ANY(${roleTitlesParam})))`;
 }
 
 export interface RoleRepository {
@@ -269,7 +269,9 @@ export function getPostgresRolesRepository(): RoleRepository {
       }
       if (roles.length === 0) return stats;
       const ids = roles.map((role) => role.id);
-      const titles = roles.map((role) => role.title);
+      // The SQL compares against lower(title); lowercase here so the array
+      // elements line up with the lowercased column values.
+      const titles = roles.map((role) => role.title.toLowerCase());
       const result = await getPool().query(
         `WITH assoc AS (
            -- Legacy-title matches have a NULL role_id; map the matched title
@@ -278,7 +280,7 @@ export function getPostgresRolesRepository(): RoleRepository {
            SELECT (CASE
                      WHEN i.role_id IS NOT NULL THEN i.role_id
                      ELSE (SELECT t.rid FROM unnest($2::text[], $1::text[]) AS t(title, rid)
-                           WHERE t.title = i.role_title LIMIT 1)
+                           WHERE lower(t.title) = lower(i.role_title) LIMIT 1)
                    END) AS role_id,
              i.id, i.status, LOWER(COALESCE(i.candidate_email, '')) AS email
            FROM interviews i
@@ -289,7 +291,7 @@ export function getPostgresRolesRepository(): RoleRepository {
            COUNT(DISTINCT CASE WHEN a.email = '' THEN NULL ELSE a.email END)::int AS candidates,
            (COUNT(*) FILTER (WHERE a.status = 'completed'))::int AS completed,
            (COUNT(*) FILTER (WHERE a.status <> 'completed'))::int AS pending,
-           AVG((s.scorecard ->> 'overallScore')::float)
+           AVG((s.scorecard -> 'overall' ->> 'score')::float)
              FILTER (WHERE a.status = 'completed' AND s.room_id IS NOT NULL) AS avg_overall
          FROM assoc a
          LEFT JOIN scorecards s ON s.room_id = a.id
@@ -329,7 +331,7 @@ export function getPostgresRolesRepository(): RoleRepository {
         `WITH assoc AS (
            SELECT i.id, i.candidate_name, i.candidate_email, i.status, i.created_at, i.decision
            FROM interviews i
-           WHERE (i.role_id = $1 OR (i.role_id IS NULL AND i.role_title = $2))
+           WHERE (i.role_id = $1 OR (i.role_id IS NULL AND lower(i.role_title) = lower($2)))
              AND i.candidate_email IS NOT NULL AND i.candidate_email <> ''
          ),
          latest AS (
@@ -352,7 +354,7 @@ export function getPostgresRolesRepository(): RoleRepository {
            (SELECT COUNT(*)::int FROM assoc a
              WHERE LOWER(a.candidate_email) = LOWER(l.candidate_email)
                AND a.status = 'completed') AS completed,
-           s.scorecard ->> 'overallScore' AS overall,
+           COALESCE(s.scorecard -> 'overall' ->> 'score', NULL) AS overall,
            s.scorecard ->> 'suggestion' AS suggestion,
            COUNT(*) OVER()::int AS total
          FROM latest l
@@ -399,12 +401,12 @@ export function getPostgresRolesRepository(): RoleRepository {
       const result = await getPool().query(
         `SELECT i.id, i.title, i.status, i.created_at, i.completed_at, i.candidate_name, i.decision,
            (i.resume_text IS NOT NULL OR i.resume_file_name IS NOT NULL) AS has_resume,
-           s.scorecard ->> 'overallScore' AS overall,
+           COALESCE(s.scorecard -> 'overall' ->> 'score', NULL) AS overall,
            s.scorecard ->> 'suggestion' AS suggestion,
            COALESCE((s.scorecard ->> 'needsHumanReview')::boolean, false) AS needs_review
          FROM interviews i
          LEFT JOIN scorecards s ON s.room_id = i.id
-         WHERE (i.role_id = $1 OR (i.role_id IS NULL AND i.role_title = $2))
+         WHERE (i.role_id = $1 OR (i.role_id IS NULL AND lower(i.role_title) = lower($2)))
            AND i.candidate_email IS NOT NULL AND LOWER(i.candidate_email) = $3
          ORDER BY i.created_at DESC, i.id DESC`,
         [roleId, roleTitle, candidateId],
@@ -447,7 +449,7 @@ export function getPostgresRolesRepository(): RoleRepository {
       const result = await getPool().query(
         `SELECT i.resume_file_name, i.resume_text
          FROM interviews i
-         WHERE (i.role_id = $1 OR (i.role_id IS NULL AND i.role_title = $2))
+         WHERE (i.role_id = $1 OR (i.role_id IS NULL AND lower(i.role_title) = lower($2)))
            AND i.candidate_email IS NOT NULL AND LOWER(i.candidate_email) = $3
            AND i.resume_text IS NOT NULL AND i.resume_text <> ''
          ORDER BY i.created_at DESC, i.id DESC
@@ -500,7 +502,7 @@ function toAggregationInterview(room: InterviewRoom): AggregationInterview {
 /** Adapts a stored Scorecard to the shared aggregation shape. */
 function toAggregationScorecard(scorecard: Scorecard): AggregationScorecard {
   return {
-    overallScore: scorecard.overallScore,
+    overallScore: scorecard.overall?.score ?? null,
     suggestion: scorecard.suggestion,
     needsHumanReview: scorecard.needsHumanReview,
   };
@@ -612,7 +614,7 @@ export function getInMemoryRolesRepository(): RoleRepository {
             completedAt: room.completedAt,
             candidateName: room.candidateName,
             hasResume: room.resume !== null,
-            overallScore: scorecard?.overallScore ?? null,
+            overallScore: scorecard?.overall?.score ?? null,
             suggestion: scorecard?.suggestion ?? null,
             needsHumanReview: scorecard?.needsHumanReview ?? false,
             decision: room.decision,

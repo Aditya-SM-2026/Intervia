@@ -42,7 +42,11 @@ export function matchesRoleAssociation(
   interview: Pick<AggregationInterview, "roleId" | "roleTitle">,
 ): boolean {
   if (interview.roleId === roleId) return true;
-  return interview.roleId === null && interview.roleTitle === roleTitle;
+  return (
+    interview.roleId === null &&
+    interview.roleTitle !== null &&
+    interview.roleTitle.toLowerCase() === roleTitle.toLowerCase()
+  );
 }
 
 export function parseSuggestion(value: string | null | undefined): ScoreSuggestion | null {
