@@ -4,7 +4,7 @@ import { SignOutButton } from "./SignOutButton";
 
 interface AppShellProps {
   /** Which section is open, for the navigation highlight. */
-  current: "interviews" | "new";
+  current: "interviews" | "roles" | "new";
   children: React.ReactNode;
   /** Wider pages (the create form) can ask for more room. */
   wide?: boolean;
@@ -12,6 +12,7 @@ interface AppShellProps {
 
 const NAV = [
   { id: "interviews", href: "/dashboard", label: "Interviews" },
+  { id: "roles", href: "/dashboard/roles", label: "Roles" },
   { id: "new", href: "/recruiter", label: "New interview" },
 ] as const;
 

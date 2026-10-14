@@ -62,6 +62,7 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     recruiterName: input.recruiterName,
     candidateEmail: input.candidateEmail,
     roleTitle: input.roleTitle,
+    roleId: input.roleId ?? null,
     difficulty: input.difficulty,
     durationMinutes: input.durationMinutes,
     voiceMode: input.voiceMode,

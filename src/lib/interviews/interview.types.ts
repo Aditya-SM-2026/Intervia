@@ -110,6 +110,12 @@ export interface InterviewRoom {
   /** The only email that may open this link; the join token is issued after it matches. */
   candidateEmail: string | null;
   roleTitle: string | null;
+  /**
+   * The hiring role this interview belongs to (roles module). Null for
+   * interviews created before the roles module or without a role; those can
+   * still be associated with a role by legacy role-title matching.
+   */
+  roleId: string | null;
   /** Interviewer style chosen by the recruiter (default: medium). */
   difficulty: DifficultyLevel;
   /** Interview length in minutes (10-45); enforced by the agent's controller. */
@@ -134,6 +140,12 @@ export interface CreateInterviewInput {
   candidateName: string;
   candidateEmail: string;
   roleTitle: string;
+  /**
+   * The hiring role to associate the interview with (roles module). Optional
+   * so existing callers keep working; the recruiter form can send it once
+   * Aditya's scheduling workflow passes it through.
+   */
+  roleId?: string;
   /** Interview length in minutes (10-45). Drives the plan size and pacing. */
   durationMinutes: number;
   /** How hard the interviewer pushes (default: medium). */

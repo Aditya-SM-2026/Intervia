@@ -52,6 +52,13 @@ export const createInterviewSchema = z.object({
     .trim()
     .min(1, "Role title is required")
     .max(MAX_TITLE_LENGTH, `Role title must be at most ${MAX_TITLE_LENGTH} characters`),
+  roleId: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .regex(ROOM_ID_PATTERN, "Invalid role ID format")
+      .optional(),
+  ),
   durationMinutes: z.preprocess(
     emptyToUndefined,
     z.coerce

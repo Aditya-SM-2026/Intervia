@@ -26,6 +26,14 @@ interface InterviewStore {
 
 const globalStore = globalThis as unknown as { __interviewStoreV2?: InterviewStore };
 
+/**
+ * Direct read access to the in-memory store, for other in-memory
+ * repositories (roles) that must stay consistent without a second store.
+ */
+export function getInterviewStore(): InterviewStore {
+  return getStore();
+}
+
 function getStore(): InterviewStore {
   if (!globalStore.__interviewStoreV2) {
     globalStore.__interviewStoreV2 = {
