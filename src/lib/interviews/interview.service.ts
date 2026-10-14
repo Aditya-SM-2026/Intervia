@@ -41,8 +41,10 @@ export function generateRoomId(): string {
 
 /**
  * Resolves the recruiter's date + time selection to an ISO 8601 instant.
- * Interpreted in the server's local timezone (the scheduler's timezone) and
- * stored as UTC. Empty selections mean the link may be used immediately.
+ * Interpreted in EMAIL_TIMEZONE (the recruiter's scheduling timezone, default
+ * Asia/Kolkata) and stored as UTC — the server's own timezone must not
+ * matter, or a scheduled time shifts on a deployment that runs in UTC.
+ * Empty selections mean the link may be used immediately.
  */
 export function resolveScheduledAt(
   scheduledDate?: string,
@@ -51,7 +53,7 @@ export function resolveScheduledAt(
   if (!scheduledDate && !scheduledTime) return { value: null };
   if (!scheduledDate) return { value: null, error: "Provide an interview date together with a time." };
   const time = scheduledTime || "09:00";
-  const moment = new Date(`${scheduledDate}T${time}:00`);
+  const moment = zonedTimeToUtc(`${scheduledDate}T${time}`, schedulingTimezone());
   if (Number.isNaN(moment.getTime())) {
     return { value: null, error: "The interview date and time are not a valid moment." };
   }
@@ -62,6 +64,42 @@ export function resolveScheduledAt(
     return { value: null, error: "Schedule the interview less than a year ahead." };
   }
   return { value: moment.toISOString() };
+}
+
+/** The timezone recruiter-entered times are interpreted in. */
+function schedulingTimezone(): string {
+  return process.env.EMAIL_TIMEZONE?.trim() || "Asia/Kolkata";
+}
+
+/**
+ * Converts "YYYY-MM-DDTHH:mm" in an IANA timezone to the UTC instant. Two
+ * step: treat the wall time as UTC, then subtract that zone's offset at that
+ * instant (via Intl, so no dependency and DST-safe).
+ */
+function zonedTimeToUtc(wall: string, timeZone: string): Date {
+  const naive = new Date(`${wall}:00Z`);
+  if (Number.isNaN(naive.getTime())) return naive;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(naive);
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  const asUtc = Date.UTC(
+    value("year"),
+    value("month") - 1,
+    value("day"),
+    value("hour") % 24,
+    value("minute"),
+    value("second"),
+  );
+  const offsetMinutes = (asUtc - naive.getTime()) / 60_000;
+  return new Date(naive.getTime() - offsetMinutes * 60_000);
 }
 
 /**
