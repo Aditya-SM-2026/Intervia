@@ -76,6 +76,16 @@ export async function isRecruiterSession(token: string | undefined): Promise<boo
   return verifySessionToken(token);
 }
 
+/** The login ID an administrator signs in with. A name, not a secret. */
+export function expectedUsername(): string {
+  return process.env.ADMIN_USERNAME?.trim() || "admin";
+}
+
+/** Length-independent, constant-shape comparison for the login ID too. */
+export async function isUsernameCorrect(candidate: string): Promise<boolean> {
+  return safeEqual(await hmacHex(`username:${candidate}`), await hmacHex(`username:${expectedUsername()}`));
+}
+
 /** Covers the longest interview plus its rejoin window. */
 const RECORDING_TOKEN_TTL_SECONDS = 3 * 60 * 60;
 

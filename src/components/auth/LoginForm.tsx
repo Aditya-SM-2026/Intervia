@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 export function LoginForm({ next }: { next: string }) {
   const router = useRouter();
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -17,7 +18,7 @@ export function LoginForm({ next }: { next: string }) {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ username, password }),
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as {
@@ -38,6 +39,22 @@ export function LoginForm({ next }: { next: string }) {
   return (
     <form onSubmit={handleSubmit} className="grid gap-3">
       <div>
+        <label htmlFor="username" className="mb-1 block text-sm font-medium">
+          Login ID
+        </label>
+        <input
+          id="username"
+          type="text"
+          required
+          autoFocus
+          autoComplete="username"
+          spellCheck={false}
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent"
+        />
+      </div>
+      <div>
         <label htmlFor="password" className="mb-1 block text-sm font-medium">
           Password
         </label>
@@ -45,7 +62,6 @@ export function LoginForm({ next }: { next: string }) {
           id="password"
           type="password"
           required
-          autoFocus
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
