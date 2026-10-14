@@ -292,6 +292,10 @@ export function getPostgresInterviewRepository(): InterviewRepository {
         params.push(`%${filter.email.trim()}%`);
         conditions.push(`candidate_email ILIKE $${params.length}`);
       }
+      if (filter?.status && filter.status.length > 0) {
+        params.push(filter.status);
+        conditions.push(`status = ANY($${params.length})`);
+      }
 
       let sql = `SELECT ${ROOM_COLUMNS} FROM interviews`;
       if (conditions.length > 0) sql += ` WHERE ${conditions.join(" AND ")}`;

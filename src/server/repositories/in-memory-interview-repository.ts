@@ -66,6 +66,10 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
 
     async list(filter?: DashboardListFilter): Promise<InterviewRoom[]> {
       let rooms = [...store.rooms.values()];
+      if (filter?.status && filter.status.length > 0) {
+        const wanted = new Set(filter.status);
+        rooms = rooms.filter((room) => wanted.has(room.status));
+      }
       const email = filter?.email?.trim().toLowerCase();
       if (email) {
         rooms = rooms.filter(

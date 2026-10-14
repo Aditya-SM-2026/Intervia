@@ -291,8 +291,14 @@ export async function listDashboardInterviews(
       ...room,
       status: displayStatus(room),
       jobDescription: null,
-      resume: null,
+      // Light resume marker so lists can show "resume received" without
+      // shipping the extracted resume text to every list call.
+      resume: room.resume
+        ? { fileName: room.resume.fileName, text: "", ...(room.resume.unreadable ? { unreadable: true } : {}) }
+        : null,
       plan: null,
+      // The upload token is a credential; summaries must not carry it.
+      uploadToken: null,
     },
     scorecard: summaries.get(room.id) ?? null,
   }));

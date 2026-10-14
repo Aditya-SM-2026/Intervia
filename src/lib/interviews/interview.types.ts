@@ -199,6 +199,8 @@ export interface InterviewEvent extends InterviewEventInput {
 export interface DashboardListFilter {
   /** Case-insensitive substring match on candidate email. */
   email?: string;
+  /** Keep only rooms whose raw status matches one of these. */
+  status?: InterviewStatus[];
   limit?: number;
   offset?: number;
 }
