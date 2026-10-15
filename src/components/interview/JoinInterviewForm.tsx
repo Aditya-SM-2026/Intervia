@@ -79,6 +79,21 @@ export function JoinInterviewForm({
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [verified, setVerified] = useState(false);
+  // Optional updated resume: replaces the recruiter's copy in the session data.
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const MAX_RESUME_BYTES = 10 * 1024 * 1024;
+
+  function handleResumeChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setVerifyError(null);
+    if (file && file.size > MAX_RESUME_BYTES) {
+      setVerifyError("The resume file is larger than 10 MB.");
+      event.target.value = "";
+      setResumeFile(null);
+      return;
+    }
+    setResumeFile(file);
+  }
 
   async function handleVerify(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -90,10 +105,13 @@ export function JoinInterviewForm({
     setVerifyError(null);
 
     try {
+      const form = new FormData();
+      form.set("email", email.trim().toLowerCase());
+      form.set("consent", String(consent));
+      if (resumeFile) form.set("resume", resumeFile);
       const response = await fetch(verifyEndpoint(roomId), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), consent }),
+        body: form,
       });
       const data = await response.json();
 
@@ -197,6 +215,29 @@ export function JoinInterviewForm({
               onChange={(event) => setEmail(event.target.value)}
               className={fieldInputClasses}
             />
+          </div>
+          <div>
+            <label htmlFor="join-resume" className={fieldLabelClasses}>
+              Upload updated resume{" "}
+              <span className="font-normal text-muted">(optional)</span>
+            </label>
+            <input
+              id="join-resume"
+              type="file"
+              accept=".pdf,.doc,.docx,application/pdf"
+              onChange={handleResumeChange}
+              className={fieldInputClasses}
+            />
+            <p className="mt-1 text-xs text-muted">
+              {resumeFile ? (
+                <>
+                  <span className="font-medium text-foreground">{resumeFile.name}</span> will
+                  replace the resume we already have.
+                </>
+              ) : (
+                "Have a newer resume? Add it here (PDF, DOC or DOCX, up to 10 MB)."
+              )}
+            </p>
           </div>
           <label className="flex items-start gap-2 text-sm leading-relaxed">
             <input
