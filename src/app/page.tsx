@@ -1,5 +1,7 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { BrandMark } from "@/components/brand/BrandMark";
+import { SESSION_COOKIE, isRecruiterSession } from "@/lib/auth/session";
 
 const steps = [
   {
@@ -18,7 +20,9 @@ const steps = [
 
 const SPECIMEN_BARS = [3, 6, 10, 15, 9, 13, 18, 12, 7, 14, 9, 5, 11, 6, 3];
 
-export default function Home() {
+export default async function Home() {
+  // Signed-in recruiters get a direct dashboard link instead of a sign-in button.
+  const signedIn = await isRecruiterSession((await cookies()).get(SESSION_COOKIE)?.value);
   return (
     <div className="min-h-dvh">
       <header className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 sm:px-8">
@@ -27,7 +31,7 @@ export default function Home() {
           href="/dashboard"
           className="rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium transition hover:border-accent"
         >
-          Recruiter sign-in
+          {signedIn ? "Open dashboard" : "Recruiter sign-in"}
         </Link>
       </header>
 
