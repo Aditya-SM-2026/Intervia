@@ -309,6 +309,7 @@ function RoleCard({
   onToggle,
   expanded,
   onNotice,
+  onEdit,
 }: {
   role: RoleSummary;
   candidates: RoleCandidateSummary[] | null;
@@ -317,6 +318,7 @@ function RoleCard({
   onToggle: () => void;
   expanded: boolean;
   onNotice: (message: string) => void;
+  onEdit: () => void;
 }) {
   const router = useRouter();
   const { Icon, classes } = roleVisual(role.title);
@@ -388,6 +390,11 @@ function RoleCard({
                   </button>
                 }
                 items={[
+                  {
+                    id: "edit",
+                    label: "Edit role",
+                    onSelect: onEdit,
+                  },
                   {
                     id: "manage",
                     label: "Manage role",
@@ -533,6 +540,126 @@ function RolesListView({ roles }: { roles: RoleSummary[] }) {
  */
 const SHOW_SUMMARY_CARDS = false;
 
+/** Inline edit form for one role, pre-filled with its current values. */
+function RoleEditForm({
+  role,
+  onSaved,
+  onCancel,
+}: {
+  role: RoleSummary;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving) return;
+    const data = new FormData(event.currentTarget);
+    const skills = String(data.get("skills") ?? "")
+      .split(",")
+      .map((skill) => skill.trim())
+      .filter((skill) => skill !== "");
+    const deadline = String(data.get("deadline") ?? "").trim();
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/roles/${role.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        // Absent fields keep their value; we always send every editable field
+        // because the form shows them all. An empty deadline clears it.
+        body: JSON.stringify({
+          title: String(data.get("title") ?? ""),
+          description: String(data.get("description") ?? ""),
+          skills,
+          deadline: deadline === "" ? null : deadline,
+        }),
+      });
+      const body = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok) {
+        throw new Error(body.error?.message ?? "Could not save the role.");
+      }
+      onSaved();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Something went wrong.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={save} className="rounded-2xl border border-accent/40 bg-surface p-5" aria-label={`Edit role ${role.title}`}>
+      <h3 className="mb-4 text-base font-semibold">Edit role</h3>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium">Role title *</span>
+          <input
+            name="title"
+            required
+            minLength={2}
+            maxLength={120}
+            defaultValue={role.title}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium">Hiring deadline (optional)</span>
+          <input
+            name="deadline"
+            type="date"
+            defaultValue={role.deadline ?? ""}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+          />
+        </label>
+        <label className="block text-sm sm:col-span-2">
+          <span className="mb-1 block font-medium">Job description *</span>
+          <textarea
+            name="description"
+            required
+            minLength={10}
+            maxLength={20000}
+            rows={4}
+            defaultValue={role.description}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+          />
+        </label>
+        <label className="block text-sm sm:col-span-2">
+          <span className="mb-1 block font-medium">Skills &amp; qualifications (comma-separated, optional)</span>
+          <input
+            name="skills"
+            defaultValue={role.skills.join(", ")}
+            placeholder="e.g. Go, PostgreSQL, Kubernetes"
+            className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+          />
+        </label>
+      </div>
+      {error && (
+        <p role="alert" className="mt-3 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save changes"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-md border border-border px-4 py-2 text-sm font-medium transition hover:bg-background"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function RolesView() {
   const [roles, setRoles] = useState<RoleSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -546,6 +673,7 @@ export function RolesView() {
   const [candidatesByRole, setCandidatesByRole] = useState<Record<string, RoleCandidateSummary[] | null>>({});
   const [candidateErrors, setCandidateErrors] = useState<Record<string, string>>({});
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -940,16 +1068,30 @@ export function RolesView() {
           {view === "card" ? (
             <ul className="grid gap-4">
               {filtered.map((role) => (
-                <RoleCard
-                  key={role.id}
-                  role={role}
-                  candidates={candidatesByRole[role.id] ?? null}
-                  candidatesLoading={!candidatesReady && candidatesByRole[role.id] === undefined}
-                  candidatesError={candidateErrors[role.id] ?? null}
-                  expanded={expandedIds.has(role.id)}
-                  onToggle={() => toggleExpanded(role.id)}
-                  onNotice={setNotice}
-                />
+                <li key={role.id} className="grid gap-4">
+                  {editingId === role.id ? (
+                    <RoleEditForm
+                      role={role}
+                      onSaved={() => {
+                        setEditingId(null);
+                        setNotice("Role updated.");
+                        load();
+                      }}
+                      onCancel={() => setEditingId(null)}
+                    />
+                  ) : (
+                    <RoleCard
+                      role={role}
+                      candidates={candidatesByRole[role.id] ?? null}
+                      candidatesLoading={!candidatesReady && candidatesByRole[role.id] === undefined}
+                      candidatesError={candidateErrors[role.id] ?? null}
+                      expanded={expandedIds.has(role.id)}
+                      onToggle={() => toggleExpanded(role.id)}
+                      onNotice={setNotice}
+                      onEdit={() => setEditingId(role.id)}
+                    />
+                  )}
+                </li>
               ))}
             </ul>
           ) : (
