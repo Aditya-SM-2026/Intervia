@@ -61,6 +61,11 @@ function buildWhere(filter: DashboardListFilter): { sql: string; params: unknown
     params.push(filter.from);
     conditions.push(`created_at >= $${params.length}`);
   }
+  if (filter.roleTitle && filter.roleTitle.trim() !== "") {
+    params.push(filter.roleTitle.trim());
+    const p = `$${params.length}`;
+    conditions.push(`role_title ILIKE ${p}`);
+  }
   if (filter.to) {
     params.push(filter.to);
     conditions.push(`created_at < $${params.length}`);

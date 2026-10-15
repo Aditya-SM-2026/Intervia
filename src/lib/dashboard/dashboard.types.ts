@@ -17,6 +17,8 @@ export interface DashboardListFilter {
   search?: string;
   /** Session status filter. */
   status?: InterviewStatus;
+  /** Exact role-title filter (case-insensitive). */
+  roleTitle?: string;
   /** Only sessions created at or after this ISO timestamp. */
   from?: string;
   /** Only sessions created before this ISO timestamp. */

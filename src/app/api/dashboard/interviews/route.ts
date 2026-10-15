@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
     ["scheduled", "waiting", "active", "completed", "expired", "cancelled"].includes(statusRaw)
       ? (statusRaw as InterviewStatus)
       : undefined;
+  const roleTitle = params.get("role") ?? undefined;
   const range = params.get("range");
   const rangeDays = range && range !== "all" ? RANGE_DAYS[range] : undefined;
   const from = rangeDays
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest) {
     const response = await listDashboardInterviews({
       search: search || email || undefined,
       status,
+      roleTitle,
       from,
       sortDir,
       limit: pageSize,

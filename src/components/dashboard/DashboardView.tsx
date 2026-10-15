@@ -48,6 +48,8 @@ export function DashboardView() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
+  const [role, setRole] = useState("");
+  const [roleOptions, setRoleOptions] = useState<string[]>([]);
   const [range, setRange] = useState(DEFAULT_RANGE);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
@@ -84,11 +86,11 @@ export function DashboardView() {
     };
   }, [searchInput]);
 
-  const hasActiveFilters = search !== "" || status !== "" || range !== "all";
+  const hasActiveFilters = search !== "" || status !== "" || range !== "all" || role !== "";
 
   // Any filter change resets to the first page and clears page-scoped
   // selection (adjusted during render when the filter combination changes).
-  const filterKey = `${search}|${status}|${range}`;
+  const filterKey = `${search}|${status}|${range}|${role}`;
   const [lastFilterKey, setLastFilterKey] = useState(filterKey);
   if (lastFilterKey !== filterKey) {
     setLastFilterKey(filterKey);
@@ -96,7 +98,7 @@ export function DashboardView() {
     setSelected(new Set());
   }
 
-  const listKey = `${search}|${status}|${range}|${sortDir}|${page}|${reloadToken}`;
+  const listKey = `${search}|${status}|${range}|${role}|${sortDir}|${page}|${reloadToken}`;
   const [loadedListKey, setLoadedListKey] = useState<string | null>(null);
   const listLoading = list === null || loadedListKey !== listKey;
 
@@ -105,6 +107,7 @@ export function DashboardView() {
     const params = new URLSearchParams();
     if (search) params.set("q", search);
     if (status) params.set("status", status);
+    if (role) params.set("role", role);
     if (range !== "all") params.set("range", range);
     params.set("sort", sortDir);
     params.set("page", String(page));
@@ -126,7 +129,20 @@ export function DashboardView() {
     return () => {
       cancelled = true;
     };
-  }, [listKey, search, status, range, sortDir, page]);
+  }, [listKey, search, status, range, role, page]);
+
+  // Role filter options come from the live roles list.
+  useEffect(() => {
+    fetch("/api/roles?")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("roles request failed");
+        return (await response.json()) as { roles: { title: string }[] };
+      })
+      .then((data) => {
+        setRoleOptions([...new Set(data.roles.map((item) => item.title))]);
+      })
+      .catch(() => setRoleOptions([]));
+  }, []);
 
   const fetchAnalytics = useCallback(() => {
     fetch("/api/dashboard/interviews/analytics")
@@ -175,6 +191,7 @@ export function DashboardView() {
     setSearchInput("");
     setSearch("");
     setStatus("");
+    setRole("");
     setRange("all");
   }
 
@@ -346,6 +363,9 @@ export function DashboardView() {
         onStatusChange={setStatus}
         range={range}
         onRangeChange={setRange}
+        roleOptions={roleOptions}
+        role={role}
+        onRoleChange={setRole}
         hasActiveFilters={hasActiveFilters}
         onClear={clearFilters}
       />

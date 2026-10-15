@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Calendar, Search, SlidersHorizontal } from "lucide-react";
+import { Briefcase, Calendar, ChevronDown, Search, SlidersHorizontal } from "lucide-react";
 
 /**
  * Filter toolbar for the reports table: debounced search (owner debounce in
@@ -34,6 +34,10 @@ interface ToolbarProps {
   onStatusChange: (value: string) => void;
   range: string;
   onRangeChange: (value: string) => void;
+  /** Available role titles for the role filter dropdown. */
+  roleOptions: string[];
+  role: string;
+  onRoleChange: (value: string) => void;
   hasActiveFilters: boolean;
   onClear: () => void;
 }
@@ -45,6 +49,9 @@ export function Toolbar({
   onStatusChange,
   range,
   onRangeChange,
+  roleOptions,
+  role,
+  onRoleChange,
   hasActiveFilters,
   onClear,
 }: ToolbarProps) {
@@ -75,9 +82,7 @@ export function Toolbar({
             </option>
           ))}
         </select>
-        <span aria-hidden className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted">
-          Γû╛
-        </span>
+        <ChevronDown aria-hidden className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
       </label>
 
       <label className="relative">
@@ -94,9 +99,25 @@ export function Toolbar({
             </option>
           ))}
         </select>
-        <span aria-hidden className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted">
-          Γû╛
-        </span>
+        <ChevronDown aria-hidden className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+      </label>
+
+      <label className="relative">
+        <span className="sr-only">Filter by role</span>
+        <Briefcase aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+        <select
+          value={role}
+          onChange={(event) => onRoleChange(event.target.value)}
+          className="max-w-[220px] cursor-pointer appearance-none truncate rounded-xl border border-border bg-surface py-2.5 pl-9 pr-9 text-sm font-medium outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+        >
+          <option value="">All roles</option>
+          {roleOptions.map((title) => (
+            <option key={title} value={title}>
+              {title}
+            </option>
+          ))}
+        </select>
+        <ChevronDown aria-hidden className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
       </label>
 
       {hasActiveFilters && (
