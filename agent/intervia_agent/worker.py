@@ -721,11 +721,22 @@ class InterviewRuntime:
         def _joined(participant: rtc.RemoteParticipant) -> None:
             if not participant.identity.startswith(CANDIDATE_IDENTITY_PREFIX):
                 return
+            was_gone = self._candidate_gone
             self._candidate_gone = False
             if self._rejoin_task is not None:
                 self._rejoin_task.cancel()
                 self._rejoin_task = None
                 self.backend.add_event("candidate_reconnected")
+            if was_gone:
+                # A returning candidate resumes the same session: the clock,
+                # plan and transcript were never reset. Instruct the
+                # interviewer to continue seamlessly instead of greeting.
+                self.instruct(
+                    "The candidate just rejoined after a brief connection drop. Continue the "
+                    "interview exactly where you left off. Do not greet them again and do not "
+                    "repeat anything you already said; carry on with the current question.",
+                    allow_interruptions=False,
+                )
 
         def _client_event(reader: rtc.TextStreamReader, participant_identity: str) -> None:
             if participant_identity.startswith(CANDIDATE_IDENTITY_PREFIX):

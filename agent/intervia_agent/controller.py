@@ -28,6 +28,12 @@ TOPIC_OVERRUN_GRACE_SECONDS = 25.0
 INTRO_OVERRUN_GRACE_SECONDS = 30.0
 # After the time-up goodbye has been requested, how long until a forced stop.
 HARD_STOP_GRACE_SECONDS = 45.0
+# The goodbye must start this long before the time limit, for every duration:
+# the silent wrap-up note is placed this far ahead, and the spoken wrap-up
+# (thank-you + goodbye) lands right at GOODBYE_LEAD_SECONDS before the end.
+GOODBYE_LEAD_SECONDS = 8.0
+# The silent note needs a little runway before the goodbye itself.
+GOODBYE_NOTE_LEAD_SECONDS = GOODBYE_LEAD_SECONDS + 8.0
 # The interviewer may not leave a topic before this share of its time budget
 # is used: it is asked to probe deeper instead (at most MAX_HOLDS times).
 FORCE_AFTER_NOTE_SECONDS = 60.0
@@ -98,10 +104,15 @@ class InterviewController:
         # Capped at a fifth of the interview so very short (test) interviews
         # still leave most of their time for the topics.
         self.intro_seconds = min(_clamp(self.total_seconds * 0.1, 60.0, 150.0), self.total_seconds * 0.2)
-        self.closing_seconds = min(_clamp(self.total_seconds * 0.1, 60.0, 180.0), self.total_seconds * 0.2)
+        # Closing is not a fixed slice of the interview any more: the goodbye
+        # must start GOODBYE_LEAD_SECONDS before the limit, whatever the
+        # duration. The closing "phase" only exists to place the silent note
+        # (GOODBYE_NOTE_LEAD_SECONDS ahead) and the wrap-up directive.
+        self.closing_seconds = min(GOODBYE_NOTE_LEAD_SECONDS, self.total_seconds * 0.2)
         self.min_topic_seconds = min(MIN_TOPIC_SECONDS, self.total_seconds * 0.25)
         # How long a silent note may go unanswered before the controller speaks up.
-        self.force_after_seconds = min(FORCE_AFTER_NOTE_SECONDS, self.total_seconds * 0.15)
+        # Clamped so the wrap-up lands at GOODBYE_LEAD_SECONDS before the limit.
+        self.force_after_seconds = min(FORCE_AFTER_NOTE_SECONDS, self.total_seconds * 0.15, self.closing_seconds - GOODBYE_LEAD_SECONDS)
         self.probe_limit = PROBE_LIMITS.get(context.difficulty, 2)
 
     # --- clock -----------------------------------------------------------
