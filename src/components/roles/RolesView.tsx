@@ -527,6 +527,12 @@ function RolesListView({ roles }: { roles: RoleSummary[] }) {
   );
 }
 
+/**
+ * Summary cards (real aggregates) are parked for now — flip to true when we
+ * want them back (e.g. once month-over-month trends have real data).
+ */
+const SHOW_SUMMARY_CARDS = false;
+
 export function RolesView() {
   const [roles, setRoles] = useState<RoleSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -746,14 +752,8 @@ export function RolesView() {
         </p>
       )}
 
-      {/* Summary cards (real aggregates) */}
-      {roles === null ? (
-        <div aria-hidden className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {[0, 1, 2, 3].map((key) => (
-            <div key={key} className="h-28 animate-pulse rounded-2xl border border-border bg-surface" />
-          ))}
-        </div>
-      ) : (
+      {/* Summary cards (real aggregates) — parked; see SHOW_SUMMARY_CARDS. */}
+      {SHOW_SUMMARY_CARDS && (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {cards.map((card) => (
             <SummaryCard key={card.label} data={card} />
