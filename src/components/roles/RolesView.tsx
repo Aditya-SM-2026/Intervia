@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  ArrowUpDown,
   Brain,
   ChevronDown,
   Clock3,
@@ -13,6 +14,8 @@ import {
   Database,
   ExternalLink,
   FileBarChart,
+  Filter,
+  Layers,
   LayoutGrid,
   List,
   Search,
@@ -334,18 +337,18 @@ function RoleCard({
   return (
     <li className="rounded-2xl border border-border bg-surface transition hover:border-accent/40 hover:shadow-sm">
       <div className="p-4 sm:p-5">
-        <div className="flex flex-wrap items-start gap-4">
+        <div className="flex items-start gap-4">
           <span aria-hidden className={`grid size-12 shrink-0 place-items-center rounded-xl ${classes}`}>
             <Icon className="size-6" />
           </span>
-          <div className="min-w-0 grow">
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-lg font-semibold tracking-tight">{role.title}</h3>
               <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[role.status]}`}>
                 {STATUS_LABELS[role.status]}
               </span>
             </div>
-            <p className="mt-0.5 line-clamp-1 text-sm text-muted">{role.description}</p>
+            <p className="mt-0.5 line-clamp-2 text-sm text-muted">{role.description}</p>
             <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
               <span className="inline-flex items-center gap-1.5">
                 <Users className="size-3.5" aria-hidden />
@@ -374,7 +377,7 @@ function RoleCard({
               </span>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-2">
+          <div className="flex shrink-0 flex-col items-end gap-2">
             <div className="flex items-center gap-2">
               <span className="hidden text-xs text-muted sm:block">Created {formatDate(role.createdAt)}</span>
               <Menu
@@ -902,42 +905,57 @@ export function RolesView() {
             className="w-full rounded-xl border border-border bg-surface py-2.5 pl-10 pr-4 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:ring-2 focus:ring-accent/20"
           />
         </div>
-        <select
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value as RoleStatus | "")}
-          aria-label="Filter by role status"
-          className="cursor-pointer appearance-none rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-medium outline-none transition focus:border-accent"
-        >
-          <option value="">All statuses</option>
-          <option value="open">Open</option>
-          <option value="completed">Completed</option>
-        </select>
-        <select
-          value={stageFilter}
-          onChange={(event) => setStageFilter(event.target.value as HireStage | "")}
-          aria-label="Filter by interview stage"
-          className="cursor-pointer appearance-none rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-medium outline-none transition focus:border-accent"
-          disabled={!candidatesReady && (roles?.length ?? 0) > 0}
-        >
-          <option value="">All stages</option>
-          {Object.entries(HIRE_STAGE_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={sortBy}
-          onChange={(event) => setSortBy(event.target.value as SortKey)}
-          aria-label="Sort roles"
-          className="cursor-pointer appearance-none rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-medium outline-none transition focus:border-accent"
-        >
-          {SORT_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <label className="relative">
+          <span className="sr-only">Filter by role status</span>
+          <Filter aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as RoleStatus | "")}
+            aria-label="Filter by role status"
+            className="cursor-pointer appearance-none rounded-xl border border-border bg-surface py-2.5 pl-9 pr-8 text-sm font-medium outline-none transition focus:border-accent"
+          >
+            <option value="">All statuses</option>
+            <option value="open">Open</option>
+            <option value="completed">Completed</option>
+          </select>
+          <ChevronDown aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
+        </label>
+        <label className="relative">
+          <span className="sr-only">Filter by interview stage</span>
+          <Layers aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+          <select
+            value={stageFilter}
+            onChange={(event) => setStageFilter(event.target.value as HireStage | "")}
+            aria-label="Filter by interview stage"
+            className="cursor-pointer appearance-none rounded-xl border border-border bg-surface py-2.5 pl-9 pr-8 text-sm font-medium outline-none transition focus:border-accent"
+            disabled={!candidatesReady && (roles?.length ?? 0) > 0}
+          >
+            <option value="">All stages</option>
+            {Object.entries(HIRE_STAGE_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
+        </label>
+        <label className="relative">
+          <span className="sr-only">Sort roles</span>
+          <ArrowUpDown aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+          <select
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value as SortKey)}
+            aria-label="Sort roles"
+            className="cursor-pointer appearance-none rounded-xl border border-border bg-surface py-2.5 pl-9 pr-8 text-sm font-medium outline-none transition focus:border-accent"
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
+        </label>
         {hasActiveFilters && (
           <button
             type="button"

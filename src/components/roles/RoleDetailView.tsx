@@ -21,6 +21,37 @@ import {
  * stage comes from the roles API; nothing is invented.
  */
 
+/**
+ * Long job descriptions start collapsed to four lines with a Read more
+ * toggle, so the candidate leaderboard stays the focus of the page.
+ */
+function CollapsibleDescription({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  // Long enough descriptions are worth collapsing; anything shorter shows in full.
+  const collapsible = text.length > 280 || text.split("\n").length > 4;
+  return (
+    <div className="mt-2">
+      <p
+        className={`whitespace-pre-line text-sm text-muted ${
+          collapsible && !expanded ? "line-clamp-4" : ""
+        }`}
+      >
+        {text}
+      </p>
+      {collapsible && (
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          aria-expanded={expanded}
+          className="mt-1 text-sm font-medium text-accent hover:underline"
+        >
+          {expanded ? "Show less" : "Read more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 const STATUS_LABELS: Record<RoleStatus, string> = { open: "Open", completed: "Completed" };
 
 const SUGGESTION_LABELS: Record<string, string> = {
@@ -273,7 +304,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
             Export CSV
           </button>
         </div>
-        <p className="mt-2 whitespace-pre-line text-sm text-muted">{role.description}</p>
+        <CollapsibleDescription text={role.description} />
         {role.skills.length > 0 && (
           <p className="mt-2 flex flex-wrap gap-1">
             {role.skills.map((skill) => (
