@@ -45,8 +45,10 @@ logger = logging.getLogger("intervia.agent")
 CANDIDATE_IDENTITY_PREFIX = "candidate-"
 ROOM_NAME_PREFIX = "interview-"
 WATCHDOG_INTERVAL_SECONDS = 2.0
-# How long the interviewer waits for a rejoin after the candidate drops.
-CANDIDATE_REJOIN_GRACE_SECONDS = 45.0
+# How long the interviewer waits for a rejoin after the candidate drops
+# (matches the web app's 5-minute reconnection window; the session keeps its
+# question state, transcript and elapsed clock while the candidate is away).
+CANDIDATE_REJOIN_GRACE_SECONDS = 300.0
 # A directive waits this long for the candidate to finish a sentence.
 MAX_WAIT_FOR_PAUSE_SECONDS = 15.0
 # After end_interview, the goodbye must have been silent this long to leave.

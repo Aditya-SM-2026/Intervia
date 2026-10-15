@@ -16,8 +16,8 @@ export interface LiveKitTokenParams {
 /** Must match AGENT_NAME in agent/intervia_agent/config.py. */
 export const AGENT_NAME = "intervia-interviewer";
 
-/** Longer than the agent's own rejoin grace (CANDIDATE_REJOIN_GRACE_SECONDS). */
-const CANDIDATE_REJOIN_WINDOW_SECONDS = 60;
+/** Matches the agent's CANDIDATE_REJOIN_GRACE_SECONDS (5 minutes). */
+const CANDIDATE_REJOIN_WINDOW_SECONDS = 300;
 
 /**
  * Token lifetime. Short-lived on purpose: it covers the longest interview
@@ -52,8 +52,8 @@ export async function generateLiveKitToken({
   });
   if (dispatchInterviewId) {
     token.roomConfig = new RoomConfiguration({
-      // Keeps the room (and the interviewer) for a minute after the candidate
-      // drops, so a reload or a network blip can rejoin the same interview.
+      // Keeps the room (and the interviewer) available for 5 minutes after
+      // the candidate drops, so they can rejoin and resume the same interview.
       departureTimeout: CANDIDATE_REJOIN_WINDOW_SECONDS,
       agents: [
         new RoomAgentDispatch({

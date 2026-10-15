@@ -9,6 +9,14 @@ export interface LiveKitJoinCredentials {
   identity: string;
   /** Authorises uploading this participant's own recording. */
   recordingToken?: string;
+  /**
+   * Present only when resuming an interview in progress: seconds still left
+   * on the server's clock. The client continues the timer from here instead
+   * of restarting it; the server remains authoritative for the deadline.
+   */
+  remainingSeconds?: number;
+  /** How long a dropped candidate may rejoin and resume (server-defined). */
+  reconnectGraceSeconds?: number;
 }
 
 /** Email gate: issues join credentials only for a verified email + consent. */

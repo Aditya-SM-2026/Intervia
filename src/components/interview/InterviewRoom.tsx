@@ -230,7 +230,9 @@ export function InterviewRoom({
         setStage("ended");
         return;
       }
-      setFailure("The connection to the interview was lost. You can rejoin with the same link.");
+      setFailure(
+        "The connection to the interview was lost. Rejoin within 5 minutes and the interview continues exactly where it stopped — same question, same transcript, same clock.",
+      );
       setStage("error");
     });
 
@@ -264,10 +266,21 @@ export function InterviewRoom({
     setStage("connecting");
     setConnectionStage("connecting");
     setTranscript([]);
-    setStartedAtMs(null);
-    setElapsedSeconds(0);
     setMuted(false);
     setCameraOff(false);
+
+    // Resuming an interview in progress: the server owns the clock, so the
+    // timer continues from the original start rather than restarting. On a
+    // first join this is absent and the clock starts when the agent speaks.
+    const resumeRemaining = credentials.remainingSeconds;
+    if (resumeRemaining !== undefined) {
+      const resumeStartMs = Date.now() - (durationMinutes * 60 - resumeRemaining) * 1000;
+      setStartedAtMs(resumeStartMs);
+      setElapsedSeconds(Math.floor((Date.now() - resumeStartMs) / 1000));
+    } else {
+      setStartedAtMs(null);
+      setElapsedSeconds(0);
+    }
 
     const room = new Room({ adaptiveStream: true, dynacast: true });
     roomRef.current = room;
@@ -322,6 +335,11 @@ export function InterviewRoom({
       setConnectionStage("connected");
       setStage("connected");
 
+      // Server-authoritative hard stop: on a resume, only the remaining time
+      // (plus grace for a goodbye) is scheduled, never the full duration.
+      const stopAfterMs =
+        (resumeRemaining !== undefined ? Math.max(0, resumeRemaining) : durationMinutes * 60_000) +
+        30_000;
       hardStopTimerRef.current = setTimeout(() => {
         hardStopTimerRef.current = null;
         const live = roomRef.current;
@@ -331,7 +349,7 @@ export function InterviewRoom({
         void live.disconnect().catch(() => {});
         releaseMedia();
         setStage("ended");
-      }, durationMinutes * 60_000 + 30_000);
+      }, stopAfterMs);
     } catch (cause) {
       leftIntentionallyRef.current = true;
       await room.disconnect().catch(() => {});
@@ -539,8 +557,8 @@ export function InterviewRoom({
         <div className="w-full max-w-md rounded-xl border border-border bg-surface p-8 text-center leading-relaxed">
           <h1 className="mb-2 text-xl font-semibold">You have left the interview</h1>
           <p className="mb-6 text-sm text-muted">
-            If that was a mistake, rejoin now: the interviewer waits a short while before
-            closing the interview.
+            If that was a mistake, rejoin now — you have 5 minutes to return and the interview
+            continues exactly where it stopped. After that the interview expires.
           </p>
           <div className="flex justify-center gap-2">
             <button

@@ -18,6 +18,11 @@ import {
 import { getLiveKitRoomName } from "@/lib/livekit/room";
 import { generateLiveKitToken } from "@/lib/livekit/token";
 import { createRecordingToken } from "@/lib/auth/session";
+import { getInterviewRepository } from "@/server/repositories";
+import {
+  RECONNECT_GRACE_SECONDS,
+  reconnectStateFor,
+} from "@/lib/interviews/reconnect.service";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
 
@@ -64,6 +69,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const identity = `candidate-${randomUUID()}`;
   const displayName = result.room.candidateName ?? "Candidate";
 
+  // Reconnection gate, enforced entirely on the server: an interview already
+  // in progress may only be resumed within the grace window, and never past
+  // its duration. The client receives the server-computed remaining time so
+  // the visible timer continues from the original clock instead of restarting.
+  const repository = getInterviewRepository();
+  const events = await repository.getEvents(roomId);
+  const reconnect = reconnectStateFor(result.room, events);
+  if (reconnect.kind === "expired") {
+    const current = await repository.get(roomId);
+    if (current && (current.status === "active" || current.status === "waiting" || current.status === "scheduled")) {
+      await repository.save({ ...current, status: "expired" });
+    }
+    return interviewErrorResponse("ROOM_EXPIRED", reconnect.reason);
+  }
+
   try {
     const credentials = await generateLiveKitToken({
       roomName: getLiveKitRoomName(roomId),
@@ -77,6 +97,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       identity,
       // Lets this participant upload their own recording, nothing else.
       recordingToken: await createRecordingToken(roomId, identity),
+      // Present only on a resume: how much of the duration is left on the
+      // server's clock. The client continues its timer from there.
+      remainingSeconds:
+        reconnect.kind === "active" ? reconnect.remainingSeconds : undefined,
+      reconnectGraceSeconds: RECONNECT_GRACE_SECONDS,
     });
   } catch (error) {
     console.error("LiveKit token generation failed:", error);

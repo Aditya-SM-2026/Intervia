@@ -4,6 +4,7 @@ import { getLiveKitConfig, isLiveKitConfigured } from "@/lib/livekit/config";
 import { getLiveKitRoomName } from "@/lib/livekit/room";
 import { getInterviewRepository } from "@/server/repositories";
 import { recordSessionOutcome } from "./interview.service";
+import { reconnectStateFor } from "./reconnect.service";
 import { scoreInterview } from "./scorecard.service";
 import type { InterviewRoom } from "./interview.types";
 
@@ -36,7 +37,20 @@ export async function runInterviewWatchdogOnce(): Promise<number> {
   for (const room of rooms) {
     const events = await repository.getEvents(room.id);
     if (events.some((event) => event.type === "interview_ended")) continue;
-    if (interviewDeadline(room, events) + GRACE_MS > now) continue;
+
+    // Reconnection expiry: a candidate who has been away for longer than the
+    // 5-minute window may not resume, even when the duration is not yet spent.
+    // (A room past its duration deadline still takes the completion path
+    // below, exactly as before.)
+    const deadlinePassed = interviewDeadline(room, events) + GRACE_MS <= now;
+    const reconnect = reconnectStateFor(room, events);
+    if (reconnect.kind === "expired" && !deadlinePassed) {
+      closed++;
+      await closeExpiredInterview(room, reconnect.reason);
+      continue;
+    }
+
+    if (!deadlinePassed) continue;
     closed++;
     await closeInterview(room);
   }
@@ -54,6 +68,21 @@ function interviewDeadline(room: InterviewRoom, events: readonly { at: string }[
   const firstEvent = events[0]?.at;
   const start = Date.parse(firstEvent ?? room.scheduledAt ?? room.createdAt);
   return (Number.isFinite(start) ? start : Date.now()) + room.durationMinutes * 60_000;
+}
+
+async function closeExpiredInterview(room: InterviewRoom, reason: string): Promise<void> {
+  const repository = getInterviewRepository();
+  await deleteLiveKitRoom(room.id);
+  await repository.appendEvents(room.id, [
+    {
+      type: "interview_ended",
+      at: new Date().toISOString(),
+      data: { reason: "candidate_reconnect_window_exceeded", by: "web_watchdog", note: reason },
+    },
+  ]);
+  // Expired, not completed: the interview did not finish, and the link must
+  // honestly tell the candidate it is over.
+  await repository.save({ ...room, status: "expired" });
 }
 
 async function closeInterview(room: InterviewRoom): Promise<void> {
