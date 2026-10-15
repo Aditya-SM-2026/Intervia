@@ -348,7 +348,6 @@ function RoleCard({
                 {STATUS_LABELS[role.status]}
               </span>
             </div>
-            <p className="mt-0.5 line-clamp-2 text-sm text-muted">{role.description}</p>
             <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
               <span className="inline-flex items-center gap-1.5">
                 <Users className="size-3.5" aria-hidden />
