@@ -2,7 +2,33 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { RoleCandidateSummary, RoleCandidatesResponse, RoleStatus, RoleSummary, RolesResponse } from "@/lib/roles/role.types";
+import { useRouter } from "next/navigation";
+import {
+  Brain,
+  ChevronDown,
+  Clock3,
+  ClipboardList,
+  Code2,
+  Copy,
+  Database,
+  ExternalLink,
+  FileBarChart,
+  LayoutGrid,
+  List,
+  Search,
+  Settings,
+  Star,
+  Trophy,
+  UserPlus,
+  Users,
+} from "lucide-react";
+import type {
+  RoleCandidateSummary,
+  RoleCandidatesResponse,
+  RoleStatus,
+  RoleSummary,
+  RolesResponse,
+} from "@/lib/roles/role.types";
 import {
   compareByHirePriority,
   deriveHireStage,
@@ -10,12 +36,19 @@ import {
   HIRE_STAGE_STYLES,
   type HireStage,
 } from "@/lib/roles/hire-stage";
+import { Menu } from "@/components/dashboard/menu";
 
 /**
- * Roles list: real roles with their live candidate statistics, a search and
- * status filter, and an inline create form. Each role card expands in place
- * to show its candidates ranked to hire — score and stage — so an HR can
- * scan and act without leaving the page. Loads through GET /api/roles.
+ * Roles workspace, built the way HR reads it:
+ *  - summary cards from real role/interview aggregates (no invented trends),
+ *  - search across roles and candidates, filters by role status and hire
+ *    stage, and a sort,
+ *  - card view (rich role cards with expandable candidate tables) and a
+ *    compact list view for comparing many roles,
+ *  - per-role actions: share an invite link (the existing invitation
+ *    workflow, pre-filled) and manage the role; per-candidate: report and
+ *    profile links only — no duplicated screens.
+ * Data comes from GET /api/roles and GET /api/roles/[id]/candidates.
  */
 
 const STATUS_LABELS: Record<RoleStatus, string> = {
@@ -28,8 +61,40 @@ const STATUS_STYLES: Record<RoleStatus, string> = {
   completed: "border-border bg-surface text-muted",
 };
 
+/** Sorts offered in the toolbar; "Last updated" is the default. */
+const SORT_OPTIONS = [
+  { value: "updated", label: "Last updated" },
+  { value: "candidates", label: "Most candidates" },
+  { value: "score", label: "Highest average score" },
+] as const;
+type SortKey = (typeof SORT_OPTIONS)[number]["value"];
+
+/** Deterministic role icon + colour so each card is visually distinct. */
+const ROLE_ICONS = [
+  { icon: Code2, classes: "bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400" },
+  { icon: Database, classes: "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400" },
+  { icon: Brain, classes: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400" },
+  { icon: Star, classes: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400" },
+  { icon: Users, classes: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-400" },
+  { icon: ClipboardList, classes: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400" },
+];
+
+function roleVisual(title: string) {
+  let hash = 0;
+  for (let index = 0; index < title.length; index++) hash = (hash * 31 + title.charCodeAt(index)) | 0;
+  const entry = ROLE_ICONS[Math.abs(hash) % ROLE_ICONS.length];
+  return { Icon: entry.icon, classes: entry.classes };
+}
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function relativeDate(iso: string): string {
+  const days = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "1 day ago";
+  return `${days} days ago`;
 }
 
 function initials(name: string): string {
@@ -43,11 +108,8 @@ function scoreBadgeClass(score: number): string {
   return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300";
 }
 
-async function fetchRoles(q: string | undefined, status: RoleStatus | undefined): Promise<RoleSummary[]> {
-  const params = new URLSearchParams();
-  if (q) params.set("q", q);
-  if (status) params.set("status", status);
-  const response = await fetch(`/api/roles?${params.toString()}`);
+async function fetchRoles(): Promise<RoleSummary[]> {
+  const response = await fetch("/api/roles?");
   const data = (await response.json()) as RolesResponse & { error?: { message?: string } };
   if (!response.ok || !data.roles) {
     throw new Error(data.error?.message ?? "Could not load the roles. Please try again.");
@@ -64,186 +126,426 @@ async function fetchCandidates(roleId: string): Promise<RoleCandidateSummary[]> 
   return data.candidates;
 }
 
-/** One role card: header toggles the inline, score-ranked candidate list. */
-function RoleCard({ role }: { role: RoleSummary }) {
-  const [expanded, setExpanded] = useState(false);
-  const [candidates, setCandidates] = useState<RoleCandidateSummary[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+/** Invite deep-link: the existing recruiter flow with the role pre-filled. */
+function inviteUrl(role: RoleSummary): string {
+  return `/recruiter?role=${encodeURIComponent(role.title)}`;
+}
 
-  function toggle() {
-    setExpanded((open) => !open);
-    if (!expanded && candidates === null && !loadError) {
-      fetchCandidates(role.id)
-        .then((result) => setCandidates(result))
-        .catch((cause: unknown) => {
-          setLoadError(cause instanceof Error ? cause.message : "Something went wrong.");
-        });
-    }
+interface SummaryCardData {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  iconClasses: string;
+  cardClasses: string;
+}
+
+function SummaryCard({ data }: { data: SummaryCardData }) {
+  return (
+    <div className={`rounded-2xl border border-border p-4 sm:p-5 ${data.cardClasses}`}>
+      <div className="flex items-center gap-3">
+        <span aria-hidden className={`grid size-10 shrink-0 place-items-center rounded-xl ${data.iconClasses}`}>
+          {data.icon}
+        </span>
+        <p className="text-sm font-medium">{data.label}</p>
+      </div>
+      <p className="mt-3 text-3xl font-semibold tracking-tight">{data.value}</p>
+    </div>
+  );
+}
+
+/** Candidate row stage, shared by both views. */
+function StageBadge({ stage }: { stage: HireStage }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${HIRE_STAGE_STYLES[stage]}`}>
+      <span aria-hidden className="size-1.5 rounded-full bg-current" />
+      {HIRE_STAGE_LABELS[stage]}
+    </span>
+  );
+}
+
+interface RankedCandidate {
+  candidate: RoleCandidateSummary;
+  stage: HireStage;
+}
+
+function rankCandidates(candidates: RoleCandidateSummary[]): RankedCandidate[] {
+  return candidates
+    .map((candidate) => ({
+      candidate,
+      stage: deriveHireStage({
+        status: candidate.latestStatus,
+        overallScore: candidate.overallScore,
+        decision: candidate.decision?.outcome ?? null,
+        cutoff: null,
+      }) as HireStage,
+    }))
+    .sort((a, b) =>
+      compareByHirePriority(
+        { stage: a.stage, overallScore: a.candidate.overallScore },
+        { stage: b.stage, overallScore: b.candidate.overallScore },
+      ),
+    );
+}
+
+/** Expandable candidate table inside one role card. */
+function CandidateTable({
+  roleId,
+  candidates,
+  loading,
+  error,
+}: {
+  roleId: string;
+  candidates: RoleCandidateSummary[] | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  const router = useRouter();
+  if (error) {
+    return <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>;
+  }
+  if (loading || candidates === null) {
+    return (
+      <div aria-hidden className="space-y-2">
+        <div className="h-11 animate-pulse rounded-md border border-border bg-background" />
+        <div className="h-11 animate-pulse rounded-md border border-border bg-background" />
+      </div>
+    );
+  }
+  const ranked = rankCandidates(candidates);
+  if (ranked.length === 0) {
+    return (
+      <p className="rounded-lg bg-background px-3 py-4 text-sm text-muted">
+        No candidates have interviewed for this role yet.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-xl border border-border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border bg-background text-left text-xs uppercase tracking-wide text-muted">
+            <th scope="col" className="px-4 py-2.5 font-medium">Candidate</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Score</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Stage</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Last interview</th>
+            <th scope="col" className="px-4 py-2.5 text-right font-medium">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ranked.map(({ candidate, stage }) => (
+            <tr key={candidate.candidateId} className="border-b border-border transition last:border-b-0 hover:bg-background">
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
+                    {initials(candidate.candidateName ?? candidate.candidateEmail)}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
+                    <span className="block truncate text-xs text-muted">{candidate.candidateEmail}</span>
+                  </span>
+                </div>
+              </td>
+              <td className="px-4 py-3">
+                {candidate.overallScore === null ? (
+                  <span className="text-muted">—</span>
+                ) : (
+                  <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${scoreBadgeClass(candidate.overallScore)}`}>
+                    {candidate.overallScore}/100
+                  </span>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                <StageBadge stage={stage} />
+              </td>
+              <td className="px-4 py-3 text-xs text-muted">
+                {formatDate(candidate.latestInterviewAt)}
+                <span className="block">{relativeDate(candidate.latestInterviewAt)}</span>
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex items-center justify-end gap-2">
+                  <Link
+                    href={`/dashboard/${candidate.latestInterviewId}`}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5"
+                  >
+                    View report
+                    <ExternalLink className="size-3" aria-hidden />
+                  </Link>
+                  <Menu
+                    label={`Actions for ${candidate.candidateName ?? candidate.candidateEmail}`}
+                    align="end"
+                    trigger={
+                      <button
+                        type="button"
+                        aria-label={`More actions for ${candidate.candidateName ?? candidate.candidateEmail}`}
+                        className="grid size-8 place-items-center rounded-lg border border-transparent text-muted transition hover:border-border hover:bg-background hover:text-foreground"
+                      >
+                        <span aria-hidden className="text-base leading-none">⋯</span>
+                      </button>
+                    }
+                    items={[
+                      {
+                        id: "profile",
+                        label: "Open candidate profile",
+                        onSelect: () => router.push(`/dashboard/roles/${roleId}/candidates/${encodeURIComponent(candidate.candidateId)}`),
+                      },
+                    ]}
+                  />
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** One role card in card view. */
+function RoleCard({
+  role,
+  candidates,
+  candidatesLoading,
+  candidatesError,
+  onToggle,
+  expanded,
+  onNotice,
+}: {
+  role: RoleSummary;
+  candidates: RoleCandidateSummary[] | null;
+  candidatesLoading: boolean;
+  candidatesError: string | null;
+  onToggle: () => void;
+  expanded: boolean;
+  onNotice: (message: string) => void;
+}) {
+  const router = useRouter();
+  const { Icon, classes } = roleVisual(role.title);
+
+  function copyInvite() {
+    const url = `${window.location.origin}${inviteUrl(role)}`;
+    void navigator.clipboard
+      .writeText(url)
+      .then(() => onNotice("Invite link copied — it opens the interview form with this role pre-filled."))
+      .catch(() => onNotice(url));
   }
 
-  const ranked = useMemo(() => {
-    if (candidates === null) return [];
-    return candidates
-      .map((candidate) => ({
-        candidate,
-        stage: deriveHireStage({
-          status: candidate.latestStatus,
-          overallScore: candidate.overallScore,
-          decision: candidate.decision?.outcome ?? null,
-          cutoff: null,
-        }) as HireStage,
-      }))
-      .sort((a, b) =>
-        compareByHirePriority(
-          { stage: a.stage, overallScore: a.candidate.overallScore },
-          { stage: b.stage, overallScore: b.candidate.overallScore },
-        ),
-      );
-  }, [candidates]);
-
   return (
-    <li>
-      <div className="rounded-lg border border-border bg-surface transition hover:border-accent/50 hover:shadow-sm">
-        <button
-          type="button"
-          onClick={toggle}
-          aria-expanded={expanded}
-          className="block w-full rounded-lg p-5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-        >
-          <div className="flex flex-wrap items-center gap-3">
-            <h3 className="text-lg font-semibold">{role.title}</h3>
-            <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[role.status]}`}>
-              {STATUS_LABELS[role.status]}
-            </span>
-            <span className="grow" />
-            {role.deadline && (
-              <span className="text-xs text-muted">Closes {formatDate(role.deadline)}</span>
-            )}
-            <span aria-hidden className="text-xs text-muted">{expanded ? "▲ Hide candidates" : "▼ Show candidates"}</span>
-          </div>
-          <p className="mt-1 line-clamp-2 text-sm text-muted">{role.description}</p>
-          {role.skills.length > 0 && (
-            <p className="mt-2 flex flex-wrap gap-1">
-              {role.skills.slice(0, 6).map((skill) => (
-                <span key={skill} className="rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
-                  {skill}
-                </span>
-              ))}
-              {role.skills.length > 6 && (
-                <span className="text-xs text-muted">+{role.skills.length - 6} more</span>
-              )}
-            </p>
-          )}
-          <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted">
-            <span>
-              <strong className="text-foreground">{role.stats.candidates}</strong> candidates
-            </span>
-            <span>
-              <strong className="text-foreground">{role.stats.interviews}</strong> interviews
-            </span>
-            <span>
-              <strong className="text-foreground">{role.stats.completed}</strong> scored ·{" "}
-              <strong className="text-foreground">{role.stats.pending}</strong> pending
-            </span>
-            {role.stats.avgOverallScore !== null && (
-              <span>
-                Avg score <strong className="text-foreground">{role.stats.avgOverallScore}</strong>/100
+    <li className="rounded-2xl border border-border bg-surface transition hover:border-accent/40 hover:shadow-sm">
+      <div className="p-4 sm:p-5">
+        <div className="flex flex-wrap items-start gap-4">
+          <span aria-hidden className={`grid size-12 shrink-0 place-items-center rounded-xl ${classes}`}>
+            <Icon className="size-6" />
+          </span>
+          <div className="min-w-0 grow">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-lg font-semibold tracking-tight">{role.title}</h3>
+              <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[role.status]}`}>
+                {STATUS_LABELS[role.status]}
               </span>
-            )}
+            </div>
+            <p className="mt-0.5 line-clamp-1 text-sm text-muted">{role.description}</p>
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+              <span className="inline-flex items-center gap-1.5">
+                <Users className="size-3.5" aria-hidden />
+                <strong className="font-semibold text-foreground">{role.stats.candidates}</strong>
+                {role.stats.candidates === 1 ? "candidate" : "candidates"}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <ClipboardList className="size-3.5" aria-hidden />
+                <strong className="font-semibold text-foreground">{role.stats.interviews}</strong>
+                {role.stats.interviews === 1 ? "interview" : "interviews"}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Trophy className="size-3.5" aria-hidden />
+                <strong className="font-semibold text-foreground">{role.stats.completed}</strong> scored
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Clock3 className="size-3.5" aria-hidden />
+                <strong className="font-semibold text-foreground">{role.stats.pending}</strong> pending
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <FileBarChart className="size-3.5" aria-hidden />
+                Avg score{" "}
+                <strong className="font-semibold text-foreground">
+                  {role.stats.avgOverallScore === null ? "—" : `${role.stats.avgOverallScore}/100`}
+                </strong>
+              </span>
+            </div>
           </div>
-        </button>
-
-        {expanded && (
-          <div className="border-t border-border px-5 pb-5 pt-4">
-            {loadError ? (
-              <p role="alert" className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
-            ) : candidates === null ? (
-              <div aria-hidden className="space-y-2">
-                <div className="h-10 animate-pulse rounded-md border border-border bg-background" />
-                <div className="h-10 animate-pulse rounded-md border border-border bg-background" />
-              </div>
-            ) : ranked.length === 0 ? (
-              <p className="text-sm text-muted">
-                No candidates have interviewed for this role yet.
-              </p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted">
-                    <th scope="col" className="py-1.5 pr-3">Candidate</th>
-                    <th scope="col" className="py-1.5 pr-3">Score</th>
-                    <th scope="col" className="py-1.5 pr-3">Stage</th>
-                    <th scope="col" className="py-1.5 pr-3">Last interview</th>
-                    <th scope="col" className="py-1.5"><span className="sr-only">Open</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ranked.map(({ candidate, stage }) => (
-                    <tr key={candidate.candidateId} className="group border-t border-border transition hover:bg-background">
-                      <td className="py-2.5 pr-3">
-                        <div className="flex items-center gap-2.5">
-                          <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
-                            {initials(candidate.candidateName ?? candidate.candidateEmail)}
-                          </span>
-                          <span>
-                            <span className="font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
-                            <span className="block text-xs text-muted">{candidate.candidateEmail}</span>
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        {candidate.overallScore === null ? (
-                          <span className="text-muted">—</span>
-                        ) : (
-                          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${scoreBadgeClass(candidate.overallScore)}`}>
-                            {candidate.overallScore}/100
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${HIRE_STAGE_STYLES[stage]}`}>
-                          {HIRE_STAGE_LABELS[stage]}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3 text-xs text-muted">{formatDate(candidate.latestInterviewAt)}</td>
-                      <td className="py-2.5 text-right">
-                        <Link
-                          href={`/dashboard/${candidate.latestInterviewId}`}
-                          className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5"
-                        >
-                          View report
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            <p className="mt-3 text-xs text-muted">
-              <Link href={`/dashboard/roles/${role.id}`} className="font-medium text-accent hover:underline">
-                Open full role view
-              </Link>{" "}
-              (leaderboard with bulk advance/reject)
-            </p>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <span className="hidden text-xs text-muted sm:block">Created {formatDate(role.createdAt)}</span>
+              <Menu
+                label={`Role actions for ${role.title}`}
+                align="end"
+                trigger={
+                  <button
+                    type="button"
+                    aria-label={`Role actions for ${role.title}`}
+                    className="grid size-8 place-items-center rounded-lg border border-transparent text-muted transition hover:border-border hover:bg-background hover:text-foreground"
+                  >
+                    <span aria-hidden className="text-base leading-none">⋯</span>
+                  </button>
+                }
+                items={[
+                  {
+                    id: "manage",
+                    label: "Manage role",
+                    onSelect: () => router.push(`/dashboard/roles/${role.id}`),
+                  },
+                  { id: "share", label: "Copy invite link", onSelect: copyInvite },
+                ]}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={copyInvite}
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-3.5 py-2 text-sm font-medium transition hover:bg-background"
+              >
+                <Copy className="size-4" aria-hidden />
+                Share link
+              </button>
+              <Link
+                href={`/dashboard/roles/${role.id}`}
+                className="inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90"
+              >
+                <Settings className="size-4" aria-hidden />
+                Manage role
+              </Link>
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded={expanded}
+                aria-label={expanded ? `Hide candidates for ${role.title}` : `Show candidates for ${role.title}`}
+                className="grid size-9 place-items-center rounded-xl border border-border text-muted transition hover:bg-background hover:text-foreground"
+              >
+                <ChevronDown className={`size-4 transition ${expanded ? "rotate-180" : ""}`} aria-hidden />
+              </button>
+            </div>
           </div>
-        )}
+        </div>
       </div>
+
+      {expanded && (
+        <div className="border-t border-border p-4 sm:px-5">
+          <CandidateTable roleId={role.id} candidates={candidates} loading={candidatesLoading} error={candidatesError} />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-background px-3 py-2.5">
+            <Link
+              href={inviteUrl(role)}
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium transition hover:bg-background"
+            >
+              <UserPlus className="size-4" aria-hidden />
+              Add candidate
+            </Link>
+            <p className="text-xs text-muted">Invite candidates via a shareable interview link or add manually.</p>
+            <Link
+              href={`/dashboard/roles/${role.id}`}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"
+            >
+              Open full role view
+              <ExternalLink className="size-3.5" aria-hidden />
+            </Link>
+          </div>
+        </div>
+      )}
     </li>
+  );
+}
+
+/** Compact comparison table for many roles. */
+function RolesListView({ roles }: { roles: RoleSummary[] }) {
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border bg-background text-left text-xs uppercase tracking-wide text-muted">
+            <th scope="col" className="px-4 py-3 font-medium">Role</th>
+            <th scope="col" className="px-4 py-3 font-medium">Status</th>
+            <th scope="col" className="px-4 py-3 font-medium">Candidates</th>
+            <th scope="col" className="px-4 py-3 font-medium">Interviews</th>
+            <th scope="col" className="px-4 py-3 font-medium">Completed</th>
+            <th scope="col" className="px-4 py-3 font-medium">Avg score</th>
+            <th scope="col" className="px-4 py-3 font-medium">Updated</th>
+            <th scope="col" className="px-4 py-3 text-right font-medium">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {roles.map((role) => (
+            <tr key={role.id} className="border-b border-border transition last:border-b-0 hover:bg-background">
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  {(() => {
+                    const { Icon, classes } = roleVisual(role.title);
+                    return (
+                      <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-lg ${classes}`}>
+                        <Icon className="size-4" />
+                      </span>
+                    );
+                  })()}
+                  <Link href={`/dashboard/roles/${role.id}`} className="truncate font-medium hover:text-accent">
+                    {role.title}
+                  </Link>
+                </div>
+              </td>
+              <td className="px-4 py-3">
+                <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[role.status]}`}>
+                  {STATUS_LABELS[role.status]}
+                </span>
+              </td>
+              <td className="px-4 py-3 tabular-nums">{role.stats.candidates}</td>
+              <td className="px-4 py-3 tabular-nums">{role.stats.interviews}</td>
+              <td className="px-4 py-3 tabular-nums">
+                {role.stats.completed}
+                {role.stats.pending > 0 && <span className="text-muted"> · {role.stats.pending} pending</span>}
+              </td>
+              <td className="px-4 py-3 tabular-nums">
+                {role.stats.avgOverallScore === null ? "—" : `${role.stats.avgOverallScore}/100`}
+              </td>
+              <td className="px-4 py-3 text-xs text-muted">{formatDate(role.updatedAt)}</td>
+              <td className="px-4 py-3">
+                <div className="flex items-center justify-end gap-2">
+                  <Link
+                    href={`/dashboard/roles/${role.id}`}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5"
+                  >
+                    Manage
+                  </Link>
+                  <Link
+                    href={inviteUrl(role)}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium transition hover:bg-background"
+                  >
+                    Add candidate
+                  </Link>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 export function RolesView() {
   const [roles, setRoles] = useState<RoleSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<RoleStatus | "">("");
+  const [stageFilter, setStageFilter] = useState<HireStage | "">("");
+  const [sortBy, setSortBy] = useState<SortKey>("updated");
+  const [view, setView] = useState<"card" | "list">("card");
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
+  const [candidatesByRole, setCandidatesByRole] = useState<Record<string, RoleCandidateSummary[] | null>>({});
+  const [candidateErrors, setCandidateErrors] = useState<Record<string, string>>({});
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   function load() {
-    fetchRoles(search.trim() || undefined, statusFilter || undefined)
+    fetchRoles()
       .then((result) => {
         setRoles(result);
         setError(null);
@@ -254,11 +556,127 @@ export function RolesView() {
   }
 
   useEffect(() => {
-    const timer = setTimeout(load, search ? 300 : 0);
+    load();
+  }, []);
+
+  // Debounce the search box.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput.trim()), 250);
     return () => clearTimeout(timer);
-    // Reload when the filters change; load reads the latest values.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter]);
+  }, [searchInput]);
+
+  // Load every role's candidates once: stage filtering and candidate search
+  // need them, and cards reuse the cache when expanded.
+  useEffect(() => {
+    if (roles === null) return;
+    let cancelled = false;
+    void Promise.allSettled(roles.map((role) => fetchCandidates(role.id))).then((results) => {
+      if (cancelled) return;
+      const next: Record<string, RoleCandidateSummary[] | null> = {};
+      const errors: Record<string, string> = {};
+      results.forEach((result, index) => {
+        const id = roles[index].id;
+        if (result.status === "fulfilled") next[id] = result.value;
+        else {
+          next[id] = null;
+          errors[id] = "Could not load the candidates.";
+        }
+      });
+      setCandidatesByRole(next);
+      setCandidateErrors(errors);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [roles]);
+
+  /** One ranked list per role, memoised once candidates arrive. */
+  const rankedByRole = useMemo(() => {
+    const map: Record<string, RankedCandidate[]> = {};
+    for (const role of roles ?? []) {
+      const candidates = candidatesByRole[role.id];
+      map[role.id] = candidates ? rankCandidates(candidates) : [];
+    }
+    return map;
+  }, [roles, candidatesByRole]);
+
+  const filtered = useMemo(() => {
+    let list = roles ?? [];
+    const term = search.toLowerCase();
+    if (term) {
+      list = list.filter((role) => {
+        const roleMatch =
+          role.title.toLowerCase().includes(term) ||
+          role.description.toLowerCase().includes(term) ||
+          role.skills.some((skill) => skill.toLowerCase().includes(term));
+        const candidateMatch = (rankedByRole[role.id] ?? []).some(
+          (row) =>
+            (row.candidate.candidateName ?? "").toLowerCase().includes(term) ||
+            row.candidate.candidateEmail.toLowerCase().includes(term),
+        );
+        return roleMatch || candidateMatch;
+      });
+    }
+    if (statusFilter) list = list.filter((role) => role.status === statusFilter);
+    if (stageFilter) {
+      list = list.filter((role) => (rankedByRole[role.id] ?? []).some((row) => row.stage === stageFilter));
+    }
+    return [...list].sort((a, b) => {
+      if (sortBy === "candidates") return b.stats.candidates - a.stats.candidates;
+      if (sortBy === "score") return (b.stats.avgOverallScore ?? -1) - (a.stats.avgOverallScore ?? -1);
+      return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+    });
+  }, [roles, search, statusFilter, stageFilter, sortBy, rankedByRole]);
+
+  /** Summary cards from real aggregates across the (unfiltered) role list. */
+  const cards = useMemo<SummaryCardData[]>(() => {
+    const list = roles ?? [];
+    const totalRoles = list.length;
+    const totalCandidates = list.reduce((sum, role) => sum + role.stats.candidates, 0);
+    const completedInterviews = list.reduce((sum, role) => sum + role.stats.completed, 0);
+    const scoreSum = list.reduce((sum, role) => sum + (role.stats.avgOverallScore ?? 0) * role.stats.completed, 0);
+    const scoredCount = list.reduce((sum, role) => sum + role.stats.completed, 0);
+    const avgScore = scoredCount > 0 ? Math.round(scoreSum / scoredCount) : null;
+    return [
+      {
+        label: "Total roles",
+        value: String(totalRoles),
+        icon: <Users className="size-5" aria-hidden />,
+        iconClasses: "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400",
+        cardClasses: "bg-blue-50/60 dark:bg-blue-500/5",
+      },
+      {
+        label: "Total candidates",
+        value: String(totalCandidates),
+        icon: <ClipboardList className="size-5" aria-hidden />,
+        iconClasses: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400",
+        cardClasses: "bg-violet-50/60 dark:bg-violet-500/5",
+      },
+      {
+        label: "Completed interviews",
+        value: String(completedInterviews),
+        icon: <Trophy className="size-5" aria-hidden />,
+        iconClasses: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400",
+        cardClasses: "bg-emerald-50/60 dark:bg-emerald-500/5",
+      },
+      {
+        label: "Average score",
+        value: avgScore === null ? "—" : `${avgScore}/100`,
+        icon: <Star className="size-5" aria-hidden />,
+        iconClasses: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400",
+        cardClasses: "bg-amber-50/60 dark:bg-amber-500/5",
+      },
+    ];
+  }, [roles]);
+
+  function toggleExpanded(roleId: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(roleId)) next.delete(roleId);
+      else next.add(roleId);
+      return next;
+    });
+  }
 
   async function createRole(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -298,28 +716,17 @@ export function RolesView() {
     }
   }
 
+  const candidatesReady = roles !== null && Object.keys(candidateErrors).length + Object.keys(candidatesByRole).length >= roles.length;
+  const hasActiveFilters = search !== "" || statusFilter !== "" || stageFilter !== "";
+
   return (
-    <div>
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        <input
-          type="search"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search roles"
-          aria-label="Search roles"
-          className="w-full max-w-xs rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-        />
-        <select
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value as RoleStatus | "")}
-          aria-label="Filter by status"
-          className="rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
-        >
-          <option value="">All statuses</option>
-          <option value="open">Open</option>
-          <option value="completed">Completed</option>
-        </select>
-        <div className="grow" />
+    <div className="grid gap-5">
+      {/* Header row */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Roles</h1>
+          <p className="mt-1 text-muted">Manage your hiring roles, track candidates, and analyze interview results.</p>
+        </div>
         <button
           type="button"
           onClick={() => {
@@ -327,22 +734,126 @@ export function RolesView() {
             setFormError(null);
           }}
           aria-expanded={showForm}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+          className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
         >
           {showForm ? "Cancel" : "New role"}
         </button>
       </div>
 
       {notice && (
-        <p role="status" className="mb-4 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">
+        <p role="status" className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-600 dark:text-emerald-400">
           {notice}
         </p>
       )}
 
+      {/* Summary cards (real aggregates) */}
+      {roles === null ? (
+        <div aria-hidden className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[0, 1, 2, 3].map((key) => (
+            <div key={key} className="h-28 animate-pulse rounded-2xl border border-border bg-surface" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {cards.map((card) => (
+            <SummaryCard key={card.label} data={card} />
+          ))}
+        </div>
+      )}
+
+      {/* Toolbar: search, filters, sort, view switch */}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <div className="relative min-w-[220px] flex-1">
+          <Search aria-hidden className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="Search roles or candidates..."
+            aria-label="Search roles or candidates"
+            className="w-full rounded-xl border border-border bg-surface py-2.5 pl-10 pr-4 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:ring-2 focus:ring-accent/20"
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value as RoleStatus | "")}
+          aria-label="Filter by role status"
+          className="cursor-pointer appearance-none rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-medium outline-none transition focus:border-accent"
+        >
+          <option value="">All statuses</option>
+          <option value="open">Open</option>
+          <option value="completed">Completed</option>
+        </select>
+        <select
+          value={stageFilter}
+          onChange={(event) => setStageFilter(event.target.value as HireStage | "")}
+          aria-label="Filter by interview stage"
+          className="cursor-pointer appearance-none rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-medium outline-none transition focus:border-accent"
+          disabled={!candidatesReady && (roles?.length ?? 0) > 0}
+        >
+          <option value="">All stages</option>
+          {Object.entries(HIRE_STAGE_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sortBy}
+          onChange={(event) => setSortBy(event.target.value as SortKey)}
+          aria-label="Sort roles"
+          className="cursor-pointer appearance-none rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-medium outline-none transition focus:border-accent"
+        >
+          {SORT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearchInput("");
+              setStatusFilter("");
+              setStageFilter("");
+            }}
+            className="rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-medium transition hover:bg-background"
+          >
+            Clear filters
+          </button>
+        )}
+        <div className="grow" />
+        <div role="group" aria-label="View mode" className="flex items-center rounded-xl border border-border bg-surface p-1">
+          <button
+            type="button"
+            aria-pressed={view === "card"}
+            onClick={() => setView("card")}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+              view === "card" ? "bg-accent/10 text-accent" : "text-muted hover:text-foreground"
+            }`}
+          >
+            <LayoutGrid className="size-4" aria-hidden />
+            Card view
+          </button>
+          <button
+            type="button"
+            aria-pressed={view === "list"}
+            onClick={() => setView("list")}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+              view === "list" ? "bg-accent/10 text-accent" : "text-muted hover:text-foreground"
+            }`}
+          >
+            <List className="size-4" aria-hidden />
+            List view
+          </button>
+        </div>
+      </div>
+
       {showForm && (
         <form
           onSubmit={createRole}
-          className="mb-6 rounded-lg border border-border bg-surface p-5"
+          className="rounded-2xl border border-border bg-surface p-5"
           aria-label="Create role"
         >
           <div className="grid gap-4 sm:grid-cols-2">
@@ -410,31 +921,41 @@ export function RolesView() {
         </p>
       )}
 
-      {roles === null && !error && (
-        <div aria-hidden className="space-y-3">
-          {[0, 1, 2].map((key) => (
-            <div key={key} className="h-24 animate-pulse rounded-lg border border-border bg-surface" />
-          ))}
-        </div>
-      )}
-
       {roles !== null && roles.length === 0 && (
         <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
           <p className="font-medium">No roles yet</p>
-          <p className="mt-1 text-sm text-muted">
-            {search || statusFilter
-              ? "No roles match this search or filter."
-              : "Create your first role, then invite candidates to interview for it."}
-          </p>
+          <p className="mt-1 text-sm text-muted">Create your first role, then invite candidates to interview for it.</p>
         </div>
       )}
 
-      {roles !== null && roles.length > 0 && (
-        <ul className="grid gap-3">
-          {roles.map((role) => (
-            <RoleCard key={role.id} role={role} />
-          ))}
-        </ul>
+      {roles !== null && roles.length > 0 && filtered.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
+          <p className="font-medium">No roles match your filters</p>
+          <p className="mt-1 text-sm text-muted">Try a different search term, status or stage.</p>
+        </div>
+      )}
+
+      {filtered.length > 0 && (
+        <>
+          {view === "card" ? (
+            <ul className="grid gap-4">
+              {filtered.map((role) => (
+                <RoleCard
+                  key={role.id}
+                  role={role}
+                  candidates={candidatesByRole[role.id] ?? null}
+                  candidatesLoading={!candidatesReady && candidatesByRole[role.id] === undefined}
+                  candidatesError={candidateErrors[role.id] ?? null}
+                  expanded={expandedIds.has(role.id)}
+                  onToggle={() => toggleExpanded(role.id)}
+                  onNotice={setNotice}
+                />
+              ))}
+            </ul>
+          ) : (
+            <RolesListView roles={filtered} />
+          )}
+        </>
       )}
     </div>
   );

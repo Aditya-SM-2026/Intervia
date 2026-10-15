@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { InterviewRoom } from "@/lib/interviews/interview.types";
 import { CreateInterviewForm, type CreateInterviewFormValues } from "./CreateInterviewForm";
 import { InterviewLinkResult } from "./InterviewLinkResult";
@@ -20,7 +20,16 @@ interface CreateResult {
 }
 
 export function CreateInterviewPanel() {
+  return (
+    <Suspense fallback={null}>
+      <CreateInterviewPanelInner />
+    </Suspense>
+  );
+}
+
+function CreateInterviewPanelInner() {
   const router = useRouter();
+  const roleParam = useSearchParams().get("role") ?? undefined;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CreateResult | null>(null);
@@ -107,7 +116,7 @@ export function CreateInterviewPanel() {
           {error}
         </p>
       )}
-      <CreateInterviewForm onSubmit={handleSubmit} isSubmitting={isSubmitting} />
+      <CreateInterviewForm onSubmit={handleSubmit} isSubmitting={isSubmitting} initialRoleTitle={roleParam} />
     </div>
   );
 }

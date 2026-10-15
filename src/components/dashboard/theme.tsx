@@ -46,9 +46,9 @@ function readStoredPreference(): ThemePreference {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === "light" || saved === "dark" || saved === "system") return saved;
   } catch {
-    // Private mode etc. — fall back to system.
+    // Private mode etc. — fall back to light.
   }
-  return "system";
+  return "light";
 }
 
 function readResolvedTheme(): "light" | "dark" {

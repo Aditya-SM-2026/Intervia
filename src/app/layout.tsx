@@ -42,7 +42,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var s=localStorage.getItem("intervia-theme");var t=s==="light"||s==="dark"?s:"system";var d=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);var e=document.documentElement;e.classList.toggle("dark",d);e.style.colorScheme=d?"dark":"light";}catch(e){}})();`,
+            __html: `(function(){try{var s=localStorage.getItem("intervia-theme");var t=s==="light"||s==="dark"?s:"light";var d=t==="dark";var e=document.documentElement;e.classList.toggle("dark",d);e.style.colorScheme=d?"dark":"light";}catch(e){}})();`,
           }}
         />
       </head>

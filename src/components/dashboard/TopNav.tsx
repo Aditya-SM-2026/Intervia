@@ -22,6 +22,23 @@ const NAV_LINKS = [
   { href: "/recruiter", label: "New interview" },
 ] as const;
 
+/**
+ * One link highlights at a time: the roles section (a subtree of /dashboard)
+ * belongs to "Roles", everything else under /dashboard to "Interviews".
+ */
+function isActiveLink(pathname: string, href: string): boolean {
+  if (href === "/dashboard/roles") {
+    return pathname === "/dashboard/roles" || pathname.startsWith("/dashboard/roles/");
+  }
+  if (href === "/dashboard") {
+    return (
+      pathname === "/dashboard" ||
+      (pathname.startsWith("/dashboard/") && !pathname.startsWith("/dashboard/roles"))
+    );
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function TopNav() {
   const pathname = usePathname();
   const router = useRouter();
@@ -74,9 +91,7 @@ export function TopNav() {
           </Link>
           <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
             {NAV_LINKS.map((link) => {
-              const active =
-    pathname === link.href ||
-    pathname.startsWith(`${link.href}/`);
+              const active = isActiveLink(pathname, link.href);
               return (
                 <Link
                   key={link.href}

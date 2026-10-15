@@ -26,6 +26,8 @@ export interface CreateInterviewFormValues {
 interface CreateInterviewFormProps {
   onSubmit: (values: CreateInterviewFormValues) => void;
   isSubmitting: boolean;
+  /** Role title pre-filled from the roles page (share link / add candidate). */
+  initialRoleTitle?: string;
 }
 
 const inputClasses =
@@ -145,11 +147,11 @@ function PdfPicker({
   );
 }
 
-export function CreateInterviewForm({ onSubmit, isSubmitting }: CreateInterviewFormProps) {
+export function CreateInterviewForm({ onSubmit, isSubmitting, initialRoleTitle }: CreateInterviewFormProps) {
   const [recruiterName, setRecruiterName] = useState("");
   const [candidateName, setCandidateName] = useState("");
   const [candidateEmail, setCandidateEmail] = useState("");
-  const [roleTitle, setRoleTitle] = useState("");
+  const [roleTitle, setRoleTitle] = useState(initialRoleTitle ?? "");
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);

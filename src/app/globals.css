@@ -34,19 +34,6 @@
   --candidate: #17976a;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) {
-    --background: #0c111b;
-    --foreground: #e8ecf5;
-    --surface: #141b29;
-    --border: #263048;
-    --muted: #93a0b8;
-    --accent: #7aa7ff;
-    --accent-soft: rgba(122, 167, 255, 0.12);
-    --candidate: #6fd3a8;
-  }
-}
-
 .dark {
   --background: #0c111b;
   --foreground: #e8ecf5;
