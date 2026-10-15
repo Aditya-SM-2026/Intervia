@@ -50,7 +50,7 @@ import { Menu } from "@/components/dashboard/menu";
  *    compact list view for comparing many roles,
  *  - per-role actions: share an invite link (the existing invitation
  *    workflow, pre-filled) and manage the role; per-candidate: report and
- *    profile links only â€” no duplicated screens.
+ *    profile links only GÇö no duplicated screens.
  * Data comes from GET /api/roles and GET /api/roles/[id]/candidates.
  */
 
@@ -250,7 +250,7 @@ function CandidateTable({
               </td>
               <td className="px-4 py-3">
                 {candidate.overallScore === null ? (
-                  <span className="text-muted">â€”</span>
+                  <span className="text-muted">GÇö</span>
                 ) : (
                   <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${scoreBadgeClass(candidate.overallScore)}`}>
                     {candidate.overallScore}/100
@@ -282,7 +282,7 @@ function CandidateTable({
                         aria-label={`More actions for ${candidate.candidateName ?? candidate.candidateEmail}`}
                         className="grid size-8 place-items-center rounded-lg border border-transparent text-muted transition hover:border-border hover:bg-background hover:text-foreground"
                       >
-                        <span aria-hidden className="text-base leading-none">â‹¯</span>
+                        <span aria-hidden className="text-base leading-none">Gï»</span>
                       </button>
                     }
                     items={[
@@ -330,7 +330,7 @@ function RoleCard({
     const url = `${window.location.origin}${inviteUrl(role)}`;
     void navigator.clipboard
       .writeText(url)
-      .then(() => onNotice("Invite link copied â€” it opens the interview form with this role pre-filled."))
+      .then(() => onNotice("Invite link copied GÇö it opens the interview form with this role pre-filled."))
       .catch(() => onNotice(url));
   }
 
@@ -348,6 +348,7 @@ function RoleCard({
                 {STATUS_LABELS[role.status]}
               </span>
             </div>
+            <p className="mt-0.5 line-clamp-2 text-sm text-muted">{role.description}</p>
             <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
               <span className="inline-flex items-center gap-1.5">
                 <Users className="size-3.5" aria-hidden />
@@ -371,13 +372,13 @@ function RoleCard({
                 <FileBarChart className="size-3.5" aria-hidden />
                 Avg score{" "}
                 <strong className="font-semibold text-foreground">
-                  {role.stats.avgOverallScore === null ? "â€”" : `${role.stats.avgOverallScore}/100`}
+                  {role.stats.avgOverallScore === null ? "GÇö" : `${role.stats.avgOverallScore}/100`}
                 </strong>
               </span>
             </div>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <span className="hidden text-xs text-muted sm:block">Created {formatDate(role.createdAt)}</span>
               <Menu
                 label={`Role actions for ${role.title}`}
@@ -388,7 +389,7 @@ function RoleCard({
                     aria-label={`Role actions for ${role.title}`}
                     className="grid size-8 place-items-center rounded-lg border border-transparent text-muted transition hover:border-border hover:bg-background hover:text-foreground"
                   >
-                    <span aria-hidden className="text-base leading-none">â‹¯</span>
+                    <span aria-hidden className="text-base leading-none">Gï»</span>
                   </button>
                 }
                 items={[
@@ -410,16 +411,16 @@ function RoleCard({
               <button
                 type="button"
                 onClick={copyInvite}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-1.5 text-xs font-medium transition hover:bg-background"
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-3.5 py-2 text-sm font-medium transition hover:bg-background"
               >
-                <Copy className="size-3.5" aria-hidden />
+                <Copy className="size-4" aria-hidden />
                 Share link
               </button>
               <Link
                 href={`/dashboard/roles/${role.id}`}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90"
+                className="inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90"
               >
-                <Settings className="size-3.5" aria-hidden />
+                <Settings className="size-4" aria-hidden />
                 Manage role
               </Link>
               <button
@@ -427,7 +428,7 @@ function RoleCard({
                 onClick={onToggle}
                 aria-expanded={expanded}
                 aria-label={expanded ? `Hide candidates for ${role.title}` : `Show candidates for ${role.title}`}
-                className="grid size-8 place-items-center rounded-xl border border-border text-muted transition hover:bg-background hover:text-foreground"
+                className="grid size-9 place-items-center rounded-xl border border-border text-muted transition hover:bg-background hover:text-foreground"
               >
                 <ChevronDown className={`size-4 transition ${expanded ? "rotate-180" : ""}`} aria-hidden />
               </button>
@@ -506,10 +507,10 @@ function RolesListView({ roles }: { roles: RoleSummary[] }) {
               <td className="px-4 py-3 tabular-nums">{role.stats.interviews}</td>
               <td className="px-4 py-3 tabular-nums">
                 {role.stats.completed}
-                {role.stats.pending > 0 && <span className="text-muted"> Â· {role.stats.pending} pending</span>}
+                {role.stats.pending > 0 && <span className="text-muted"> -+ {role.stats.pending} pending</span>}
               </td>
               <td className="px-4 py-3 tabular-nums">
-                {role.stats.avgOverallScore === null ? "â€”" : `${role.stats.avgOverallScore}/100`}
+                {role.stats.avgOverallScore === null ? "GÇö" : `${role.stats.avgOverallScore}/100`}
               </td>
               <td className="px-4 py-3 text-xs text-muted">{formatDate(role.updatedAt)}</td>
               <td className="px-4 py-3">
@@ -537,7 +538,7 @@ function RolesListView({ roles }: { roles: RoleSummary[] }) {
 }
 
 /**
- * Summary cards (real aggregates) are parked for now â€” flip to true when we
+ * Summary cards (real aggregates) are parked for now GÇö flip to true when we
  * want them back (e.g. once month-over-month trends have real data).
  */
 const SHOW_SUMMARY_CARDS = false;
@@ -648,7 +649,7 @@ function RoleEditForm({
           disabled={saving}
           className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {saving ? "Savingâ€¦" : "Save changes"}
+          {saving ? "SavingGÇª" : "Save changes"}
         </button>
         <button
           type="button"
@@ -797,7 +798,7 @@ export function RolesView() {
       },
       {
         label: "Average score",
-        value: avgScore === null ? "â€”" : `${avgScore}/100`,
+        value: avgScore === null ? "GÇö" : `${avgScore}/100`,
         icon: <Star className="size-5" aria-hidden />,
         iconClasses: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400",
         cardClasses: "bg-amber-50/60 dark:bg-amber-500/5",
@@ -882,7 +883,7 @@ export function RolesView() {
         </p>
       )}
 
-      {/* Summary cards (real aggregates) â€” parked; see SHOW_SUMMARY_CARDS. */}
+      {/* Summary cards (real aggregates) GÇö parked; see SHOW_SUMMARY_CARDS. */}
       {SHOW_SUMMARY_CARDS && (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {cards.map((card) => (
@@ -1053,9 +1054,9 @@ export function RolesView() {
               disabled={submitting}
               className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
             >
-              {submitting ? "Creatingâ€¦" : "Create role"}
+              {submitting ? "CreatingGÇª" : "Create role"}
             </button>
-            {submitting && <span className="text-sm text-muted">Savingâ€¦</span>}
+            {submitting && <span className="text-sm text-muted">SavingGÇª</span>}
           </div>
         </form>
       )}
