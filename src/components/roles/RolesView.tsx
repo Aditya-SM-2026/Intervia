@@ -377,7 +377,7 @@ function RoleCard({
             </div>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <span className="hidden text-xs text-muted sm:block">Created {formatDate(role.createdAt)}</span>
               <Menu
                 label={`Role actions for ${role.title}`}
@@ -410,16 +410,16 @@ function RoleCard({
               <button
                 type="button"
                 onClick={copyInvite}
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-3.5 py-2 text-sm font-medium transition hover:bg-background"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-1.5 text-xs font-medium transition hover:bg-background"
               >
-                <Copy className="size-4" aria-hidden />
+                <Copy className="size-3.5" aria-hidden />
                 Share link
               </button>
               <Link
                 href={`/dashboard/roles/${role.id}`}
-                className="inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-xs font-medium text-white transition hover:opacity-90"
               >
-                <Settings className="size-4" aria-hidden />
+                <Settings className="size-3.5" aria-hidden />
                 Manage role
               </Link>
               <button
@@ -427,7 +427,7 @@ function RoleCard({
                 onClick={onToggle}
                 aria-expanded={expanded}
                 aria-label={expanded ? `Hide candidates for ${role.title}` : `Show candidates for ${role.title}`}
-                className="grid size-9 place-items-center rounded-xl border border-border text-muted transition hover:bg-background hover:text-foreground"
+                className="grid size-8 place-items-center rounded-xl border border-border text-muted transition hover:bg-background hover:text-foreground"
               >
                 <ChevronDown className={`size-4 transition ${expanded ? "rotate-180" : ""}`} aria-hidden />
               </button>
