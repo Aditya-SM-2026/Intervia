@@ -46,3 +46,6 @@ next-env.d.ts
 
 # candidate recordings kept on local disk in development
 /.data/
+
+# Ominibot session artifacts (generated media, not project code)
+/media/
