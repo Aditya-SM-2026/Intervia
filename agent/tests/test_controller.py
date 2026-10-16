@@ -61,8 +61,8 @@ def test_budgets_share_the_time_left_before_closing():
     controller, clock = make_controller(minutes=20, topics=4)
     clock.advance(100)
     controller.next_topic()
-    # 20 min, closing reserve 120s: 1200 - 120 - 100 = 980s over 4 equal topics.
-    assert round(controller.topics[0].budget_seconds) == 245
+    # 20 min, closing reserve 16s: 1200 - 16 - 100 = 1084s over 4 equal topics.
+    assert round(controller.topics[0].budget_seconds) == 271
 
 
 def test_drops_lowest_priority_topics_when_time_is_short():
@@ -85,6 +85,7 @@ def test_overrunning_topic_gets_a_silent_note_first_then_is_forced():
     assert note is not None and note.kind == "note"
     # A note changes nothing by itself: the interviewer moves on with the tool.
     assert controller.topics[0].status == "active"
+    advance = controller.tick()
     assert controller.tick() is None
 
     # After a note, leaving is never held back.
@@ -135,18 +136,16 @@ def test_closing_then_wrap_up_then_hard_stop():
     controller.next_topic()
     clock.advance(600 - 60 - controller.closing_seconds)
     assert controller.tick().kind == "note"
-    clock.advance(controller.closing_seconds / 2)
-    directive = controller.tick()
-    assert directive is not None and directive.kind == "candidate_questions"
-    assert controller.phase == Phase.CANDIDATE_QUESTIONS
-    assert statuses(controller) == ["covered", "skipped"]
 
-    clock.advance(controller.closing_seconds / 2)
+    # The wrap-up fires 12 s before the limit so the goodbye lands on time.
+    clock.advance(4)
     directive = controller.tick()
     assert directive is not None and directive.kind == "wrap_up"
+    assert controller.phase == Phase.CLOSING
+    assert statuses(controller) == ["covered", "skipped"]
     assert controller.tick() is None
 
-    clock.advance(46)
+    clock.advance(22)  # 10 s past the limit: forced stop
     directive = controller.tick()
     assert directive is not None and directive.kind == "hard_stop"
     assert controller.tick() is None
@@ -181,10 +180,10 @@ def test_no_hold_when_enough_time_was_spent_or_candidate_has_nothing():
 
 def test_short_test_interview_still_reaches_a_topic():
     controller, clock = make_controller(minutes=2, topics=1)
-    assert controller.intro_seconds == 24 and controller.closing_seconds == 24
+    assert controller.intro_seconds == 24 and controller.closing_seconds == 16
     clock.advance(20)
     assert "Question 1?" in controller.next_topic()
-    assert round(controller.topics[0].budget_seconds) == 76
+    assert round(controller.topics[0].budget_seconds) == 84
 
 
 def test_no_second_goodbye_when_already_closing_at_time_up():

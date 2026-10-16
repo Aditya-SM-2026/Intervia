@@ -269,6 +269,15 @@ async function buildScorecard(
       ? session.resume.text.slice(0, MAX_RESUME_CHARS).trim()
       : "";
 
+  // Start the recording analysis immediately, in parallel with the text
+  // graders: it is the slow step, and the tab stats it needs come straight
+  // from the events, not from the grader output.
+  const earlyTab = tabStatsFromEvents(events);
+  const videoPromise: Promise<VideoBehaviour> =
+    previous?.video?.status === "analysed" && previous.video.answers !== undefined
+      ? Promise.resolve(previous.video)
+      : analyseCandidateVideo(events, turns, earlyTab);
+
   const [first, second, resumeCheck, authenticityCheck] = await Promise.allSettled([
     generateStructured({
       system: GRADER_PROMPT,
@@ -409,14 +418,11 @@ async function buildScorecard(
   const candidateSeqs = new Set(
     turns.filter((turn) => turn.speaker === "candidate").map((turn) => turn.seq),
   );
-  const tab = { hiddenCount: integrity.tabHiddenCount, hiddenSeconds: integrity.tabHiddenSeconds };
 
   // An analysis of the recording is kept across regenerations: it is the slow
-  // and costly step, and the recording does not change.
-  const video: VideoBehaviour =
-    previous?.video?.status === "analysed" && previous.video.answers !== undefined
-      ? previous.video
-      : await analyseCandidateVideo(events, turns, tab);
+  // and costly step, and the recording does not change. It is started at the
+  // top of this function, in parallel with the text graders.
+  const video: VideoBehaviour = await videoPromise;
 
   const resumeMatch = buildResumeMatch(
     session,
@@ -430,7 +436,9 @@ async function buildScorecard(
     candidateSeqs,
     // Time outside the interview tab counts here only when there is no video
     // score to carry it.
-    video.status === "analysed" ? null : tab,
+    video.status === "analysed"
+      ? null
+      : { hiddenCount: integrity.tabHiddenCount, hiddenSeconds: integrity.tabHiddenSeconds },
   );
   if (authenticityCheck.status === "rejected") {
     notes.push("The check for signs of prompted answers did not run; only measured timings were used.");
@@ -592,6 +600,31 @@ function suggestionFor(overall: number | null, enoughCoverage: boolean): ScoreSu
 }
 
 /** Measured integrity signals from the event log, plus the grader's notes. */
+/** Tab-away stats straight from the events, mirroring buildIntegrity's loop.
+ *  Needed early so the recording analysis can start before the graders finish. */
+function tabStatsFromEvents(events: InterviewEvent[]): {
+  hiddenCount: number;
+  hiddenSeconds: number;
+} {
+  let hiddenCount = 0;
+  let hiddenMs = 0;
+  let hiddenSince: number | null = null;
+  let lastAt = 0;
+  for (const event of events) {
+    const at = Date.parse(event.at);
+    if (Number.isFinite(at)) lastAt = Math.max(lastAt, at);
+    if (event.type === "client_tab_hidden") {
+      hiddenCount += 1;
+      hiddenSince ??= at;
+    } else if (event.type === "client_tab_visible" && hiddenSince !== null) {
+      hiddenMs += Math.max(0, at - hiddenSince);
+      hiddenSince = null;
+    }
+  }
+  if (hiddenSince !== null && lastAt > hiddenSince) hiddenMs += lastAt - hiddenSince;
+  return { hiddenCount, hiddenSeconds: Math.round(hiddenMs / 1000) };
+}
+
 function buildIntegrity(
   turns: InterviewTurn[],
   events: InterviewEvent[],

@@ -27,7 +27,11 @@ MIN_TOPIC_SECONDS = 90.0
 TOPIC_OVERRUN_GRACE_SECONDS = 25.0
 INTRO_OVERRUN_GRACE_SECONDS = 30.0
 # After the time-up goodbye has been requested, how long until a forced stop.
-HARD_STOP_GRACE_SECONDS = 45.0
+# Kept small so the session never runs meaningfully past its scheduled end.
+HARD_STOP_GRACE_SECONDS = 10.0
+# The wrap-up directive fires this long before the limit, so the spoken
+# thank-you + goodbye lands right at the scheduled end time.
+WRAP_UP_LEAD_SECONDS = 12.0
 # The goodbye must start this long before the time limit, for every duration:
 # the silent wrap-up note is placed this far ahead, and the spoken wrap-up
 # (thank-you + goodbye) lands right at GOODBYE_LEAD_SECONDS before the end.
@@ -323,7 +327,7 @@ class InterviewController:
                 return Directive("hard_stop", "")
             return None
 
-        if elapsed >= self.total_seconds and not self._wrap_up_sent:
+        if elapsed >= self.total_seconds - WRAP_UP_LEAD_SECONDS and not self._wrap_up_sent:
             self._wrap_up_sent = True
             if self.phase == Phase.CLOSING:
                 # The interviewer is already saying goodbye; do not ask twice.

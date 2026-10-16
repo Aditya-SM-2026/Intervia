@@ -746,7 +746,19 @@ class InterviewRuntime:
 
     async def _wait_for_rejoin(self) -> None:
         await asyncio.sleep(CANDIDATE_REJOIN_GRACE_SECONDS)
-        await self.finish("candidate_left")
+        if self._finished:
+            return
+        # The candidate did not come back. The interview still ends exactly at
+        # its scheduled time: hold the room until the clock runs out (a
+        # returning candidate resumes the session in the meantime), then the
+        # time-up wrap-up closes it. This sleep is only a safety net in case
+        # the time-up watchdog cannot fire.
+        controller = self._runtime.controller
+        remaining = controller.total_seconds - controller.elapsed() if controller else 0.0
+        if remaining > 0:
+            await asyncio.sleep(remaining + 5.0)
+        if not self._finished:
+            await self.finish("candidate_left")
 
     async def _record_client_event(self, reader: rtc.TextStreamReader) -> None:
         """Browser-side signals (tab hidden, window blurred) sent by the page."""
