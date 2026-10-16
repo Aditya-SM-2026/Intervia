@@ -17,7 +17,8 @@ import {
   type LocalRecording,
 } from "@/lib/recordings/store";
 import { fetchStoredObject } from "@/lib/storage/gcs";
-import { hasRecording, listRecordings, type RecordingRef } from "./recording-refs";
+import { buildMergedRecording } from "@/lib/recordings/merge";
+import { hasRecording, listRecordings, type LocalRecordingRef, type RecordingRef } from "./recording-refs";
 import type { InterviewEvent, InterviewTurn } from "./interview.types";
 import { gazePattern, MIN_ANSWERS_FOR_PATTERN, videoBehaviourScore } from "./scoring";
 import type {
@@ -173,6 +174,27 @@ export { hasRecording, listRecordings } from "./recording-refs";
 export async function pickRecording(events: readonly InterviewEvent[]): Promise<RecordingRef | null> {
   const all = listRecordings(events);
   if (all.length <= 1) return all[0] ?? null;
+  // A candidate who dropped and rejoined left several segments. When the
+  // local pieces are all present, serve one merged video (black-padded over
+  // the gap) instead of just the longest segment.
+  const localRefs = all.filter(
+    (ref): ref is Extract<RecordingRef, { kind: "local" }> => ref.kind === "local",
+  );
+  const unique = new Map<string, { recording: LocalRecordingRef; startedAt: string }>();
+  for (const ref of localRefs) {
+    const existing = unique.get(ref.recording.recordingId);
+    if (!existing || ref.startedAt < existing.startedAt) {
+      unique.set(ref.recording.recordingId, { recording: ref.recording, startedAt: ref.startedAt });
+    }
+  }
+  if (unique.size >= 2) {
+    const merged = await buildMergedRecording(
+      localRefs[0].recording.roomId,
+      [...unique.values()].sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
+      events,
+    );
+    if (merged) return merged;
+  }
   let best: { ref: RecordingRef; size: number } | null = null;
   for (const ref of all) {
     const size = ref.kind === "local" ? await recordingSize(ref.recording) : 1;

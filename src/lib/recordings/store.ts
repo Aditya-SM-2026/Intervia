@@ -36,6 +36,7 @@ export interface LocalRecording {
 function recordingsDir(): string {
   return process.env.RECORDINGS_DIR?.trim() || path.join(process.cwd(), ".data", "recordings");
 }
+export { recordingsDir };
 
 function assertSafe(recording: LocalRecording): void {
   if (!SAFE_ID.test(recording.roomId) || !SAFE_ID.test(recording.recordingId)) {
@@ -61,7 +62,7 @@ function donePath(recording: LocalRecording): string {
   return `${rawPath(recording)}.done`;
 }
 
-async function sizeOf(file: string): Promise<number> {
+export async function sizeOf(file: string): Promise<number> {
   try {
     return (await fs.stat(file)).size;
   } catch {
