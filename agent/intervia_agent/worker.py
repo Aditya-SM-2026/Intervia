@@ -195,6 +195,8 @@ class InterviewRuntime:
         self._session_started_at = time.monotonic()
         self._sessions_opened = 0
         self._renewing = False
+        # How many times a crashed model session has been rebuilt.
+        self._session_recoveries = 0
 
         # Speech timing, from session state changes (epoch seconds).
         self._agent_speaking_since: float | None = None
@@ -377,6 +379,8 @@ class InterviewRuntime:
                 self._gate.release()
         finally:
             self._renewing = False
+        # How many times a crashed model session has been rebuilt.
+        self._session_recoveries = 0
 
     def agent_for_current_step(self, previous: llm.ChatContext) -> InterviewerAgent:
         """The interviewer for the step the controller has just moved to."""
@@ -398,6 +402,65 @@ class InterviewRuntime:
                 "has already been acknowledged, so do not thank them again: go straight to what "
                 "comes next. Do not greet them again and do not mention any change."
             ),
+        )
+
+    async def _recover_after_session_close(self) -> None:
+        """Rebuilds the model session when Gemini Live dies mid-interview.
+
+        A crashed realtime session (for example the observed abnormal-closure
+        followed by a failed reconnect) must not end the interview before its
+        scheduled time. A fresh AgentSession takes over the plan, the clock and
+        the conversation so far; the time-up watchdog keeps enforcing the end.
+        """
+        if self._finished or self.session is None:
+            return
+        controller = self.controller
+        if controller is None or controller.remaining() <= controller.closing_seconds:
+            await self.finish("candidate_left" if self._candidate_gone else "session_closed")
+            return
+        self._session_recoveries += 1
+        if self._session_recoveries > 3:
+            logger.error("interview %s: too many session crashes; ending", self.interview_id)
+            await self.finish("session_closed")
+            return
+
+        self.backend.add_event("session_recovery", {"attempt": self._session_recoveries})
+        logger.warning("interview %s: rebuilding model session (attempt %d)", self.interview_id, self._session_recoveries)
+        vad = self.ctx.proc.userdata.get("vad") or silero.VAD.load()
+        old_session = self.session
+        previous = old_session.current_agent.chat_ctx if old_session.current_agent else None
+        new_session = AgentSession(
+            vad=vad,
+            turn_handling=TurnHandlingOptions(
+                turn_detection="realtime_llm",
+                interruption=InterruptionOptions(mode="vad"),
+            ),
+            user_away_timeout=None,
+        )
+        self.session = new_session
+        self._wire_session_events()
+        if self.fresh_sessions and new_session.input.audio is not None:
+            self._gate = GatedAudioInput(new_session.input.audio)
+            new_session.input.audio = self._gate
+        try:
+            await new_session.start(
+                agent=InterviewerAgent(self, self.instructions_for_current_step(), chat_ctx=previous),
+                room=self.ctx.room,
+                room_options=room_io.RoomOptions(
+                    close_on_disconnect=False,
+                    audio_input=room_io.AudioInputOptions(frame_size_ms=20),
+                ),
+            )
+        except Exception as error:  # noqa: BLE001 - fall back to the old session's fate
+            logger.error("interview %s: session recovery failed: %s", self.interview_id, error)
+            self.backend.add_event("agent_error", {"error": f"session recovery failed: {error}"[:500]})
+            self.session = old_session
+            await self.finish("session_closed")
+            return
+        self.instruct(
+            "The voice connection dropped for a moment and has been restored. Continue the "
+            "interview exactly where you left off. Do not greet the candidate again and do not "
+            "repeat anything you already said; carry on with the current question."
         )
 
     def _spawn(self, coro: Any) -> asyncio.Task[Any]:
@@ -653,9 +716,7 @@ class InterviewRuntime:
         @session.on("close")
         def _close(event: Any) -> None:
             if not self._finished:
-                self._spawn(
-                    self.finish("candidate_left" if self._candidate_gone else "session_closed")
-                )
+                self._spawn(self._recover_after_session_close())
 
     def _record_turn(self, item: Any, created_at: float) -> None:
         assert self.controller is not None
