@@ -38,21 +38,27 @@ export async function runInterviewWatchdogOnce(): Promise<number> {
     const events = await repository.getEvents(room.id);
     if (events.some((event) => event.type === "interview_ended")) continue;
 
-    // Reconnection expiry: a candidate who has been away for longer than the
-    // 5-minute window may not resume, even when the duration is not yet spent.
-    // (A room past its duration deadline still takes the completion path
-    // below, exactly as before.)
+    // Deadline first: an interview that reached its duration must always be
+    // completed, never expired — even inside the grace window right after the
+    // limit, where the reconnect state already reports "reached its time
+    // limit". (The agent holds the room until the scheduled end, so a
+    // candidate who leaves at the end lands here too.)
     const deadlinePassed = interviewDeadline(room, events) + GRACE_MS <= now;
+    if (deadlinePassed) {
+      closed++;
+      await closeInterview(room);
+      continue;
+    }
+
+    // Reconnection expiry: only a candidate who has been away for longer
+    // than the 5-minute window, with duration still left (for example the
+    // agent itself died mid-interview), ends as expired.
     const reconnect = reconnectStateFor(room, events);
-    if (reconnect.kind === "expired" && !deadlinePassed) {
+    if (reconnect.kind === "expired") {
       closed++;
       await closeExpiredInterview(room, reconnect.reason);
       continue;
     }
-
-    if (!deadlinePassed) continue;
-    closed++;
-    await closeInterview(room);
   }
   if (closed > 0) console.info(`[watchdog] closed ${closed} overdue interview(s)`);
   return closed;
