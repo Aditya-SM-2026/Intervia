@@ -844,6 +844,12 @@ export function RolesView() {
       }
       form.reset();
       setShowForm(false);
+      // Make sure the new role is visible: an active search or filter would
+      // otherwise hide it, which reads as "the role did not appear".
+      setSearchInput("");
+      setSearch("");
+      setStatusFilter("");
+      setStageFilter("");
       setNotice("Role created.");
       await load();
     } catch (createError) {

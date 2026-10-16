@@ -45,6 +45,25 @@ export async function getRoleSummary(id: string): Promise<RoleSummary | null> {
   return { ...role, stats: stats.get(role.id) ?? emptyStats() };
 }
 
+/**
+ * Makes sure a role exists for an interview's role title, so every role a
+ * recruiter works with shows up on the roles page. Roles created this way
+ * start empty (no description or skills) and can be filled in via Edit role.
+ * Case-insensitive: "AI engineer" and "AI Engineer" are the same role.
+ */
+export async function ensureRoleForTitle(title: string | null | undefined): Promise<void> {
+  const trimmed = title?.trim();
+  if (!trimmed || trimmed.length < 2) return;
+  const existing = await repository().listRoles({ q: trimmed });
+  if (existing.some((role) => role.title.toLowerCase() === trimmed.toLowerCase())) return;
+  await repository().createRole({
+    title: trimmed,
+    description: "",
+    skills: [],
+    deadline: null,
+  });
+}
+
 export async function updateRole(id: string, input: unknown) {
   const parsed = updateRoleSchema.parse(input) as UpdateRoleRow;
   return repository().updateRole(id, parsed);

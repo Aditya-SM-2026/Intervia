@@ -9,6 +9,8 @@ import {
 import type { InterviewApiError } from "@/lib/interviews/interview.types";
 import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
 import { requireRecruiter } from "@/lib/auth/guards";
+import { ensureRoleForTitle } from "@/lib/roles/role.service";
+import { describeRoleError } from "@/lib/roles/role-errors";
 import {
   invitationInputFromRoom,
   sendInterviewInvitation,
@@ -149,6 +151,14 @@ export async function POST(request: NextRequest) {
       );
     }
     throw error;
+  }
+  // Every role a recruiter hires for must be visible on the roles page: if
+  // this interview introduced a new role title, create the role record for
+  // it. Best-effort — a failure here must not fail the interview creation.
+  try {
+    await ensureRoleForTitle(parsed.data.roleTitle);
+  } catch (error) {
+    console.error(`[interviews] role auto-create failed: ${describeRoleError(error)}`);
   }
   const candidateUrl = new URL(
     `/interview/${room.id}`,
