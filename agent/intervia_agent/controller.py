@@ -95,7 +95,6 @@ class InterviewController:
         self.context = context
         self._clock = clock
         self._started_at: float | None = None
-        self._paused_at: float | None = None
         self.phase = Phase.INTRO
         self.topics = [TopicRecord(competency=c) for c in context.competencies]
         self._active_index: int | None = None
@@ -132,32 +131,7 @@ class InterviewController:
         return self._started_at is not None
 
     def elapsed(self) -> float:
-        if self._started_at is None:
-            return 0.0
-        # While the clock is paused the elapsed time freezes: the pause does
-        # not count against the interview.
-        now = self._paused_at if self._paused_at is not None else self._clock()
-        return now - self._started_at
-
-    def pause_clock(self) -> None:
-        """Freezes the interview clock while the candidate is disconnected.
-
-        Time spent reconnecting is not counted against the interview: when the
-        candidate returns, the interview resumes from the moment they left.
-        """
-        if self._started_at is None or self._paused_at is not None or self.phase == Phase.ENDED:
-            return
-        self._paused_at = self._clock()
-
-    def resume_clock(self) -> None:
-        """Resumes the clock after a pause: the pause duration is discounted."""
-        if self._paused_at is None:
-            return
-        self._started_at += self._clock() - self._paused_at
-        self._paused_at = None
-
-    def clock_paused(self) -> bool:
-        return self._paused_at is not None
+        return 0.0 if self._started_at is None else self._clock() - self._started_at
 
     def remaining(self) -> float:
         return self.total_seconds - self.elapsed()
