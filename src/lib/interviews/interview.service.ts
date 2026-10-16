@@ -201,7 +201,7 @@ export async function validateRoomAccess(roomId: string): Promise<RoomAccessResu
       message: "This interview link does not exist. Please ask your recruiter for a new link.",
     };
   }
-  if (room.status === "expired") {
+  if (room.status === "expired" || (isActiveStatus(room.status) && isExpired(room))) {
     return {
       ok: false,
       code: "ROOM_EXPIRED",
@@ -256,7 +256,7 @@ export async function verifyCandidateEmail(
       message: "This interview link does not exist. Please ask your recruiter for a new link.",
     };
   }
-  if (room.status === "expired") {
+  if (room.status === "expired" || (isActiveStatus(room.status) && isExpired(room))) {
     return {
       ok: false,
       code: "ROOM_EXPIRED",

@@ -44,10 +44,6 @@ function CreateInterviewPanelInner() {
       form.set("candidateName", values.candidateName);
       form.set("candidateEmail", values.candidateEmail);
       form.set("roleTitle", values.roleTitle);
-      if (values.scheduledDate) {
-        form.set("scheduledDate", values.scheduledDate);
-        form.set("scheduledTime", values.scheduledTime ?? "");
-      }
       form.set("durationMinutes", String(values.durationMinutes));
       form.set("difficulty", values.difficulty);
       form.set("voiceMode", values.voiceMode);

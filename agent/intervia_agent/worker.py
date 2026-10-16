@@ -713,6 +713,10 @@ class InterviewRuntime:
             if not participant.identity.startswith(CANDIDATE_IDENTITY_PREFIX) or _candidates():
                 return
             self._candidate_gone = True
+            # The interview clock freezes while the candidate is away.
+            controller = self.controller
+            if controller is not None:
+                controller.pause_clock()
             self.backend.add_event("candidate_disconnected")
             if self._rejoin_task is None and not self._finished:
                 self._rejoin_task = self._spawn(self._wait_for_rejoin())
@@ -726,6 +730,19 @@ class InterviewRuntime:
             if self._rejoin_task is not None:
                 self._rejoin_task.cancel()
                 self._rejoin_task = None
+                controller = self.controller
+                if controller is not None:
+                    controller.resume_clock()
+                # The LiveKit Agents room IO does not rebind its audio input
+                # after a reconnect (its one-shot init already finished), so
+                # the model kept listening to the dead track and the
+                # candidate was never heard again. Force the relink here.
+                try:
+                    room_io = self.session.room_io
+                    room_io.unset_participant()
+                    room_io.set_participant(participant.identity)
+                except Exception as error:  # noqa: BLE001 - audio stays usable if this races
+                    logger.warning("could not relink candidate audio: %s", error)
                 self.backend.add_event("candidate_reconnected")
             if was_gone:
                 # A returning candidate resumes the same session: the clock,
@@ -748,12 +765,17 @@ class InterviewRuntime:
         await asyncio.sleep(CANDIDATE_REJOIN_GRACE_SECONDS)
         if self._finished:
             return
+        # Nobody returned within the grace window: let the clock run again so
+        # the interview still ends at its scheduled time.
+        controller = self.controller
+        if controller is not None:
+            controller.resume_clock()
         # The candidate did not come back. The interview still ends exactly at
         # its scheduled time: hold the room until the clock runs out (a
         # returning candidate resumes the session in the meantime), then the
         # time-up wrap-up closes it. This sleep is only a safety net in case
         # the time-up watchdog cannot fire.
-        controller = self._runtime.controller
+        controller = self.controller
         remaining = controller.total_seconds - controller.elapsed() if controller else 0.0
         if remaining > 0:
             await asyncio.sleep(remaining + 5.0)

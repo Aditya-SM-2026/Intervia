@@ -16,8 +16,6 @@ export interface CreateInterviewFormValues {
   durationMinutes: number;
   difficulty: DifficultyLevel;
   voiceMode: VoiceMode;
-  scheduledDate?: string;
-  scheduledTime?: string;
   jobDescriptionText?: string;
   jobDescriptionPdf?: File;
   resume?: File;
@@ -152,8 +150,6 @@ export function CreateInterviewForm({ onSubmit, isSubmitting, initialRoleTitle }
   const [candidateName, setCandidateName] = useState("");
   const [candidateEmail, setCandidateEmail] = useState("");
   const [roleTitle, setRoleTitle] = useState(initialRoleTitle ?? "");
-  const [scheduledDate, setScheduledDate] = useState("");
-  const [scheduledTime, setScheduledTime] = useState("");
   const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
   const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");
   const [voiceMode, setVoiceMode] = useState<VoiceMode>("standard");
@@ -181,7 +177,6 @@ export function CreateInterviewForm({ onSubmit, isSubmitting, initialRoleTitle }
       durationMinutes,
       difficulty,
       voiceMode,
-      ...(scheduledDate ? { scheduledDate, scheduledTime } : {}),
       ...(jobDescriptionPdf ? { jobDescriptionPdf } : { jobDescriptionText: jobDescriptionText.trim() }),
       ...(resume ? { resume } : {}),
     });
@@ -267,40 +262,9 @@ export function CreateInterviewForm({ onSubmit, isSubmitting, initialRoleTitle }
                 </p>
               </div>
               <div className="sm:col-span-2">
-                <span className="mb-1.5 block text-sm font-medium" id="schedule-label">
-                  Scheduled date and time
-                </span>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label htmlFor="scheduled-date" className="sr-only">
-                      Interview date
-                    </label>
-                    <input
-                      id="scheduled-date"
-                      type="date"
-                      aria-labelledby="schedule-label"
-                      value={scheduledDate}
-                      onChange={(event) => setScheduledDate(event.target.value)}
-                      className={inputClasses}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="scheduled-time" className="sr-only">
-                      Interview time
-                    </label>
-                    <input
-                      id="scheduled-time"
-                      type="time"
-                      aria-labelledby="schedule-label"
-                      value={scheduledTime}
-                      onChange={(event) => setScheduledTime(event.target.value)}
-                      className={inputClasses}
-                    />
-                  </div>
-                </div>
-                <p className="mt-1.5 text-xs text-muted">
-                  An invitation email is sent to the candidate. Leave empty to let them start any
-                  time before the link expires.
+                <p className="text-xs text-muted">
+                  The interview link is valid for 24 hours from the moment it is created. The
+                  candidate can start any time in that window; after 24 hours the link expires.
                 </p>
               </div>
             </div>
