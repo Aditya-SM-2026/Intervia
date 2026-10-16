@@ -1,11 +1,12 @@
 ﻿"use client";
 
-import { Briefcase, Calendar, ChevronDown, Search, SlidersHorizontal } from "lucide-react";
+import { Briefcase, Calendar, ChevronDown, Download, Search, SlidersHorizontal } from "lucide-react";
 
 /**
  * Filter toolbar for the reports table: debounced search (owner debounce in
- * DashboardView), session status filter, date-range filter and a clear
- * action that appears only when a filter is active.
+ * DashboardView), session status filter, date-range filter, a clear action
+ * that appears only when a filter is active, and an export of every report
+ * matching the current filters.
  */
 
 const STATUS_OPTIONS = [
@@ -40,6 +41,8 @@ interface ToolbarProps {
   onRoleChange: (value: string) => void;
   hasActiveFilters: boolean;
   onClear: () => void;
+  /** Downloads every report matching the current filters as CSV. */
+  onExport: () => void;
 }
 
 export function Toolbar({
@@ -54,6 +57,7 @@ export function Toolbar({
   onRoleChange,
   hasActiveFilters,
   onClear,
+  onExport,
 }: ToolbarProps) {
   return (
     <div className="flex flex-wrap items-center gap-2.5">
@@ -119,6 +123,15 @@ export function Toolbar({
         </select>
         <ChevronDown aria-hidden className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
       </label>
+
+      <button
+        type="button"
+        onClick={onExport}
+        className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+      >
+        <Download className="size-4" aria-hidden />
+        Export all
+      </button>
 
       {hasActiveFilters && (
         <button

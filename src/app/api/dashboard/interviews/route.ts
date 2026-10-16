@@ -16,7 +16,7 @@ import { requireRecruiter } from "@/lib/auth/guards";
  * Server-side pagination: the response carries the total across all pages.
  */
 
-const RANGE_DAYS: Record<string, number> = { "7d": 7, "30d": 30 };
+const RANGE_DAYS: Record<string, number> = { "7": 7, "30": 30, "7d": 7, "30d": 30 };
 
 export async function GET(request: NextRequest) {
   const denied = await requireRecruiter();

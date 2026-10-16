@@ -18,6 +18,7 @@ import { Toolbar, DEFAULT_RANGE } from "./Toolbar";
 import { ReportsTable } from "./ReportsTable";
 import { Pagination } from "./Pagination";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { exportReports } from "./export";
 
 /**
  * Dashboard orchestrator: real-data analytics cards, filter toolbar,
@@ -368,6 +369,9 @@ export function DashboardView() {
         onRoleChange={setRole}
         hasActiveFilters={hasActiveFilters}
         onClear={clearFilters}
+        onExport={() =>
+          exportReports({ search, status, role, range })
+        }
       />
 
       {selectedCount > 0 && (
