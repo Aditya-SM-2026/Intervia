@@ -36,7 +36,12 @@ from livekit.plugins import google, silero
 
 from .backend import Backend, iso_from_epoch, iso_now
 from .config import AGENT_NAME, CLIENT_EVENT_TOPIC, AgentConfig, load_env
-from .controller import EVIDENCE_LEVELS, Directive, InterviewController
+from .controller import (
+    EVIDENCE_LEVELS,
+    WRAP_UP_LEAD_SECONDS,
+    Directive,
+    InterviewController,
+)
 from .plan import InterviewContext, parse_context
 from .prompts import SYSTEM_NOTE_PREFIX, build_instructions
 
@@ -162,6 +167,17 @@ class InterviewerAgent(Agent):
     @function_tool
     async def end_interview(self, context: RunContext) -> str:
         """End the interview. Call this only after you have said goodbye to the candidate."""
+        controller = self._runtime.controller
+        remaining = controller.total_seconds - controller.elapsed() if controller else 0.0
+        # Strict schedule: the interview may only end inside the wrap-up
+        # window (the final 8 seconds). The model deciding it is "done" early
+        # is not a reason to stop — the candidate paid for the full time.
+        if remaining > WRAP_UP_LEAD_SECONDS:
+            return (
+                f"Cannot end the interview yet: about {max(1, int(remaining))} seconds of the "
+                "scheduled time remain. Continue interviewing as planned; a system message "
+                "will tell you when the time is up."
+            )
         self._runtime.request_end("interviewer_ended")
         # Anything spoken after this would be a second goodbye.
         return "The interview has ended. Do not say anything more."

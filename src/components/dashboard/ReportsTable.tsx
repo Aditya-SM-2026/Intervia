@@ -34,9 +34,16 @@ export type ReportCellState = "ready" | "processing" | "not-started";
 export function reportCell(summary: DashboardInterviewSummary): { state: ReportCellState; detail: string } {
   const { room, scorecard } = summary;
   if (scorecard) {
+    // overallScore is the 1-5 competency mean; overall.score is the 0-100
+    // four-factor score. Report both on the 0-100 scale the detail page uses.
+    const percentScore =
+      scorecard.overall?.score ??
+      (scorecard.overallScore !== null
+        ? Math.round((scorecard.overallScore / 5) * 100)
+        : null);
     const detail =
-      scorecard.overallScore !== null
-        ? `Score ${scorecard.overallScore}/100 · ${scorecard.suggestion}`
+      percentScore !== null
+        ? `Score ${percentScore}/100 · ${scorecard.suggestion}`
         : "View report";
     return { state: "ready", detail };
   }

@@ -28,11 +28,12 @@ TOPIC_OVERRUN_GRACE_SECONDS = 25.0
 INTRO_OVERRUN_GRACE_SECONDS = 30.0
 # After the time-up goodbye has been requested, how long until a forced stop.
 # Kept small so the session never runs meaningfully past its scheduled end.
-HARD_STOP_GRACE_SECONDS = 10.0
+HARD_STOP_GRACE_SECONDS = 1.0
 # The wrap-up directive fires this long before the limit, so the spoken
 # thank-you + goodbye lands right at the scheduled end time.
-WRAP_UP_LEAD_SECONDS = 12.0
-# The goodbye must start this long before the time limit, for every duration:
+WRAP_UP_LEAD_SECONDS = 8.0
+# The goodbye must start this long before the time limit, for every duration
+# (user spec: greeting 8 seconds before the end, end exactly at the limit):
 # the silent wrap-up note is placed this far ahead, and the spoken wrap-up
 # (thank-you + goodbye) lands right at GOODBYE_LEAD_SECONDS before the end.
 GOODBYE_LEAD_SECONDS = 8.0
