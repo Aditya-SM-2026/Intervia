@@ -32,6 +32,10 @@ HARD_STOP_GRACE_SECONDS = 1.0
 # The wrap-up directive fires this long before the limit, so the spoken
 # thank-you + goodbye lands right at the scheduled end time.
 WRAP_UP_LEAD_SECONDS = 8.0
+# The goodbye may be spoken (and end_interview called) only inside the
+# closing window: the last stretch before the limit, when the
+# "almost out of time" note has already gone out.
+CLOSING_WINDOW_SECONDS = 30.0
 # The goodbye must start this long before the time limit, for every duration
 # (user spec: greeting 8 seconds before the end, end exactly at the limit):
 # the silent wrap-up note is placed this far ahead, and the spoken wrap-up
@@ -198,6 +202,11 @@ class InterviewController:
         instructions to the interviewer.
         """
         if self.phase in (Phase.CLOSING, Phase.ENDED):
+            remaining = self.total_seconds - self.elapsed()
+            if remaining > WRAP_UP_LEAD_SECONDS + 2:
+                # The plan ended early but the clock has not: keep talking.
+                self.phase = Phase.CANDIDATE_QUESTIONS
+                return self._candidate_questions_briefing()
             return "The interview is closing. Say goodbye and call end_interview."
         if self.phase == Phase.CANDIDATE_QUESTIONS:
             return self._candidate_questions_briefing()
@@ -295,11 +304,34 @@ class InterviewController:
         return "\n".join(lines)
 
     def _candidate_questions_briefing(self) -> str:
+        """Briefing for after the planned topics.
+
+        Time-aware: the goodbye belongs to the final seconds only. When the
+        plan runs out early the interview keeps going with job-description and
+        resume material, so a 5-minute interview fills 5 minutes and still
+        feels like one continuous conversation.
+        """
+        remaining = self.total_seconds - self.elapsed()
+        if remaining <= CLOSING_WINDOW_SECONDS:
+            return (
+                "All planned topics are done and the interview is nearly out of time. Ask the "
+                "candidate whether they have any questions. Answer briefly from the job "
+                "description only; for anything you do not know, say the recruiter will follow "
+                "up. Then thank them, say the recruiter will be in touch with next steps, say "
+                "goodbye, and call end_interview."
+            )
+        minutes = max(1, int(remaining // 60))
         return (
-            "All planned topics are done. Ask the candidate whether they have any questions. "
-            "Answer briefly from the job description only; for anything you do not know, say the "
-            "recruiter will follow up. Then thank them, say the recruiter will be in touch with "
-            "next steps, say goodbye, and call end_interview."
+            "All planned topics are done, but interview time remains — the interview is NOT "
+            f"ending yet. First ask whether the candidate has any questions for you, and answer "
+            "briefly from the job description only (for anything else, say the recruiter will "
+            f"follow up). Then keep the interview going for the remaining {minutes} minute"
+            f"{'s' if minutes != 1 else ''}: return to the candidate's earlier answers and go "
+            "deeper, or ask new questions drawn from the job description and the candidate's "
+            "resume — areas the plan has not covered yet (specific projects, tools, past "
+            "challenges, how they work with a team). One question at a time, building on what "
+            "they say, exactly like the earlier topics. Do NOT say goodbye and do NOT call "
+            "end_interview: a system message will tell you when the time is up."
         )
 
     def opening_instructions(self) -> str:
