@@ -27,8 +27,10 @@ export function LoginForm({ next }: { next: string }) {
         setError(data?.error?.message ?? "Could not sign in. Please try again.");
         return;
       }
-      router.replace(next);
-      router.refresh();
+      // A hard navigation rather than router.replace: the cookie from the
+      // fetch response is applied first and the address bar always lands on
+      // the dashboard (a soft replace can leave the URL on /login).
+      window.location.assign(next);
     } catch {
       setError("Could not reach the server. Please try again.");
     } finally {

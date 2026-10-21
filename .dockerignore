@@ -13,3 +13,5 @@ Dockerfile*
 README.md
 agent
 .mux
+.data
+video-analysis/.venv

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, FileText, Monitor, Moon, Plus, Search, Sun } from "lucide-react";
+import { Bell, FileText, LogOut, Monitor, Moon, Plus, Search, Sun } from "lucide-react";
 import type { DashboardAnalytics } from "@/lib/dashboard/dashboard.types";
 import { Avatar } from "./primitives";
 import { Menu } from "./menu";
@@ -80,6 +80,12 @@ export function TopNav() {
 
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const shortcutHint = isMac ? "⌘K" : "Ctrl K";
+
+  /** Clears the session and lands on the sign-in page. */
+  async function signOut() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    window.location.assign("/login");
+  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur">
@@ -199,6 +205,7 @@ export function TopNav() {
             items={[
               { id: "create", label: "Create interview", icon: <Plus className="size-4" aria-hidden />, onSelect: () => router.push("/recruiter") },
               { id: "reports", label: "All reports", icon: <FileText className="size-4" aria-hidden />, onSelect: () => router.push("/dashboard") },
+              { id: "signout", label: "Sign out", icon: <LogOut className="size-4" aria-hidden />, onSelect: () => void signOut() },
             ]}
           />
         </div>
