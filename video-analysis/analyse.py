@@ -229,7 +229,7 @@ def main() -> None:
                     eye_open(shape, LEFT_EYE_TOP, LEFT_EYE_BOTTOM, LEFT_EYE_OUTER, LEFT_EYE_INNER)
                     + eye_open(shape, RIGHT_EYE_TOP, RIGHT_EYE_BOTTOM, RIGHT_EYE_INNER, RIGHT_EYE_OUTER)
                 ) / 2
-                if openness < 0.06:
+                if openness < 0.03:
                     direction = "unclear"  # eyes closed or blinked
                 faced_frames += 1
                 frames.append({"t": t, "direction": direction, "gx": gx, "vy": vy, "face": True})

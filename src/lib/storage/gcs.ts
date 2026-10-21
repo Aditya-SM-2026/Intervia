@@ -68,14 +68,28 @@ export async function fetchStoredObject(
 ): Promise<Response | null> {
   const token = await getStorageAccessToken();
   if (!token) return null;
-  const url = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(
-    object.bucket,
-  )}/o/${encodeURIComponent(object.path)}?alt=media`;
-  return fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(options?.range ? { Range: options.range } : {}),
-    },
-    signal: options?.signal,
-  });
+  const fetchBucket = async (bucket: string) =>
+    fetch(
+      `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(
+        bucket,
+      )}/o/${encodeURIComponent(object.path)}?alt=media`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(options?.range ? { Range: options.range } : {}),
+        },
+        signal: options?.signal,
+      },
+    );
+  const response = await fetchBucket(object.bucket);
+  // Older event logs name a bucket that has since been replaced (the project
+  // moved); retry once with the bucket recordings are uploaded to now.
+  if (response.status === 404) {
+    const current = process.env.RECORDINGS_GCS_BUCKET?.trim();
+    if (current && current !== object.bucket) {
+      const retried = await fetchBucket(current);
+      if (retried.ok) return retried;
+    }
+  }
+  return response;
 }
