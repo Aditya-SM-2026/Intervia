@@ -130,7 +130,13 @@ export interface VideoMoment {
  * - not_configured: no video model or storage access is set up.
  * - failed: analysis was attempted and did not complete.
  */
-export type VideoStatus = "analysed" | "no_recording" | "not_configured" | "failed";
+export type VideoStatus =
+  | "analysed"
+  | "no_recording"
+  | "not_configured"
+  | "failed"
+  /** Not attempted: the transcript was too thin to justify the cost. */
+  | "skipped";
 
 /** Where the eyes point, as seen in the picture (the viewer's left and right). */
 export type GazeDirection =

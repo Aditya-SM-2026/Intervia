@@ -49,12 +49,14 @@ jobs:
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.SA }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
       - uses: google-github-actions/setup-gcloud@v2
       - uses: docker/login-action@v3
         with:
           registry: asia-south1-docker.pkg.dev
           username: oauth2accesstoken
-          password: ${{ steps.auth.outputs.auth_token }}
+          password: ${{ steps.auth.outputs.access_token }}
       - name: Build & push web image
         run: |
           IMAGE=${{ env.AR_REPO }}/web:$GITHUB_SHA
@@ -84,20 +86,25 @@ jobs:
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.SA }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
       - uses: google-github-actions/setup-gcloud@v2
       - uses: docker/login-action@v3
         with:
           registry: asia-south1-docker.pkg.dev
           username: oauth2accesstoken
-          password: ${{ steps.auth.outputs.auth_token }}
+          password: ${{ steps.auth.outputs.access_token }}
       - name: Build & push agent image
         run: |
           docker build -t ${{ env.AR_REPO }}/agent:latest -f agent/Dockerfile agent
           docker push ${{ env.AR_REPO }}/agent:latest
       - name: Restart agent VM container
         run: |
-          # VM is currently TERMINATED; update-container boots it with the new image.
-          # If the VM should stay down, delete this step.
-          gcloud compute instances update-container meetingbot-agent-vm \
+          # The VM runs agent:latest via startup-script (docker pull + recreate on boot).
+          # Reset re-runs the startup script with the newly pushed image; start boots it if stopped.
+          gcloud compute instances reset meetingbot-agent-vm \
+            --project ${{ env.PROJECT_ID }} \
+            --zone ${{ env.ZONE }} --quiet || \
+          gcloud compute instances start meetingbot-agent-vm \
             --project ${{ env.PROJECT_ID }} \
             --zone ${{ env.ZONE }} --quiet
