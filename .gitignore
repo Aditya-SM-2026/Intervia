@@ -49,3 +49,5 @@ next-env.d.ts
 
 # Ominibot session artifacts (generated media, not project code)
 /media/
+
+video-analysis/.venv/

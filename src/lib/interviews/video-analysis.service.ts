@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
+import { spawn } from "node:child_process";
 import { isOminibotConfigured, ominibotChat } from "@/lib/ai/ominibot";
 import { getGeminiTextConfig } from "@/lib/config/env";
 import {
@@ -55,6 +56,37 @@ const MAX_PARALLEL_SEGMENTS = 3;
 /** Without ffmpeg the whole file is sent as one clip, if it is small enough. */
 const MAX_WHOLE_FILE_BYTES = 14 * 1024 * 1024;
 const MAX_GCS_BYTES = 600 * 1024 * 1024;
+
+/**
+ * Where gaze description comes from. "local" runs the OpenCV + MediaPipe
+ * analyser in video-analysis/analyse.py on this machine (no model call);
+ * "llm" is the original vision-model path; "auto" (the default) tries the
+ * local analyser first and falls back to the model when it is unavailable
+ * or fails. VIDEO_ANALYSIS_PYTHON overrides the python command.
+ */
+const LOCAL_ANALYSER = path.resolve(process.cwd(), "video-analysis", "analyse.py");
+
+function videoAnalysisProvider(): "local" | "llm" | "auto" {
+  const value = (process.env.VIDEO_ANALYSIS_PROVIDER ?? "auto").trim().toLowerCase();
+  return value === "local" || value === "llm" ? (value as "local" | "llm") : "auto";
+}
+
+let localAnalyserUsable: boolean | null = null;
+
+/** Cheap check that python and the analyser are runnable at all. */
+async function canRunLocalAnalyser(): Promise<boolean> {
+  if (localAnalyserUsable !== null) return localAnalyserUsable;
+  localAnalyserUsable = await new Promise<boolean>((resolve) => {
+    const child = spawn(videoAnalysisPython(), ["--version"], { stdio: "ignore" });
+    child.on("error", () => resolve(false));
+    child.on("exit", (code) => resolve(code === 0));
+  });
+  return localAnalyserUsable;
+}
+
+function videoAnalysisPython(): string {
+  return (process.env.VIDEO_ANALYSIS_PYTHON ?? "python").trim() || "python";
+}
 
 const KINDS: VideoMomentKind[] = [
   "looking_away",
@@ -259,7 +291,9 @@ export async function analyseCandidateVideo(
   if (!recording) {
     return result("no_recording", "This interview was not recorded, so there is no video to analyse.");
   }
-  if (!isOminibotConfigured() && !getGeminiTextConfig()) {
+  const provider = videoAnalysisProvider();
+  const localFirst = provider !== "llm" && (await canRunLocalAnalyser());
+  if (!isOminibotConfigured() && !getGeminiTextConfig() && !(provider === "local" || (provider === "auto" && localFirst))) {
     return result("not_configured", "No video analysis model is configured.");
   }
 
@@ -522,6 +556,10 @@ async function describeSegment(
   const base64 = bytes.toString("base64");
 
   const attempts: (() => Promise<{ text: string; model: string }>)[] = [];
+  const provider = videoAnalysisProvider();
+  if (provider !== "llm" && (await canRunLocalAnalyser())) {
+    attempts.push(() => runLocalAnalyser(segment, answers));
+  }
   if (isOminibotConfigured()) {
     attempts.push(async () => {
       const reply = await ominibotChat({
@@ -579,6 +617,67 @@ async function describeSegment(
     }
   }
   return null;
+}
+
+/**
+ * Runs the local OpenCV + MediaPipe analyser on this clip. It is given the
+ * same clip-local answer schedule the model prompt gets and prints the same
+ * JSON shape, so the parsing below is unchanged.
+ */
+async function runLocalAnalyser(
+  segment: Segment,
+  answers: readonly TimedAnswer[],
+): Promise<{ text: string; model: string }> {
+  const from = segment.offset;
+  const to = segment.offset + SEGMENT_SECONDS;
+  const schedule: { id: number; questionStart: number; start: number; end: number }[] = [];
+  for (const answer of answers) {
+    const middle = (answer.start + answer.end) / 2;
+    if (middle < from || middle >= to) continue;
+    schedule.push({
+      id: schedule.length + 1,
+      questionStart: Math.max(from, answer.questionStart) - from,
+      start: Math.max(from, answer.start) - from,
+      end: Math.min(to, answer.end) - from,
+    });
+  }
+
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), "intervia-local-"));
+  const answersFile = path.join(workDir, "answers.json");
+  await fs.writeFile(answersFile, JSON.stringify(schedule));
+
+  try {
+    const text = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        videoAnalysisPython(),
+        [LOCAL_ANALYSER, "--video", segment.file, "--answers-file", answersFile],
+        { windowsHide: true },
+      );
+      let stdout = "";
+      let stderr = "";
+      const timer = setTimeout(
+        () => {
+          child.kill();
+          reject(new Error("local analyser timed out"));
+        },
+        SEGMENT_TIMEOUT_MS,
+      );
+      child.stdout.on("data", (chunk: Buffer) => (stdout += chunk));
+      child.stderr.on("data", (chunk: Buffer) => (stderr += chunk));
+      child.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.on("exit", (code) => {
+        clearTimeout(timer);
+        if (code === 0 && stdout.trim().startsWith("{")) resolve(stdout);
+        else reject(new Error(`local analyser exited ${code}: ${stderr.slice(-400)}`));
+      });
+    });
+    return { text, model: "local-cv (opencv + mediapipe)" };
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 function parseJsonObject(text: string): unknown {
