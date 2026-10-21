@@ -29,6 +29,7 @@ import type {
   ScoreSuggestion,
   VideoBehaviour,
 } from "./scorecard.types";
+import { assessTranscriptQuality, type TranscriptQuality } from "./transcript-quality";
 import { analyseCandidateVideo, hasRecording, pickRecording } from "./video-analysis.service";
 
 /**
@@ -269,6 +270,13 @@ async function buildScorecard(
       ? session.resume.text.slice(0, MAX_RESUME_CHARS).trim()
       : "";
 
+  // Free, local quality gate: the expensive analyses (video frames, second
+  // grader, resume and authenticity checks) only run for a transcript that
+  // actually carries interview evidence. The recording is always kept; this
+  // gates the model work, not the media.
+  const quality = assessTranscriptQuality(turns, session.durationMinutes);
+  const fullAnalysis = quality.level === "good";
+
   // Start the recording analysis immediately, in parallel with the text
   // graders: it is the slow step, and the tab stats it needs come straight
   // from the events, not from the grader output.
@@ -276,7 +284,9 @@ async function buildScorecard(
   const videoPromise: Promise<VideoBehaviour> =
     previous?.video?.status === "analysed" && previous.video.answers !== undefined
       ? Promise.resolve(previous.video)
-      : analyseCandidateVideo(events, turns, earlyTab);
+      : fullAnalysis
+        ? analyseCandidateVideo(events, turns, earlyTab)
+        : Promise.resolve(skippedVideoBehaviour(quality));
 
   const [first, second, resumeCheck, authenticityCheck] = await Promise.allSettled([
     generateStructured({
@@ -286,14 +296,16 @@ async function buildScorecard(
       timeoutMs: SCORING_TIMEOUT_MS,
       temperature: 0.1,
     }),
-    generateStructured({
-      system: SECOND_GRADER_PROMPT,
-      user: context,
-      schema: secondGradingSchema,
-      timeoutMs: SCORING_TIMEOUT_MS,
-      temperature: 0.1,
-    }),
-    resumeText
+    fullAnalysis
+      ? generateStructured({
+          system: SECOND_GRADER_PROMPT,
+          user: context,
+          schema: secondGradingSchema,
+          timeoutMs: SCORING_TIMEOUT_MS,
+          temperature: 0.1,
+        })
+      : Promise.resolve(null),
+    fullAnalysis && resumeText
       ? generateStructured({
           system: RESUME_CHECK_PROMPT,
           user: `<resume>\n${resumeText}\n</resume>\n\n<transcript>\n${transcript}\n</transcript>`,
@@ -302,19 +314,21 @@ async function buildScorecard(
           temperature: 0.1,
         })
       : Promise.resolve(null),
-    generateStructured({
-      system: AUTHENTICITY_PROMPT,
-      user: `<transcript>\n${renderTimedTranscript(turns)}\n</transcript>`,
-      schema: authenticitySchema,
-      timeoutMs: SCORING_TIMEOUT_MS,
-      temperature: 0.1,
-    }),
+    fullAnalysis
+      ? generateStructured({
+          system: AUTHENTICITY_PROMPT,
+          user: `<transcript>\n${renderTimedTranscript(turns)}\n</transcript>`,
+          schema: authenticitySchema,
+          timeoutMs: SCORING_TIMEOUT_MS,
+          temperature: 0.1,
+        })
+      : Promise.resolve(null),
   ]);
   if (first.status === "rejected") throw first.reason;
 
   const grading = first.value.data;
   const secondScores = new Map<string, number | null>();
-  if (second.status === "fulfilled") {
+  if (second.status === "fulfilled" && second.value) {
     for (const item of second.value.data.competencies) {
       secondScores.set(item.competencyId, item.score === null ? null : Math.round(item.score));
     }
@@ -376,8 +390,13 @@ async function buildScorecard(
       `${withdrawn} score${withdrawn === 1 ? " was" : "s were"} withdrawn because the cited quotes could not be found in the transcript.`,
     );
   }
-  if (second.status === "rejected") {
+  if (second.status === "rejected" || second.value === null) {
     notes.push("The independent second grading did not run, so scores are from a single pass.");
+  }
+  if (!fullAnalysis) {
+    notes.push(
+      `Deeper analysis was skipped to keep costs down: ${quality.reason ?? "the transcript was too thin"}`,
+    );
   }
   if (plan.source === "fallback") {
     notes.push("This interview used the generic plan because plan generation was unavailable when it was created.");
@@ -432,7 +451,9 @@ async function buildScorecard(
   );
   const authenticity = buildAuthenticity(
     turns,
-    authenticityCheck.status === "fulfilled" ? authenticityCheck.value.data.signals : [],
+    authenticityCheck.status === "fulfilled" && authenticityCheck.value
+      ? authenticityCheck.value.data.signals
+      : [],
     candidateSeqs,
     // Time outside the interview tab counts here only when there is no video
     // score to carry it.
@@ -478,6 +499,24 @@ async function buildScorecard(
 }
 
 const RESUME_VERDICTS_NEEDING_EVIDENCE = new Set(["confirmed", "partly_supported", "not_supported"]);
+
+/**
+ * The placeholder video result for transcripts too thin to analyse. The
+ * recording itself is untouched and still plays in the report.
+ */
+function skippedVideoBehaviour(quality: TranscriptQuality): VideoBehaviour {
+  return {
+    status: "skipped",
+    score: null,
+    attentionPercent: null,
+    moments: [],
+    summary: "",
+    model: null,
+    reason: quality.reason ?? "Video analysis was skipped.",
+    pattern: undefined,
+    answers: [],
+  };
+}
 
 function buildResumeMatch(
   session: InterviewRoom,
