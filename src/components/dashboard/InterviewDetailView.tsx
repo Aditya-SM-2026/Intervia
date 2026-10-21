@@ -24,6 +24,7 @@ import type {
   VideoMoment,
 } from "@/lib/interviews/scorecard.types";
 import { FACTOR_META } from "./factors";
+import { buildReportInsights, type ReportInsights } from "@/lib/interviews/report-insights";
 import { GAZE_GRID, GAZE_LABEL } from "./gaze";
 
 /**
@@ -163,6 +164,9 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
 
   const { session, turns, events, scorecard, reason, peers, hasRecording } = detail;
   const competencies = session.plan?.competencies ?? [];
+  const insights = scorecard
+    ? buildReportInsights({ session, scorecard, turns, peers })
+    : null;
   const recordingStart = detail.recordingStartedAt;
   /** Seconds into the recording at which a transcript turn starts. */
   const recordingOffset = (turn: InterviewTurn): number | null =>
@@ -184,8 +188,8 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
 
       {scorecard ? (
         <>
-          <ScoreSummary scorecard={scorecard} />
-          <Overview scorecard={scorecard} />
+          <ScoreSummary scorecard={scorecard} insights={insights} />
+          <Overview scorecard={scorecard} insights={insights} />
           <DecisionForm
             roomId={roomId}
             decision={session.decision}
@@ -204,11 +208,14 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
                   score={score}
                   competency={competencies.find((item) => item.id === score.competencyId)}
                   session={session}
+                  stats={insights?.questionStats.get(score.competencyId) ?? null}
                 />
               ))}
             </div>
           </section>
 
+          {insights && <CommunicationSection insights={insights} />}
+          {insights && <RedFlagsSection insights={insights} />}
           <ResumeSection scorecard={scorecard} />
           <AuthenticitySection scorecard={scorecard} />
           <VideoSection
@@ -220,6 +227,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
             onPlay={playFrom}
           />
           <PeersSection peers={peers} currentId={roomId} />
+          {insights && <NextStepsSection insights={insights} />}
         </>
       ) : (
         <>
@@ -310,8 +318,37 @@ function Header({ session }: { session: InterviewRoom }) {
   );
 }
 
+const HIRE_BAND_STYLES: Record<string, { label: string; classes: string }> = {
+  "strong-hire": {
+    label: "Strong hire",
+    classes: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  },
+  hire: {
+    label: "Hire",
+    classes: "border-teal-500/40 bg-teal-500/10 text-teal-700 dark:text-teal-400",
+  },
+  "no-hire": {
+    label: "No hire",
+    classes: "border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-400",
+  },
+  "strong-no-hire": {
+    label: "Strong no hire",
+    classes: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-400",
+  },
+  insufficient: {
+    label: "Insufficient evidence",
+    classes: "border-border bg-surface text-muted",
+  },
+};
+
 /** The overall score and the four factors that make it up. */
-function ScoreSummary({ scorecard }: { scorecard: Scorecard }) {
+function ScoreSummary({
+  scorecard,
+  insights,
+}: {
+  scorecard: Scorecard;
+  insights: ReportInsights | null;
+}) {
   const overall = scorecard.overall;
 
   if (!overall) {
@@ -335,11 +372,24 @@ function ScoreSummary({ scorecard }: { scorecard: Scorecard }) {
   const counted = overall.factors.filter((factor) => factor.score !== null && factor.weight > 0);
   const countedWeight = counted.reduce((sum, factor) => sum + factor.weight, 0);
 
+  const band = insights?.hireBand;
+  const bandStyle = band ? HIRE_BAND_STYLES[band.band] : null;
+
   return (
     <section className={cardClasses}>
       <div className="grid gap-8 lg:grid-cols-[14rem_1fr]">
         <div>
-          <p className="text-sm font-semibold">Overall</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold">Overall</p>
+            {bandStyle && (
+              <span
+                title={band?.basis}
+                className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${bandStyle.classes}`}
+              >
+                {bandStyle.label}
+              </span>
+            )}
+          </div>
           <p className="mt-1 font-display text-7xl font-semibold leading-none tabular-nums">
             {overall.score ?? "–"}
             <span className="text-xl font-normal text-muted"> of 100</span>
@@ -362,6 +412,11 @@ function ScoreSummary({ scorecard }: { scorecard: Scorecard }) {
                 />
               ))}
             </div>
+          )}
+          {insights?.benchmark.label && (
+            <p className="mt-4 rounded-md border border-border bg-surface/60 px-3 py-2 text-xs">
+              {insights.benchmark.label}
+            </p>
           )}
           {scorecard.needsHumanReview && (
             <p className="mt-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
@@ -410,7 +465,13 @@ function ScoreSummary({ scorecard }: { scorecard: Scorecard }) {
   );
 }
 
-function Overview({ scorecard }: { scorecard: Scorecard }) {
+function Overview({
+  scorecard,
+  insights,
+}: {
+  scorecard: Scorecard;
+  insights: ReportInsights | null;
+}) {
   return (
     <section className={cardClasses}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -418,6 +479,13 @@ function Overview({ scorecard }: { scorecard: Scorecard }) {
         <span className="text-sm text-muted">{SUGGESTION_LABELS[scorecard.suggestion]}</span>
       </div>
       <p className="mt-2 text-sm leading-relaxed">{scorecard.summary}</p>
+      {insights && (
+        <p className="mt-2 text-xs text-muted">
+          Coverage: {insights.coverage.scored} of {insights.coverage.planned} planned questions
+          scored{insights.coverage.skipped > 0 ? `, ${insights.coverage.skipped} never reached` : ""}.
+          Read the scores with that in mind.
+        </p>
+      )}
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <BulletList title="Strengths" items={scorecard.strengths} />
         <BulletList title="Concerns" items={scorecard.concerns} />
@@ -427,6 +495,128 @@ function Overview({ scorecard }: { scorecard: Scorecard }) {
           <BulletList title="About this scorecard" items={scorecard.notes} muted />
         </div>
       )}
+    </section>
+  );
+}
+
+/** How much of the conversation each side owned, plus speaking habits. */
+function CommunicationSection({ insights }: { insights: ReportInsights }) {
+  const { talk, speaking } = insights;
+  const candidatePercent = talk.candidatePercent ?? 0;
+  const healthy = candidatePercent >= 55 && candidatePercent <= 85;
+  const stats: [string, string][] = [
+    ["Candidate answers", String(speaking.answers)],
+    [
+      "Median answer length",
+      speaking.medianAnswerSeconds !== null ? `${Math.round(speaking.medianAnswerSeconds)}s` : "–",
+    ],
+    [
+      "Longest answer",
+      speaking.longestAnswerSeconds !== null ? `${Math.round(speaking.longestAnswerSeconds)}s` : "–",
+    ],
+    [
+      "Median response time",
+      speaking.medianLatencyMs !== null ? `${(speaking.medianLatencyMs / 1000).toFixed(1)}s` : "–",
+    ],
+    ["Questions the candidate asked", String(speaking.candidateQuestions)],
+    [
+      "Median words per answer",
+      speaking.medianAnswerWords !== null ? String(speaking.medianAnswerWords) : "–",
+    ],
+  ];
+  return (
+    <section id="communication" className={cardClasses}>
+      <h2 className="text-lg font-semibold">Communication &amp; engagement</h2>
+      <p className="mt-1 text-sm text-muted">
+        How the conversation was shared and how the candidate spoke. In a healthy screen the
+        candidate holds roughly 60–80% of the talking time.
+      </p>
+      <div className="mt-4">
+        <div className="flex items-baseline justify-between text-sm">
+          <span className="font-semibold">Talk ratio</span>
+          <span className="tabular-nums">
+            {talk.candidatePercent === null
+              ? "–"
+              : `Candidate ${talk.candidatePercent}% · Interviewer ${100 - talk.candidatePercent}%`}
+          </span>
+        </div>
+        <div className="mt-2 flex h-3 overflow-hidden rounded-full bg-border" aria-hidden="true">
+          <span
+            className="h-full bg-candidate"
+            style={{ width: `${talk.candidatePercent ?? 50}%` }}
+          />
+          <span className="h-full flex-1" style={{ background: "var(--voice-interviewer)" }} />
+        </div>
+        <p className="mt-1.5 text-xs text-muted">
+          {talk.candidatePercent === null
+            ? "No speaking time was recorded."
+            : healthy
+              ? "Within the usual range for a screening interview."
+              : candidatePercent < 55
+                ? "The candidate spoke less than usual — short answers or a talkative interviewer."
+                : "The candidate dominated the airtime — answers may have run long."}
+        </p>
+      </div>
+      <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        {stats.map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-border bg-surface/60 px-3 py-2">
+            <dt className="text-xs text-muted">{label}</dt>
+            <dd className="mt-0.5 font-display text-lg font-semibold tabular-nums">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+/** Every integrity concern rolled into one place, with a plain risk read. */
+function RedFlagsSection({ insights }: { insights: ReportInsights }) {
+  const { level, items } = insights.redFlags;
+  const badge =
+    level === "high"
+      ? "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-400"
+      : level === "medium"
+        ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+        : "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
+  const text =
+    level === "high"
+      ? "Several signals need review — look at the evidence below before trusting the scores."
+      : level === "medium"
+        ? "A few signals worth a second look while reading the report."
+        : "No integrity signals of concern in this interview.";
+  return (
+    <section id="red-flags" className={cardClasses}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">Integrity &amp; red flags</h2>
+        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge}`}>
+          {level === "low" ? "Low risk" : level === "medium" ? "Review advised" : "High risk"}
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-muted">{text}</p>
+      {items.length > 0 && (
+        <ul className="mt-3 grid list-disc gap-1 pl-5 text-sm">
+          {items.map((item, index) => (
+            <li key={index}>{item}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** What the next stage of the funnel should do with this candidate. */
+function NextStepsSection({ insights }: { insights: ReportInsights }) {
+  return (
+    <section id="next-steps" className={cardClasses}>
+      <h2 className="text-lg font-semibold">Suggested next steps</h2>
+      <p className="mt-1 text-sm text-muted">
+        Derived from the gaps in this interview — what the next conversation should cover.
+      </p>
+      <ol className="mt-3 grid list-decimal gap-1.5 pl-5 text-sm">
+        {insights.nextSteps.map((step, index) => (
+          <li key={index}>{step}</li>
+        ))}
+      </ol>
     </section>
   );
 }
@@ -460,10 +650,12 @@ function CompetencyCard({
   score,
   competency,
   session,
+  stats,
 }: {
   score: CompetencyScore;
   competency: PlanCompetency | undefined;
   session: InterviewRoom;
+  stats: { answerSeconds: number; turns: number; latencyMs: number | null; words: number | null } | null;
 }) {
   const coverage = session.outcome?.coverage.find((item) => item.competencyId === score.competencyId);
   const seconds =
@@ -501,6 +693,19 @@ function CompetencyCard({
       </div>
 
       <p className="mt-3 text-sm leading-relaxed">{score.rationale}</p>
+
+      {stats && stats.turns > 0 && (
+        <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 rounded-lg border border-border bg-surface/60 px-3 py-2 text-xs">
+          <div><dt className="inline text-muted">Answers: </dt><dd className="inline font-medium">{stats.turns}</dd></div>
+          <div><dt className="inline text-muted">Speaking time: </dt><dd className="inline font-medium">{Math.round(stats.answerSeconds)}s</dd></div>
+          {stats.latencyMs !== null && (
+            <div><dt className="inline text-muted">First response: </dt><dd className="inline font-medium">{(stats.latencyMs / 1000).toFixed(1)}s</dd></div>
+          )}
+          {stats.words !== null && (
+            <div><dt className="inline text-muted">Words: </dt><dd className="inline font-medium">{stats.words}</dd></div>
+          )}
+        </dl>
+      )}
 
       {score.evidence.length > 0 && (
         <ul className="mt-3 grid gap-2">

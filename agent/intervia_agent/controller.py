@@ -28,11 +28,16 @@ TOPIC_OVERRUN_GRACE_SECONDS = 25.0
 INTRO_OVERRUN_GRACE_SECONDS = 30.0
 # After the time-up goodbye has been requested, how long until a forced stop.
 # Kept small so the session never runs meaningfully past its scheduled end.
-HARD_STOP_GRACE_SECONDS = 10.0
+HARD_STOP_GRACE_SECONDS = 1.0
 # The wrap-up directive fires this long before the limit, so the spoken
 # thank-you + goodbye lands right at the scheduled end time.
-WRAP_UP_LEAD_SECONDS = 12.0
-# The goodbye must start this long before the time limit, for every duration:
+WRAP_UP_LEAD_SECONDS = 8.0
+# The goodbye may be spoken (and end_interview called) only inside the
+# closing window: the last stretch before the limit, when the
+# "almost out of time" note has already gone out.
+CLOSING_WINDOW_SECONDS = 30.0
+# The goodbye must start this long before the time limit, for every duration
+# (user spec: greeting 8 seconds before the end, end exactly at the limit):
 # the silent wrap-up note is placed this far ahead, and the spoken wrap-up
 # (thank-you + goodbye) lands right at GOODBYE_LEAD_SECONDS before the end.
 GOODBYE_LEAD_SECONDS = 8.0
@@ -95,7 +100,6 @@ class InterviewController:
         self.context = context
         self._clock = clock
         self._started_at: float | None = None
-        self._paused_at: float | None = None
         self.phase = Phase.INTRO
         self.topics = [TopicRecord(competency=c) for c in context.competencies]
         self._active_index: int | None = None
@@ -132,32 +136,7 @@ class InterviewController:
         return self._started_at is not None
 
     def elapsed(self) -> float:
-        if self._started_at is None:
-            return 0.0
-        # While the clock is paused the elapsed time freezes: the pause does
-        # not count against the interview.
-        now = self._paused_at if self._paused_at is not None else self._clock()
-        return now - self._started_at
-
-    def pause_clock(self) -> None:
-        """Freezes the interview clock while the candidate is disconnected.
-
-        Time spent reconnecting is not counted against the interview: when the
-        candidate returns, the interview resumes from the moment they left.
-        """
-        if self._started_at is None or self._paused_at is not None or self.phase == Phase.ENDED:
-            return
-        self._paused_at = self._clock()
-
-    def resume_clock(self) -> None:
-        """Resumes the clock after a pause: the pause duration is discounted."""
-        if self._paused_at is None:
-            return
-        self._started_at += self._clock() - self._paused_at
-        self._paused_at = None
-
-    def clock_paused(self) -> bool:
-        return self._paused_at is not None
+        return 0.0 if self._started_at is None else self._clock() - self._started_at
 
     def remaining(self) -> float:
         return self.total_seconds - self.elapsed()
@@ -223,6 +202,11 @@ class InterviewController:
         instructions to the interviewer.
         """
         if self.phase in (Phase.CLOSING, Phase.ENDED):
+            remaining = self.total_seconds - self.elapsed()
+            if remaining > WRAP_UP_LEAD_SECONDS + 2:
+                # The plan ended early but the clock has not: keep talking.
+                self.phase = Phase.CANDIDATE_QUESTIONS
+                return self._candidate_questions_briefing()
             return "The interview is closing. Say goodbye and call end_interview."
         if self.phase == Phase.CANDIDATE_QUESTIONS:
             return self._candidate_questions_briefing()
@@ -320,11 +304,34 @@ class InterviewController:
         return "\n".join(lines)
 
     def _candidate_questions_briefing(self) -> str:
+        """Briefing for after the planned topics.
+
+        Time-aware: the goodbye belongs to the final seconds only. When the
+        plan runs out early the interview keeps going with job-description and
+        resume material, so a 5-minute interview fills 5 minutes and still
+        feels like one continuous conversation.
+        """
+        remaining = self.total_seconds - self.elapsed()
+        if remaining <= CLOSING_WINDOW_SECONDS:
+            return (
+                "All planned topics are done and the interview is nearly out of time. Ask the "
+                "candidate whether they have any questions. Answer briefly from the job "
+                "description only; for anything you do not know, say the recruiter will follow "
+                "up. Then thank them, say the recruiter will be in touch with next steps, say "
+                "goodbye, and call end_interview."
+            )
+        minutes = max(1, int(remaining // 60))
         return (
-            "All planned topics are done. Ask the candidate whether they have any questions. "
-            "Answer briefly from the job description only; for anything you do not know, say the "
-            "recruiter will follow up. Then thank them, say the recruiter will be in touch with "
-            "next steps, say goodbye, and call end_interview."
+            "All planned topics are done, but interview time remains — the interview is NOT "
+            f"ending yet. First ask whether the candidate has any questions for you, and answer "
+            "briefly from the job description only (for anything else, say the recruiter will "
+            f"follow up). Then keep the interview going for the remaining {minutes} minute"
+            f"{'s' if minutes != 1 else ''}: return to the candidate's earlier answers and go "
+            "deeper, or ask new questions drawn from the job description and the candidate's "
+            "resume — areas the plan has not covered yet (specific projects, tools, past "
+            "challenges, how they work with a team). One question at a time, building on what "
+            "they say, exactly like the earlier topics. Do NOT say goodbye and do NOT call "
+            "end_interview: a system message will tell you when the time is up."
         )
 
     def opening_instructions(self) -> str:

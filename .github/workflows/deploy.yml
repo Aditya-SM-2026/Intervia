@@ -1,0 +1,103 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [feature/roles-candidates]
+
+env:
+  PROJECT_ID: siva-nikhil
+  REGION: asia-south1
+  ZONE: asia-south1-a
+  AR_REPO: asia-south1-docker.pkg.dev/siva-nikhil/meetingbot
+  # (gcloud projects describe siva-nikhil --format='value(projectNumber)' → 199504026920)
+  WIF_PROVIDER: projects/199504026920/locations/global/workloadIdentityPools/github-intervia/providers/github
+  SA: 199504026920-compute@developer.gserviceaccount.com
+
+jobs:
+  # decide which images changed
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.f.outputs.web }}
+      agent: ${{ steps.f.outputs.agent }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: f
+        with:
+          filters: |
+            web:
+              - 'src/**'
+              - 'Dockerfile.web'
+              - 'package.json'
+            agent:
+              - 'agent/**'
+              - 'Dockerfile.agent'
+              - 'package.json'
+
+  build-web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: docker/login-action@v3
+        with:
+          registry: asia-south1-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.auth_token }}
+      - name: Build & push web image
+        run: |
+          IMAGE=${{ env.AR_REPO }}/web:$GITHUB_SHA
+          docker build -t "$IMAGE" -f Dockerfile.web --build-arg=NEXT_PUBLIC_VOICE_PROVIDER=cascade .
+          docker push "$IMAGE"
+          docker tag "$IMAGE" ${{ env.AR_REPO }}/web:latest
+          docker push ${{ env.AR_REPO }}/web:latest
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy meetingbot-web \
+            --project ${{ env.PROJECT_ID }} \
+            --image ${{ env.AR_REPO }}/web:$GITHUB_SHA \
+            --region ${{ env.REGION }} \
+            --quiet
+
+  build-agent:
+    needs: changes
+    if: needs.changes.outputs.agent == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: docker/login-action@v3
+        with:
+          registry: asia-south1-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.auth_token }}
+      - name: Build & push agent image
+        run: |
+          docker build -t ${{ env.AR_REPO }}/agent:latest -f agent/Dockerfile agent
+          docker push ${{ env.AR_REPO }}/agent:latest
+      - name: Restart agent VM container
+        run: |
+          # VM is currently TERMINATED; update-container boots it with the new image.
+          # If the VM should stay down, delete this step.
+          gcloud compute instances update-container meetingbot-agent-vm \
+            --project ${{ env.PROJECT_ID }} \
+            --zone ${{ env.ZONE }} --quiet

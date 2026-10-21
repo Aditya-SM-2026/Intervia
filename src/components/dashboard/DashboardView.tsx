@@ -216,7 +216,7 @@ export function DashboardView() {
       ? fetch("/api/dashboard/interviews/bulk-delete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roomIds }),
+          body: JSON.stringify({ ids: roomIds }),
         }).then(async (response) => {
           if (!response.ok && response.status !== 200) throw new Error("bulk delete failed");
           return (await response.json()) as { deleted: string[]; failed: { roomId: string; error: string }[] };

@@ -137,15 +137,15 @@ def test_closing_then_wrap_up_then_hard_stop():
     clock.advance(600 - 60 - controller.closing_seconds)
     assert controller.tick().kind == "note"
 
-    # The wrap-up fires 12 s before the limit so the goodbye lands on time.
-    clock.advance(4)
+    # The wrap-up fires 8 s before the limit so the goodbye lands on time.
+    clock.advance(9)
     directive = controller.tick()
     assert directive is not None and directive.kind == "wrap_up"
     assert controller.phase == Phase.CLOSING
     assert statuses(controller) == ["covered", "skipped"]
     assert controller.tick() is None
 
-    clock.advance(22)  # 10 s past the limit: forced stop
+    clock.advance(10)  # 1 s past the limit: forced stop (exact end)
     directive = controller.tick()
     assert directive is not None and directive.kind == "hard_stop"
     assert controller.tick() is None
