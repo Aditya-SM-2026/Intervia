@@ -65,6 +65,8 @@ const MAX_GCS_BYTES = 600 * 1024 * 1024;
  * or fails. VIDEO_ANALYSIS_PYTHON overrides the python command.
  */
 const LOCAL_ANALYSER = path.resolve(process.cwd(), "video-analysis", "analyse.py");
+/** The local analyser runs on one shared vCPU; it needs more wall time. */
+const LOCAL_TIMEOUT_MS = 600_000;
 
 function videoAnalysisProvider(): "local" | "llm" | "auto" {
   const value = (process.env.VIDEO_ANALYSIS_PROVIDER ?? "auto").trim().toLowerCase();
@@ -660,7 +662,7 @@ async function runLocalAnalyser(
           child.kill();
           reject(new Error("local analyser timed out"));
         },
-        SEGMENT_TIMEOUT_MS,
+        LOCAL_TIMEOUT_MS,
       );
       child.stdout.on("data", (chunk: Buffer) => (stdout += chunk));
       child.stderr.on("data", (chunk: Buffer) => (stderr += chunk));

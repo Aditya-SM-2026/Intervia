@@ -173,7 +173,7 @@ def main() -> None:
     parser.add_argument("--video", required=True)
     parser.add_argument("--answers", default="[]")
     parser.add_argument("--answers-file")
-    parser.add_argument("--fps", type=float, default=2.0)
+    parser.add_argument("--fps", type=float, default=1.0)
     args = parser.parse_args()
 
     if args.answers_file:
