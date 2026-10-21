@@ -89,19 +89,19 @@ const REPORT_SECTIONS = [
   ["transcript", "Transcript"],
 ] as const;
 
-/** Sticky rail at the top of the report. */
+/** Sticky sidebar rail that keeps the whole report one click away. */
 function ReportNav() {
   return (
     <nav
       aria-label="Report sections"
-      className="sticky top-0 z-20 overflow-x-auto border-b border-border bg-background/90 py-2 backdrop-blur"
+      className="sticky top-8 hidden lg:block"
     >
-      <ul className="flex gap-1.5 text-xs font-medium whitespace-nowrap">
+      <ul className="grid gap-0.5 text-xs font-medium">
         {REPORT_SECTIONS.map(([id, label]) => (
           <li key={id}>
             <a
               href={`#${id}`}
-              className="rounded-full border border-transparent px-2.5 py-1 text-muted transition hover:border-border hover:bg-surface hover:text-foreground"
+              className="block rounded-lg px-3 py-1.5 text-muted transition hover:bg-surface hover:text-foreground"
             >
               {label}
             </a>
@@ -217,13 +217,16 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       <div className="grid gap-5">
         <BackLink />
         <Header session={session} />
-        <ReportNav />
         {error && (
           <p role="alert" className={alertClasses}>
             {error}
           </p>
         )}
       </div>
+
+      <div className="grid gap-6 lg:grid-cols-[10.5rem_minmax(0,1fr)] lg:items-start">
+        <ReportNav />
+        <div className="grid min-w-0 gap-6">
 
       {scorecard ? (
         <>
@@ -235,7 +238,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
             onSaved={(decision) => setDetail({ ...detail, session: { ...session, decision } })}
           />
 
-          <section id="answers" className="scroll-mt-16">
+          <section id="answers" className="scroll-mt-6">
             <SectionHeading
               title="Answer quality"
               note="One card per planned question, scored from 1 to 5 against the rating scale for this role. Every score quotes the candidate."
@@ -336,6 +339,8 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
           </button>
         )}
       </footer>
+        </div>
+      </div>
     </div>
   );
 }
@@ -446,7 +451,7 @@ function ScoreSummary({
   const bandStyle = band ? HIRE_BAND_STYLES[band.band] : null;
 
   return (
-    <section id="verdict" className={cardClasses + " scroll-mt-16"}>
+    <section id="verdict" className={cardClasses + " scroll-mt-6"}>
       <div className="grid gap-8 lg:grid-cols-[14rem_1fr]">
         <div>
           <div className="flex items-center justify-between gap-2">
@@ -544,7 +549,7 @@ function Overview({
   insights: ReportInsights | null;
 }) {
   return (
-    <section id="summary" className={cardClasses + " scroll-mt-16"}>
+    <section id="summary" className={cardClasses + " scroll-mt-6"}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-semibold">Summary</h2>
         <span className="text-sm text-muted">{SUGGESTION_LABELS[scorecard.suggestion]}</span>
@@ -596,7 +601,7 @@ function CommunicationSection({ insights }: { insights: ReportInsights }) {
     ],
   ];
   return (
-    <section id="communication" className={cardClasses + " scroll-mt-16"}>
+    <section id="communication" className={cardClasses + " scroll-mt-6"}>
       <h2 className="text-lg font-semibold">Communication &amp; engagement</h2>
       <p className="mt-1 text-sm text-muted">
         How the conversation was shared and how the candidate spoke. In a healthy screen the
@@ -656,7 +661,7 @@ function RedFlagsSection({ insights }: { insights: ReportInsights }) {
         ? "A few signals worth a second look while reading the report."
         : "No integrity signals of concern in this interview.";
   return (
-    <section id="red-flags" className={cardClasses + " scroll-mt-16"}>
+    <section id="red-flags" className={cardClasses + " scroll-mt-6"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Integrity &amp; red flags</h2>
         <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge}`}>
@@ -678,7 +683,7 @@ function RedFlagsSection({ insights }: { insights: ReportInsights }) {
 /** What the next stage of the funnel should do with this candidate. */
 function NextStepsSection({ insights }: { insights: ReportInsights }) {
   return (
-    <section id="next-steps" className={cardClasses + " scroll-mt-16"}>
+    <section id="next-steps" className={cardClasses + " scroll-mt-6"}>
       <h2 className="text-lg font-semibold">Suggested next steps</h2>
       <p className="mt-1 text-sm text-muted">
         Derived from the gaps in this interview — what the next conversation should cover.
@@ -841,7 +846,7 @@ function ResumeSection({ scorecard }: { scorecard: Scorecard }) {
   const match = scorecard.resumeMatch;
   if (!match) return null;
   return (
-    <section id="resume" className="scroll-mt-16">
+    <section id="resume" className="scroll-mt-6">
       <SectionHeading
         title="Resume match"
         note="Each claim taken from the resume, and whether the candidate's own account in the interview backs it up. Claims that never came up do not count for or against."
@@ -880,7 +885,7 @@ function AuthenticitySection({ scorecard }: { scorecard: Scorecard }) {
   const authenticity = scorecard.authenticity;
   if (!authenticity) return null;
   return (
-    <section id="authenticity" className="scroll-mt-16">
+    <section id="authenticity" className="scroll-mt-6">
       <SectionHeading
         title="Own answers"
         note="Patterns in the wording and timing of answers that can indicate reading from, or being prompted by, an AI tool. Each links to the answers it is based on. They are reasons to look, not proof."
@@ -942,7 +947,7 @@ function VideoSection({
     answer.whileAnswering === pattern.direction;
 
   return (
-    <section id="video" className="scroll-mt-16">
+    <section id="video" className="scroll-mt-6">
       <SectionHeading
         title="On-camera behaviour"
         note="From the recording of the candidate's own camera. Everyone looks away to think, so a single look counts for nothing. What is measured is whether the candidate kept returning to the same spot off the screen while answering, and not while listening. These are clips to watch, not proof."
@@ -1162,7 +1167,7 @@ function PeersSection({ peers, currentId }: { peers: PeerSummary[]; currentId: s
   if (peers.length < 2) return null;
   const factorIds = peers[0].overall?.factors.map((factor) => factor.id) ?? [];
   return (
-    <section id="peers" className="scroll-mt-16">
+    <section id="peers" className="scroll-mt-6">
       <SectionHeading
         title="Candidates for this role"
         note="Everyone scored for the same role title, highest overall first. Compare like with like: the same plan and the same scale."
@@ -1357,7 +1362,7 @@ function Transcript({
   }, null);
 
   return (
-    <section id="transcript" className="scroll-mt-16">
+    <section id="transcript" className="scroll-mt-6">
       <h2 className="text-2xl font-semibold">Transcript</h2>
       {turns.length === 0 ? (
         <p className="mt-2 text-sm text-muted">Nothing has been said in this interview yet.</p>
