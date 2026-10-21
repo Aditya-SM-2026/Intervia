@@ -100,8 +100,11 @@ jobs:
           docker push ${{ env.AR_REPO }}/agent:latest
       - name: Restart agent VM container
         run: |
-          # VM is currently TERMINATED; update-container boots it with the new image.
-          # If the VM should stay down, delete this step.
-          gcloud compute instances update-container meetingbot-agent-vm \
+          # The VM runs agent:latest via startup-script (docker pull + recreate on boot).
+          # Reset re-runs the startup script with the newly pushed image; start boots it if stopped.
+          gcloud compute instances reset meetingbot-agent-vm \
+            --project ${{ env.PROJECT_ID }} \
+            --zone ${{ env.ZONE }} --quiet || \
+          gcloud compute instances start meetingbot-agent-vm \
             --project ${{ env.PROJECT_ID }} \
             --zone ${{ env.ZONE }} --quiet
