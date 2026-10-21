@@ -1,0 +1,15 @@
+# Same build as cloudbuild-web.yaml but for the siva-nikhil project, where the
+# Intervia deployment (meetingbot-web) is moving to.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "build",
+        "-t",
+        "asia-south1-docker.pkg.dev/siva-nikhil/meetingbot/web-v2:web-hr",
+        "-f",
+        "Dockerfile.web",
+        ".",
+      ]
+images:
+  - "asia-south1-docker.pkg.dev/siva-nikhil/meetingbot/web-v2:web-hr"

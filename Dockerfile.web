@@ -22,7 +22,7 @@ COPY --from=deps /app/node_modules/ffmpeg-static ./node_modules/ffmpeg-static
 # venv, driven by src/lib/interviews/video-analysis.service.ts. No model API
 # call for video; costs no credits and finishes in seconds.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-venv \
+    && apt-get install -y --no-install-recommends python3 python3-venv libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/video-analysis ./video-analysis
 RUN python3 -m venv /opt/gaze-venv \
