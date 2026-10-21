@@ -12,8 +12,7 @@ env:
   PROJECT_ID: siva-nikhil
   REGION: asia-south1
   AR: asia-south1-docker.pkg.dev/siva-nikhil/meetingbot
-  # TODO: fill after WIF setup in siva-nikhil
-  WIF_PROVIDER: projects/199504026920/locations/global/workloadIdentityPools/PLACEHOLDER/providers/PLACEHOLDER
+  WIF_PROVIDER: projects/199504026920/locations/global/workloadIdentityPools/github-pool/providers/github-provider
   WIF_SERVICE_ACCOUNT: meetingbot-deployer@siva-nikhil.iam.gserviceaccount.com
 
 jobs:
