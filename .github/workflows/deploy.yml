@@ -51,9 +51,11 @@ jobs:
             --set-secrets=OMINIBOT_API_KEY=meetingbot-ominibot-api-key:latest,LIVEKIT_URL=meetingbot-livekit-url:latest,LIVEKIT_API_KEY=meetingbot-livekit-api-key:latest,LIVEKIT_API_SECRET=meetingbot-livekit-api-secret:latest,DATABASE_URL=meetingbot-database-url:latest \
             --allow-unauthenticated
 
-      - name: Restart agent VM container
+      - name: Restart agent VM
+        # The VM is COS with a custom startup-script (no gce-container-declaration
+        # metadata), so update-container can't be used. The startup script pulls
+        # agent:latest and restarts the container on every boot.
         run: |
-          gcloud compute instances update-container meetingbot-agent-vm \
+          gcloud compute instances reset meetingbot-agent-vm \
             --project $PROJECT_ID \
-            --zone asia-south1-a \
-            --container-image $AR/agent:latest
+            --zone asia-south1-a
