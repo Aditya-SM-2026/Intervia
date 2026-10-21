@@ -53,7 +53,7 @@ export default async function Home() {
           <div className="relative grid items-center gap-12 lg:grid-cols-[1.05fr_1fr] lg:gap-16">
             <div>
               <h1 className="text-[2.6rem] font-semibold leading-[1.06] sm:text-6xl lg:text-[4.2rem]">
-                A real interview, held by voice, scored on evidence.
+                A real interviews,now held by voice, scored on evidence.
               </h1>
               <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted">
                 Intervia interviews each candidate out loud, to a plan built from your job
