@@ -74,14 +74,22 @@ function videoAnalysisProvider(): "local" | "llm" | "auto" {
 }
 
 let localAnalyserUsable: boolean | null = null;
+/** Why the local analyser was rejected, shown in the report when it fails. */
+let localAnalyserLastError: string | null = null;
 
 /** Cheap check that python and the analyser are runnable at all. */
 async function canRunLocalAnalyser(): Promise<boolean> {
   if (localAnalyserUsable !== null) return localAnalyserUsable;
   localAnalyserUsable = await new Promise<boolean>((resolve) => {
     const child = spawn(videoAnalysisPython(), ["--version"], { stdio: "ignore" });
-    child.on("error", () => resolve(false));
-    child.on("exit", (code) => resolve(code === 0));
+    child.on("error", (error) => {
+      localAnalyserLastError = error.message;
+      resolve(false);
+    });
+    child.on("exit", (code) => {
+      if (code !== 0) localAnalyserLastError = `python --version exited ${code}`;
+      resolve(code === 0);
+    });
   });
   return localAnalyserUsable;
 }
@@ -294,7 +302,14 @@ export async function analyseCandidateVideo(
     return result("no_recording", "This interview was not recorded, so there is no video to analyse.");
   }
   const provider = videoAnalysisProvider();
+  localAnalyserLastError = null;
   const localFirst = provider !== "llm" && (await canRunLocalAnalyser());
+  if (provider === "local" && !localFirst) {
+    return result(
+      "not_configured",
+      `The local analyser is unavailable on this server${localAnalyserLastError ? `: ${localAnalyserLastError}` : " (python check failed)."}`,
+    );
+  }
   if (!isOminibotConfigured() && !getGeminiTextConfig() && !(provider === "local" || (provider === "auto" && localFirst))) {
     return result("not_configured", "No video analysis model is configured.");
   }
@@ -314,7 +329,12 @@ export async function analyseCandidateVideo(
     );
     const done = reports.filter((report): report is SegmentResult => report !== null);
     if (done.length === 0) {
-      return result("failed", "The video analysis did not complete. Regenerate to try again.");
+      return result(
+        "failed",
+        localAnalyserLastError
+          ? `The video analysis did not complete: ${localAnalyserLastError}`
+          : "The video analysis did not complete. Regenerate to try again.",
+      );
     }
 
     const observed: AnswerGaze[] = [];
@@ -559,9 +579,12 @@ async function describeSegment(
 
   const attempts: (() => Promise<{ text: string; model: string }>)[] = [];
   const provider = videoAnalysisProvider();
-  if (provider !== "llm" && (await canRunLocalAnalyser())) {
+  const useLocal = provider !== "llm" && (await canRunLocalAnalyser());
+  if (useLocal) {
     attempts.push(() => runLocalAnalyser(segment, answers));
   }
+  // "local" means local only: no model fallback for video.
+  if (provider === "local" && !useLocal) return null;
   if (isOminibotConfigured()) {
     attempts.push(async () => {
       const reply = await ominibotChat({
@@ -606,16 +629,17 @@ async function describeSegment(
   }
   if ((process.env.ANALYSIS_PROVIDER ?? "").trim().toLowerCase() === "gemini") attempts.reverse();
 
-  for (const attempt of attempts) {
+  for (const [index, attempt] of attempts.entries()) {
     try {
       const { text, model } = await attempt();
       const parsed = segmentSchema.safeParse(parseJsonObject(text));
       if (parsed.success) return { segment, report: parsed.data, assigned, model };
+      if (index === 0 && useLocal) localAnalyserLastError = "the local analyser reply did not match the expected shape";
       console.warn(`[video] clip ${segment.index}: reply did not match the expected shape`);
     } catch (error) {
-      console.warn(
-        `[video] clip ${segment.index}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      if (index === 0 && useLocal) localAnalyserLastError = message;
+      console.warn(`[video] clip ${segment.index}: ${message}`);
     }
   }
   return null;
