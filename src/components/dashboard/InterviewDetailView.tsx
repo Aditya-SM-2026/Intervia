@@ -73,6 +73,44 @@ const VERDICT_STYLES: Record<ResumeVerdict, string> = {
 const SEVERITY_LABELS = { 1: "Worth a glance", 2: "Notable", 3: "Strong" } as const;
 
 const cardClasses = "rounded-2xl border border-border bg-surface p-5 sm:p-6";
+
+/** Sections of the report, in reading order — the rail keeps them one click away. */
+const REPORT_SECTIONS = [
+  ["verdict", "Verdict"],
+  ["summary", "Summary"],
+  ["answers", "Answers"],
+  ["communication", "Communication"],
+  ["red-flags", "Integrity"],
+  ["resume", "Resume"],
+  ["authenticity", "Authenticity"],
+  ["video", "Video"],
+  ["peers", "Peers"],
+  ["next-steps", "Next steps"],
+  ["transcript", "Transcript"],
+] as const;
+
+/** Sticky rail at the top of the report. */
+function ReportNav() {
+  return (
+    <nav
+      aria-label="Report sections"
+      className="sticky top-0 z-20 overflow-x-auto border-b border-border bg-background/90 py-2 backdrop-blur"
+    >
+      <ul className="flex gap-1.5 text-xs font-medium whitespace-nowrap">
+        {REPORT_SECTIONS.map(([id, label]) => (
+          <li key={id}>
+            <a
+              href={`#${id}`}
+              className="rounded-full border border-transparent px-2.5 py-1 text-muted transition hover:border-border hover:bg-surface hover:text-foreground"
+            >
+              {label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
 const alertClasses =
   "rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400";
 
@@ -175,10 +213,11 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       : null;
 
   return (
-    <div className="grid gap-8">
+    <div className="grid gap-6">
       <div className="grid gap-5">
         <BackLink />
         <Header session={session} />
+        <ReportNav />
         {error && (
           <p role="alert" className={alertClasses}>
             {error}
@@ -196,7 +235,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
             onSaved={(decision) => setDetail({ ...detail, session: { ...session, decision } })}
           />
 
-          <section id="answers" className="scroll-mt-6">
+          <section id="answers" className="scroll-mt-16">
             <SectionHeading
               title="Answer quality"
               note="One card per planned question, scored from 1 to 5 against the rating scale for this role. Every score quotes the candidate."
@@ -247,6 +286,37 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       />
 
       <VoiceRun session={session} />
+
+      {scorecard?.costGuard && (
+        <section aria-label="Cost saved on this report" className={cardClasses}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold">Cost saved on this report</h2>
+            <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+              ≈ ${scorecard.costGuard.estimatedUsd.toFixed(2)} saved
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-muted">
+            The transcript for this interview was too thin for the full analysis
+            ({scorecard.costGuard.reason.toLowerCase()}), so those model runs were skipped —
+            without this guard they would have run anyway.
+          </p>
+          <ul className="mt-3 flex flex-wrap gap-1.5 text-xs">
+            {scorecard.costGuard.skipped.map((item) => (
+              <li
+                key={item}
+                className="rounded-full border border-border bg-surface/60 px-2.5 py-1 text-muted"
+              >
+                {item} — skipped
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-xs text-muted">
+            The candidate&apos;s recording is kept and playable above either way; only the
+            analysis models were skipped. Savings are an estimate from typical per-run model
+            costs.
+          </p>
+        </section>
+      )}
 
       <footer className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted">
         <span>
@@ -376,7 +446,7 @@ function ScoreSummary({
   const bandStyle = band ? HIRE_BAND_STYLES[band.band] : null;
 
   return (
-    <section className={cardClasses}>
+    <section id="verdict" className={cardClasses + " scroll-mt-16"}>
       <div className="grid gap-8 lg:grid-cols-[14rem_1fr]">
         <div>
           <div className="flex items-center justify-between gap-2">
@@ -384,16 +454,17 @@ function ScoreSummary({
             {bandStyle && (
               <span
                 title={band?.basis}
-                className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${bandStyle.classes}`}
+                className={`rounded-full border px-3 py-1 text-sm font-semibold ${bandStyle.classes}`}
               >
                 {bandStyle.label}
               </span>
             )}
           </div>
-          <p className="mt-1 font-display text-7xl font-semibold leading-none tabular-nums">
+          <p className="mt-2 font-display text-7xl font-semibold leading-none tabular-nums tracking-tight">
             {overall.score ?? "–"}
             <span className="text-xl font-normal text-muted"> of 100</span>
           </p>
+          <p className="mt-1 text-xs uppercase tracking-[0.14em] text-muted">Recommendation score</p>
           <p className="mt-3 text-sm text-muted">
             {overall.score === null
               ? "There were not enough scored answers to give an overall score."
@@ -473,7 +544,7 @@ function Overview({
   insights: ReportInsights | null;
 }) {
   return (
-    <section className={cardClasses}>
+    <section id="summary" className={cardClasses + " scroll-mt-16"}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-semibold">Summary</h2>
         <span className="text-sm text-muted">{SUGGESTION_LABELS[scorecard.suggestion]}</span>
@@ -525,7 +596,7 @@ function CommunicationSection({ insights }: { insights: ReportInsights }) {
     ],
   ];
   return (
-    <section id="communication" className={cardClasses}>
+    <section id="communication" className={cardClasses + " scroll-mt-16"}>
       <h2 className="text-lg font-semibold">Communication &amp; engagement</h2>
       <p className="mt-1 text-sm text-muted">
         How the conversation was shared and how the candidate spoke. In a healthy screen the
@@ -585,7 +656,7 @@ function RedFlagsSection({ insights }: { insights: ReportInsights }) {
         ? "A few signals worth a second look while reading the report."
         : "No integrity signals of concern in this interview.";
   return (
-    <section id="red-flags" className={cardClasses}>
+    <section id="red-flags" className={cardClasses + " scroll-mt-16"}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Integrity &amp; red flags</h2>
         <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge}`}>
@@ -607,7 +678,7 @@ function RedFlagsSection({ insights }: { insights: ReportInsights }) {
 /** What the next stage of the funnel should do with this candidate. */
 function NextStepsSection({ insights }: { insights: ReportInsights }) {
   return (
-    <section id="next-steps" className={cardClasses}>
+    <section id="next-steps" className={cardClasses + " scroll-mt-16"}>
       <h2 className="text-lg font-semibold">Suggested next steps</h2>
       <p className="mt-1 text-sm text-muted">
         Derived from the gaps in this interview — what the next conversation should cover.
@@ -770,7 +841,7 @@ function ResumeSection({ scorecard }: { scorecard: Scorecard }) {
   const match = scorecard.resumeMatch;
   if (!match) return null;
   return (
-    <section id="resume" className="scroll-mt-6">
+    <section id="resume" className="scroll-mt-16">
       <SectionHeading
         title="Resume match"
         note="Each claim taken from the resume, and whether the candidate's own account in the interview backs it up. Claims that never came up do not count for or against."
@@ -809,7 +880,7 @@ function AuthenticitySection({ scorecard }: { scorecard: Scorecard }) {
   const authenticity = scorecard.authenticity;
   if (!authenticity) return null;
   return (
-    <section id="authenticity" className="scroll-mt-6">
+    <section id="authenticity" className="scroll-mt-16">
       <SectionHeading
         title="Own answers"
         note="Patterns in the wording and timing of answers that can indicate reading from, or being prompted by, an AI tool. Each links to the answers it is based on. They are reasons to look, not proof."
@@ -871,7 +942,7 @@ function VideoSection({
     answer.whileAnswering === pattern.direction;
 
   return (
-    <section id="video" className="scroll-mt-6">
+    <section id="video" className="scroll-mt-16">
       <SectionHeading
         title="On-camera behaviour"
         note="From the recording of the candidate's own camera. Everyone looks away to think, so a single look counts for nothing. What is measured is whether the candidate kept returning to the same spot off the screen while answering, and not while listening. These are clips to watch, not proof."
@@ -1091,7 +1162,7 @@ function PeersSection({ peers, currentId }: { peers: PeerSummary[]; currentId: s
   if (peers.length < 2) return null;
   const factorIds = peers[0].overall?.factors.map((factor) => factor.id) ?? [];
   return (
-    <section>
+    <section id="peers" className="scroll-mt-16">
       <SectionHeading
         title="Candidates for this role"
         note="Everyone scored for the same role title, highest overall first. Compare like with like: the same plan and the same scale."
@@ -1286,7 +1357,7 @@ function Transcript({
   }, null);
 
   return (
-    <section>
+    <section id="transcript" className="scroll-mt-16">
       <h2 className="text-2xl font-semibold">Transcript</h2>
       {turns.length === 0 ? (
         <p className="mt-2 text-sm text-muted">Nothing has been said in this interview yet.</p>

@@ -74,3 +74,35 @@ export function assessTranscriptQuality(
   }
   return { level: "good", answers, totalWords, medianAnswerWords, reason: null };
 }
+/**
+ * Rough per-step model costs for the analyses that can be skipped, in US
+ * dollars. These are estimates for the savings note in the report — the
+ * actual bill varies with answer length and frame counts.
+ */
+export const SKIPPED_ANALYSIS_COSTS = {
+  video: 0.03,
+  secondGrader: 0.01,
+  resumeCheck: 0.01,
+  authenticityCheck: 0.01,
+} as const;
+
+export interface SkippedAnalyses {
+  skipped: string[];
+  estimatedUsd: number;
+}
+
+/** What a thin transcript lets us skip, and what that is roughly worth. */
+export function skippedAnalysesFor(quality: TranscriptQuality): SkippedAnalyses {
+  if (quality.level === "good") return { skipped: [], estimatedUsd: 0 };
+  const skipped = [
+    "Recording frame analysis",
+    "Independent second grading",
+    ...(quality.totalWords > 0 ? ["Resume claim check", "Answer-authenticity check"] : []),
+  ];
+  const estimatedUsd =
+    SKIPPED_ANALYSIS_COSTS.video +
+    SKIPPED_ANALYSIS_COSTS.secondGrader +
+    SKIPPED_ANALYSIS_COSTS.resumeCheck +
+    SKIPPED_ANALYSIS_COSTS.authenticityCheck;
+  return { skipped, estimatedUsd: Math.round(estimatedUsd * 100) / 100 };
+}

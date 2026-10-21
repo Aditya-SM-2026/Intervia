@@ -29,7 +29,11 @@ import type {
   ScoreSuggestion,
   VideoBehaviour,
 } from "./scorecard.types";
-import { assessTranscriptQuality, type TranscriptQuality } from "./transcript-quality";
+import {
+  assessTranscriptQuality,
+  skippedAnalysesFor,
+  type TranscriptQuality,
+} from "./transcript-quality";
 import { analyseCandidateVideo, hasRecording, pickRecording } from "./video-analysis.service";
 
 /**
@@ -495,6 +499,9 @@ async function buildScorecard(
     integrity,
     notes,
     needsHumanReview: withdrawn > 0 || disagreement || !enoughCoverage,
+    costGuard: fullAnalysis
+      ? null
+      : { ...skippedAnalysesFor(quality), reason: quality.reason ?? "Thin transcript" },
   };
 }
 

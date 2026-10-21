@@ -251,6 +251,11 @@ export interface Scorecard {
   authenticity?: Authenticity;
   video?: VideoBehaviour;
   overall?: OverallScore;
+  /**
+   * Cost guard: set when the transcript was too thin for the paid analyses,
+   * listing what was skipped and the roughly estimated saving in US dollars.
+   */
+  costGuard?: { skipped: string[]; estimatedUsd: number; reason: string } | null;
 }
 
 export interface ScorecardSummary {
