@@ -1,0 +1,10 @@
+import { readFileSync } from "node:fs";
+import pg from "pg";
+const env = readFileSync(new URL("../.env", import.meta.url), "utf8");
+const url = /^DATABASE_URL=(.*)$/m.exec(env)?.[1]?.trim();
+console.log(url.replace(/:[^:@/]+@/, ":***@"));
+const pool = new pg.Pool({ connectionString: url });
+console.log(await pool.query("SELECT current_database()"));
+const r = await pool.query("SELECT DISTINCT room_id FROM interview_events ORDER BY room_id DESC LIMIT 10");
+console.log(r.rows.map((x) => x.room_id));
+await pool.end();
