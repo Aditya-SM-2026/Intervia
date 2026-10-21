@@ -1,4 +1,5 @@
-﻿"use client";
+"use client";
+// Reports table: shows the 0-100 overall score; thin-transcript reports carry a cost-savings note.
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";

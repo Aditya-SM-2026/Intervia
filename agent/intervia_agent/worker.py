@@ -38,6 +38,7 @@ from .backend import Backend, iso_from_epoch, iso_now
 from .config import AGENT_NAME, CLIENT_EVENT_TOPIC, AgentConfig, load_env
 from .controller import (
     EVIDENCE_LEVELS,
+    HARD_STOP_GRACE_SECONDS,
     WRAP_UP_LEAD_SECONDS,
     Directive,
     InterviewController,
@@ -169,14 +170,14 @@ class InterviewerAgent(Agent):
         """End the interview. Call this only after you have said goodbye to the candidate."""
         controller = self._runtime.controller
         remaining = controller.total_seconds - controller.elapsed() if controller else 0.0
-        # Strict schedule: the interview may only end inside the wrap-up
-        # window (the final 8 seconds). The model deciding it is "done" early
-        # is not a reason to stop — the candidate paid for the full time.
-        if remaining > WRAP_UP_LEAD_SECONDS:
+        # Strict schedule: the goodbye is spoken at T-8s, but the interview
+        # itself must run to the booked limit — the goodbye fills the final
+        # 8 seconds. Ending at T-8 would finish the meeting ~10s early.
+        if remaining > HARD_STOP_GRACE_SECONDS:
             return (
                 f"Cannot end the interview yet: about {max(1, int(remaining))} seconds of the "
-                "scheduled time remain. Continue interviewing as planned; a system message "
-                "will tell you when the time is up."
+                "scheduled time remain. The goodbye has been spoken; stay on the line quietly "
+                "or offer brief parting remarks until the system ends the session."
             )
         self._runtime.request_end("interviewer_ended")
         # Anything spoken after this would be a second goodbye.
