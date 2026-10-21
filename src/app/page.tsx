@@ -77,7 +77,7 @@ export default async function Home() {
               </div>
               <p className="mt-6 flex items-center gap-2 text-sm text-muted">
                 <ShieldCheck className="h-4 w-4 text-candidate" />
-                Every score links to the candidate's own words.
+                Every score links to the candidate&apos;s own words.
               </p>
             </div>
 
