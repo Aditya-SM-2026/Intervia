@@ -4,10 +4,10 @@ steps:
       [
         "build",
         "-t",
-        "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/agent:latest",
+        "${_AR_REGION}-docker.pkg.dev/${_PROJECT}/meetingbot/agent:latest",
         "-f",
         "Dockerfile.agent",
         ".",
       ]
 images:
-  - "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/agent:latest"
+  - "${_AR_REGION}-docker.pkg.dev/${_PROJECT}/meetingbot/agent:latest"

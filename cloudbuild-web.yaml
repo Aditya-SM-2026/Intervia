@@ -4,11 +4,11 @@ steps:
       [
         "build",
         "-t",
-        "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/web:latest",
+        "${_AR_REGION}-docker.pkg.dev/${_PROJECT}/meetingbot/web:latest",
         "-f",
         "Dockerfile.web",
         "--build-arg=NEXT_PUBLIC_VOICE_PROVIDER=cascade",
         ".",
       ]
 images:
-  - "asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/web:latest"
+  - "${_AR_REGION}-docker.pkg.dev/${_PROJECT}/meetingbot/web:latest"

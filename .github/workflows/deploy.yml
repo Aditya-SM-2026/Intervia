@@ -1,0 +1,60 @@
+name: Deploy Intervia
+
+on:
+  push:
+    branches: [roles-candidates]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: siva-nikhil
+  REGION: asia-south1
+  AR: asia-south1-docker.pkg.dev/siva-nikhil/meetingbot
+  # TODO: fill after WIF setup in siva-nikhil
+  WIF_PROVIDER: projects/199504026920/locations/global/workloadIdentityPools/PLACEHOLDER/providers/PLACEHOLDER
+  WIF_SERVICE_ACCOUNT: meetingbot-deployer@siva-nikhil.iam.gserviceaccount.com
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & push web image
+        run: |
+          gcloud builds submit \
+            --config cloudbuild-web.yaml \
+            --substitutions _PROJECT=$PROJECT_ID,_AR_REGION=$REGION
+
+      - name: Build & push agent image
+        run: |
+          gcloud builds submit \
+            --config cloudbuild-agent.yaml \
+            --substitutions _PROJECT=$PROJECT_ID,_AR_REGION=$REGION
+
+      - name: Deploy web to Cloud Run
+        run: |
+          gcloud run deploy meetingbot-web \
+            --project $PROJECT_ID \
+            --region $REGION \
+            --image $AR/web:latest \
+            --add-cloudsql-instances=siva-nikhil:asia-south1:meetingbot-db \
+            --set-secrets=OMINIBOT_API_KEY=meetingbot-ominibot-api-key:latest,LIVEKIT_URL=meetingbot-livekit-url:latest,LIVEKIT_API_KEY=meetingbot-livekit-api-key:latest,LIVEKIT_API_SECRET=meetingbot-livekit-api-secret:latest,DATABASE_URL=meetingbot-database-url:latest \
+            --allow-unauthenticated
+
+      - name: Restart agent VM container
+        run: |
+          gcloud compute instances update-container meetingbot-agent-vm \
+            --project $PROJECT_ID \
+            --zone asia-south1-a \
+            --container-image $AR/agent:latest

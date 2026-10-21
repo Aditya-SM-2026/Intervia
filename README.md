@@ -233,26 +233,34 @@ agent worker ──▶ Ominibot LLM ──▶ reply ──voice pipeline──�
 
 ## Deployment (GCP)
 
-Production runs in project `court-siva-nikhil` (asia-south1):
+Production runs in project `siva-nikhil` (asia-south1):
 
 - **`meetingbot-web`** — Cloud Run (standalone Next build, `Dockerfile.web`
   built by `cloudbuild-web.yaml`; `NEXT_PUBLIC_VOICE_PROVIDER` is a build
   arg baked into the client bundle). Runtime secrets are injected from
-  Secret Manager.
+  Secret Manager, and the service is attached to
+  `siva-nikhil:asia-south1:meetingbot-db` so `DATABASE_URL` in socket form
+  connects through the Cloud SQL unix socket.
 - **`meetingbot-db`** — Cloud SQL Postgres 16 (public IP, `requireSsl=false`,
-  allowlisted to the agent VM's static address only; Cloud Run reaches it via
-  the socket path).
+  authorized network allowlisted to the agent VM's static address only;
+  Cloud Run reaches it via the socket path).
 - **`meetingbot-agent-vm`** — Compute Engine VM (e2-small, COS) running the
   agent container from Artifact Registry
-  (`asia-south1-docker.pkg.dev/court-siva-nikhil/meetingbot/agent:latest`,
+  (`asia-south1-docker.pkg.dev/siva-nikhil/meetingbot/agent:latest`,
   built by `cloudbuild-agent.yaml`). A metadata startup-script fetches the
   five secrets from Secret Manager, rewrites the socket-form database URL to
   the allowlisted TCP address, and starts the container with
   `--restart=always` plus the cascade TTS env. The VM has a **static external
-  IP** (34.14.222.222) because the database allowlist depends on it.
+  IP** (34.93.18.244) because the database allowlist depends on it.
 - **Secrets** (Secret Manager): `meetingbot-ominibot-api-key`,
   `meetingbot-livekit-url/-api-key/-api-secret`, `meetingbot-database-url`,
   all granted to the `meetingbot-runtime` service account.
+
+CI/CD lives in `.github/workflows/`: CI (typecheck/lint/build) on PRs, and a
+deploy workflow on pushes to `roles-candidates` that builds both images into
+`siva-nikhil`'s Artifact Registry, deploys Cloud Run, and restarts the agent
+VM container. Authentication is Workload Identity Federation
+(pool `github-pool`, provider `github-provider`, restricted to this repo).
 
 The VM is why the agent is not on Cloud Run: Cloud Run sandboxes have no
 outbound UDP, which WebRTC requires. Rebuilding either image is one command:
