@@ -30,9 +30,9 @@ import type {
   VideoBehaviour,
 } from "./scorecard.types";
 import {
+  TRANSCRIPT_SCORE_BAR,
   assessTranscriptQuality,
   skippedAnalysesFor,
-  type TranscriptQuality,
 } from "./transcript-quality";
 import { analyseCandidateVideo, hasRecording, pickRecording } from "./video-analysis.service";
 
@@ -279,64 +279,20 @@ async function buildScorecard(
   // actually carries interview evidence. The recording is always kept; this
   // gates the model work, not the media.
   const quality = assessTranscriptQuality(turns, session.durationMinutes);
-  const fullAnalysis = quality.level === "good";
 
-  // Start the recording analysis immediately, in parallel with the text
-  // graders: it is the slow step, and the tab stats it needs come straight
-  // from the events, not from the grader output.
+  // Score-based cost gate: the transcript is graded first, and only answers
+  // scoring at least TRANSCRIPT_SCORE_BAR/100 unlock the paid analyses
+  // (second grader, resume, authenticity, video). The recording is always
+  // kept and playable either way.
   const earlyTab = tabStatsFromEvents(events);
-  const videoPromise: Promise<VideoBehaviour> =
-    previous?.video?.status === "analysed" && previous.video.answers !== undefined
-      ? Promise.resolve(previous.video)
-      : fullAnalysis
-        ? analyseCandidateVideo(events, turns, earlyTab)
-        : Promise.resolve(skippedVideoBehaviour(quality));
-
-  const [first, second, resumeCheck, authenticityCheck] = await Promise.allSettled([
-    generateStructured({
-      system: GRADER_PROMPT,
-      user: context,
-      schema: gradingSchema,
-      timeoutMs: SCORING_TIMEOUT_MS,
-      temperature: 0.1,
-    }),
-    fullAnalysis
-      ? generateStructured({
-          system: SECOND_GRADER_PROMPT,
-          user: context,
-          schema: secondGradingSchema,
-          timeoutMs: SCORING_TIMEOUT_MS,
-          temperature: 0.1,
-        })
-      : Promise.resolve(null),
-    fullAnalysis && resumeText
-      ? generateStructured({
-          system: RESUME_CHECK_PROMPT,
-          user: `<resume>\n${resumeText}\n</resume>\n\n<transcript>\n${transcript}\n</transcript>`,
-          schema: resumeCheckSchema,
-          timeoutMs: SCORING_TIMEOUT_MS,
-          temperature: 0.1,
-        })
-      : Promise.resolve(null),
-    fullAnalysis
-      ? generateStructured({
-          system: AUTHENTICITY_PROMPT,
-          user: `<transcript>\n${renderTimedTranscript(turns)}\n</transcript>`,
-          schema: authenticitySchema,
-          timeoutMs: SCORING_TIMEOUT_MS,
-          temperature: 0.1,
-        })
-      : Promise.resolve(null),
-  ]);
-  if (first.status === "rejected") throw first.reason;
-
-  const grading = first.value.data;
-  const secondScores = new Map<string, number | null>();
-  if (second.status === "fulfilled" && second.value) {
-    for (const item of second.value.data.competencies) {
-      secondScores.set(item.competencyId, item.score === null ? null : Math.round(item.score));
-    }
-  }
+  const first = await generateStructured({
+    system: GRADER_PROMPT,
+    user: context,
+    schema: gradingSchema,
+    timeoutMs: SCORING_TIMEOUT_MS,
+    temperature: 0.1,
+  });
+  const grading = first.data;
 
   const turnsBySeq = new Map(turns.map((turn) => [turn.seq, turn]));
   const discussed = new Set(
@@ -344,6 +300,7 @@ async function buildScorecard(
   );
   const notes: string[] = [];
   let withdrawn = 0;
+  const secondScores = new Map<string, number | null>();
 
   const competencies: CompetencyScore[] = plan.competencies.map((competency) => {
     const graded = grading.competencies.find((item) => item.competencyId === competency.id);
@@ -389,6 +346,58 @@ async function buildScorecard(
     };
   });
 
+  // Gate decision: the transcript's own answer score decides whether the
+  // remaining (paid) analyses run at all.
+  const weights = new Map(plan.competencies.map((item) => [item.id, item.minutes]));
+  const answerQuality = answerQualityScore(competencies, weights);
+  const deeperAnalysis =
+    answerQuality !== null && answerQuality >= TRANSCRIPT_SCORE_BAR;
+  const skipReason =
+    answerQuality !== null
+      ? `Transcript answers scored ${answerQuality}/100, below the ${TRANSCRIPT_SCORE_BAR}-point bar`
+      : quality.reason ?? "the transcript was too thin";
+
+  const [second, resumeCheck, authenticityCheck] = await Promise.allSettled([
+    deeperAnalysis
+      ? generateStructured({
+          system: SECOND_GRADER_PROMPT,
+          user: context,
+          schema: secondGradingSchema,
+          timeoutMs: SCORING_TIMEOUT_MS,
+          temperature: 0.1,
+        })
+      : Promise.resolve(null),
+    deeperAnalysis && resumeText
+      ? generateStructured({
+          system: RESUME_CHECK_PROMPT,
+          user: `<resume>\n${resumeText}\n</resume>\n\n<transcript>\n${transcript}\n</transcript>`,
+          schema: resumeCheckSchema,
+          timeoutMs: SCORING_TIMEOUT_MS,
+          temperature: 0.1,
+        })
+      : Promise.resolve(null),
+    deeperAnalysis
+      ? generateStructured({
+          system: AUTHENTICITY_PROMPT,
+          user: `<transcript>\n${renderTimedTranscript(turns)}\n</transcript>`,
+          schema: authenticitySchema,
+          timeoutMs: SCORING_TIMEOUT_MS,
+          temperature: 0.1,
+        })
+      : Promise.resolve(null),
+  ]);
+  if (second.status === "fulfilled" && second.value) {
+    for (const item of second.value.data.competencies) {
+      secondScores.set(item.competencyId, item.score === null ? null : Math.round(item.score));
+    }
+  }
+  const videoPromise: Promise<VideoBehaviour> =
+    previous?.video?.status === "analysed" && previous.video.answers !== undefined
+      ? Promise.resolve(previous.video)
+      : deeperAnalysis
+        ? analyseCandidateVideo(events, turns, earlyTab)
+        : Promise.resolve(skippedVideoBehaviour(skipReason + " - video analysis skipped"));
+
   if (withdrawn > 0) {
     notes.push(
       `${withdrawn} score${withdrawn === 1 ? " was" : "s were"} withdrawn because the cited quotes could not be found in the transcript.`,
@@ -397,10 +406,8 @@ async function buildScorecard(
   if (second.status === "rejected" || second.value === null) {
     notes.push("The independent second grading did not run, so scores are from a single pass.");
   }
-  if (!fullAnalysis) {
-    notes.push(
-      `Deeper analysis was skipped to keep costs down: ${quality.reason ?? "the transcript was too thin"}`,
-    );
+  if (!deeperAnalysis) {
+    notes.push(`Deeper analysis was skipped to keep costs down: ${skipReason}.`);
   }
   if (plan.source === "fallback") {
     notes.push("This interview used the generic plan because plan generation was unavailable when it was created.");
@@ -421,7 +428,6 @@ async function buildScorecard(
   notes.push("Scored from the live transcript; the recording was not re-transcribed.");
 
   const scored = competencies.filter((item) => item.status === "scored" && item.score !== null);
-  const weights = new Map(plan.competencies.map((item) => [item.id, item.minutes]));
   const weightSum = scored.reduce((sum, item) => sum + (weights.get(item.competencyId) ?? 1), 0);
   const overallScore =
     scored.length === 0
@@ -469,7 +475,6 @@ async function buildScorecard(
     notes.push("The check for signs of prompted answers did not run; only measured timings were used.");
   }
 
-  const answerQuality = answerQualityScore(competencies, weights);
   const overall = combineFactors(
     {
       answers: answerQuality,
@@ -488,7 +493,7 @@ async function buildScorecard(
     overall,
     roomId: session.id,
     generatedAt: new Date().toISOString(),
-    model: first.value.model,
+    model: first.model,
     transcriptSource: "live",
     summary: grading.summary,
     strengths: grading.strengths,
@@ -499,9 +504,9 @@ async function buildScorecard(
     integrity,
     notes,
     needsHumanReview: withdrawn > 0 || disagreement || !enoughCoverage,
-    costGuard: fullAnalysis
+    costGuard: deeperAnalysis
       ? null
-      : { ...skippedAnalysesFor(quality), reason: quality.reason ?? "Thin transcript" },
+      : { ...skippedAnalysesFor(quality), reason: skipReason },
   };
 }
 
@@ -511,7 +516,7 @@ const RESUME_VERDICTS_NEEDING_EVIDENCE = new Set(["confirmed", "partly_supported
  * The placeholder video result for transcripts too thin to analyse. The
  * recording itself is untouched and still plays in the report.
  */
-function skippedVideoBehaviour(quality: TranscriptQuality): VideoBehaviour {
+function skippedVideoBehaviour(reason: string): VideoBehaviour {
   return {
     status: "skipped",
     score: null,
@@ -519,7 +524,7 @@ function skippedVideoBehaviour(quality: TranscriptQuality): VideoBehaviour {
     moments: [],
     summary: "",
     model: null,
-    reason: quality.reason ?? "Video analysis was skipped.",
+    reason,
     pattern: undefined,
     answers: [],
   };

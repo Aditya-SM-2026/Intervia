@@ -75,6 +75,13 @@ export function assessTranscriptQuality(
   return { level: "good", answers, totalWords, medianAnswerWords, reason: null };
 }
 /**
+ * The transcript answer score (0-100) that unlocks the paid analyses. Below
+ * this bar the second grader, resume check, authenticity check and video
+ * analysis are skipped; the recording is always kept and playable.
+ */
+export const TRANSCRIPT_SCORE_BAR = 50;
+
+/**
  * Rough per-step model costs for the analyses that can be skipped, in US
  * dollars. These are estimates for the savings note in the report — the
  * actual bill varies with answer length and frame counts.
