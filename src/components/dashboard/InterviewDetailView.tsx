@@ -152,51 +152,11 @@ function ReportNav({
     <nav aria-label="Report sections" className="sticky top-6 hidden lg:block">
       <div className="relative flex h-[calc(100vh-5rem)] min-h-[36rem] w-64 flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_18px_50px_-24px_rgba(0,0,0,0.35)]">
         {/* window bar */}
-        <div className="relative flex items-center justify-between border-b border-border px-4 py-3">
-          <div className="flex items-center gap-1.5" aria-hidden>
-            <span className="h-2 w-2 rounded-full bg-border" />
-            <span className="h-2 w-2 rounded-full bg-border" />
-            <span className="h-2 w-2 rounded-full bg-accent/60" />
-          </div>
-          <div className="flex items-center gap-1.5">
-            {[ChevronUp, ChevronDown].map((Icon, index) => (
-              <span
-                key={index}
-                className="grid h-6 w-6 place-items-center rounded-full border border-border text-muted transition hover:text-foreground"
-              >
-                <Icon className="h-3 w-3" />
-              </span>
-            ))}
-          </div>
-        </div>
+       
 
-        {/* brand header */}
-        <div className="relative flex items-center justify-between px-4 pt-3.5">
-          <div className="flex items-center gap-2.5">
-            <span className="grid h-8 w-8 place-items-center rounded-full border border-accent/30 bg-accent/10">
-              <AudioLines className="h-4 w-4 text-accent" />
-            </span>
-            <span className="text-[12px] font-semibold tracking-[0.08em] text-foreground">
-              Intervia
-            </span>
-          </div>
-          <span className="grid h-7 w-7 place-items-center rounded-full text-muted transition hover:bg-surface hover:text-foreground">
-            <MoreHorizontal className="h-4 w-4" />
-          </span>
-        </div>
 
-        {/* search */}
-        <div className="relative mx-4 mt-3.5 flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 transition focus-within:border-accent/50">
-          <Search className="h-3.5 w-3.5 shrink-0 text-muted" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Filter sections"
-            aria-label="Filter report sections"
-            className="w-full bg-transparent text-xs text-foreground outline-none placeholder:text-muted"
-          />
-          <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-muted" />
-        </div>
+
+    
 
         {/* section list (scrollable middle) */}
         <div className="relative mt-4 min-h-0 flex-1 overflow-y-auto px-4 pb-3 [scrollbar-width:thin]">
@@ -239,30 +199,7 @@ function ReportNav({
           </ul>
         </div>
 
-        {/* mini player footer */}
-        <div className="relative border-t border-border bg-background/60 px-4 py-3.5">
-          <div className="flex items-center gap-3">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-accent/30 bg-accent/10 text-sm font-semibold tabular-nums text-accent">
-              {score ?? "–"}
-            </span>
-            <span className="grid min-w-0">
-              <span className="truncate text-[13px] font-medium text-foreground">
-                {candidateName || "Candidate"}
-              </span>
-              <span className="truncate text-xs text-muted">{roleTitle || "Role"}</span>
-            </span>
-          </div>
-          <div className="mt-3 flex items-center gap-2.5" aria-hidden>
-            <Volume2 className="h-4 w-4 shrink-0 text-muted" />
-            <span className="relative h-1 flex-1 overflow-hidden rounded-full bg-border">
-              <span className="absolute inset-y-0 left-0 w-[62%] rounded-full bg-accent" />
-              <span className="absolute top-1/2 left-[62%] h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground shadow" />
-            </span>
-            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-border text-muted">
-              <ChevronDown className="h-3 w-3" />
-            </span>
-          </div>
-        </div>
+    
       </div>
     </nav>
   );
