@@ -26,6 +26,27 @@ import type {
 import { FACTOR_META } from "./factors";
 import { buildReportInsights, type ReportInsights } from "@/lib/interviews/report-insights";
 import { GAZE_GRID, GAZE_LABEL } from "./gaze";
+import {
+  Activity,
+  AudioLines,
+  ChevronDown,
+  ChevronUp,
+  FileSearch,
+  FileText,
+  Fingerprint,
+  Gauge,
+  ListChecks,
+  MessagesSquare,
+  MoreHorizontal,
+  ScrollText,
+  Search,
+  ShieldAlert,
+  SlidersHorizontal,
+  Users,
+  Video,
+  Volume2,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 /**
  * One interview for the recruiter. The overall score sits at the top with the
@@ -76,38 +97,183 @@ const cardClasses = "rounded-2xl border border-border bg-surface p-5 sm:p-6";
 
 /** Sections of the report, in reading order — the rail keeps them one click away. */
 const REPORT_SECTIONS = [
-  ["verdict", "Verdict"],
-  ["summary", "Summary"],
-  ["answers", "Answers"],
-  ["communication", "Communication"],
-  ["red-flags", "Integrity"],
-  ["resume", "Resume"],
-  ["authenticity", "Authenticity"],
-  ["video", "Video"],
-  ["peers", "Peers"],
-  ["next-steps", "Next steps"],
-  ["transcript", "Transcript"],
-] as const;
+  ["verdict", "Verdict", Gauge],
+  ["summary", "Summary", FileText],
+  ["answers", "Answers", MessagesSquare],
+  ["communication", "Communication", Activity],
+  ["red-flags", "Integrity", ShieldAlert],
+  ["resume", "Resume", FileSearch],
+  ["authenticity", "Authenticity", Fingerprint],
+  ["video", "Video", Video],
+  ["peers", "Peers", Users],
+  ["next-steps", "Next steps", ListChecks],
+  ["transcript", "Transcript", ScrollText],
+] as const satisfies readonly (readonly [string, string, LucideIcon])[];
 
-/** Sticky sidebar rail that keeps the whole report one click away. */
-function ReportNav() {
+const GRAIN_TEXTURE =
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='0.55'/></svg>\")";
+
+const SIDEBAR_ICONS: Record<string, LucideIcon> = Object.fromEntries(
+  REPORT_SECTIONS.map(([id, , icon]) => [id, icon]),
+);
+
+/** Premium dark section sidebar: pinned, scroll-aware, glassy. */
+function ReportNav({
+  candidateName,
+  roleTitle,
+  score,
+}: {
+  candidateName: string;
+  roleTitle: string;
+  score: number | null;
+}) {
+  const [activeId, setActiveId] = useState<string>(REPORT_SECTIONS[0][0]);
+  const [query, setQuery] = useState("");
+
+  // Scroll-spy: highlight the section currently in view.
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setActiveId(entry.target.id);
+        }
+      },
+      { rootMargin: "-15% 0px -65% 0px", threshold: 0 },
+    );
+    for (const [id] of REPORT_SECTIONS) {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, []);
+
+  const visible = REPORT_SECTIONS.filter(([, label]) =>
+    label.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+
   return (
-    <nav
-      aria-label="Report sections"
-      className="sticky top-8 hidden lg:block"
-    >
-      <ul className="grid gap-0.5 text-xs font-medium">
-        {REPORT_SECTIONS.map(([id, label]) => (
-          <li key={id}>
-            <a
-              href={`#${id}`}
-              className="block rounded-lg px-3 py-1.5 text-muted transition hover:bg-surface hover:text-foreground"
-            >
-              {label}
-            </a>
-          </li>
-        ))}
-      </ul>
+    <nav aria-label="Report sections" className="sticky top-8 hidden lg:block">
+      <div className="relative flex h-[calc(100vh-6rem)] w-[12.5rem] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#131417]/95 shadow-[0_24px_60px_-18px_rgba(0,0,0,0.65)] backdrop-blur-xl">
+        {/* grain + sheen */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.05]"
+          style={{ backgroundImage: GRAIN_TEXTURE }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/[0.07] via-transparent to-black/50"
+        />
+
+        {/* window bar */}
+        <div className="relative flex items-center justify-between px-3.5 pt-3">
+          <div className="flex items-center gap-1.5" aria-hidden>
+            <span className="h-2 w-2 rounded-full bg-[#ff5f57]/70" />
+            <span className="h-2 w-2 rounded-full bg-[#febc2e]/70" />
+            <span className="h-2 w-2 rounded-full bg-[#28c840]/70" />
+          </div>
+          <div className="flex items-center gap-1.5">
+            {[ChevronUp, ChevronDown].map((Icon, index) => (
+              <span
+                key={index}
+                className="grid h-6 w-6 place-items-center rounded-full bg-white/[0.05] text-white/40 transition hover:bg-white/10 hover:text-white/70"
+              >
+                <Icon className="h-3 w-3" />
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* brand header */}
+        <div className="relative mt-3 flex items-center justify-between px-3.5">
+          <div className="flex items-center gap-2">
+            <span className="grid h-7 w-7 place-items-center rounded-full border border-emerald-400/30 bg-emerald-500/15">
+              <AudioLines className="h-3.5 w-3.5 text-emerald-400" />
+            </span>
+            <span className="text-[11px] font-semibold tracking-[0.08em] text-white/80">
+              Intervia
+            </span>
+          </div>
+          <span className="grid h-6 w-6 place-items-center rounded-full text-white/35 transition hover:bg-white/10 hover:text-white/70">
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </span>
+        </div>
+
+        {/* search */}
+        <div className="relative mx-3.5 mt-3 flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.045] px-2.5 py-1.5 transition focus-within:border-white/20">
+          <Search className="h-3 w-3 shrink-0 text-white/35" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Filter sections"
+            aria-label="Filter report sections"
+            className="w-full bg-transparent text-[11px] text-white/75 outline-none placeholder:text-white/30"
+          />
+          <SlidersHorizontal className="h-3 w-3 shrink-0 text-white/35" />
+        </div>
+
+        {/* section list (scrollable middle) */}
+        <div className="relative mt-4 min-h-0 flex-1 overflow-y-auto px-3.5 pb-3 [scrollbar-width:thin]">
+          <p className="px-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-white/30">
+            Sections
+          </p>
+          <ul className="mt-2 grid gap-0.5">
+            {visible.map(([id, label]) => {
+              const Icon = SIDEBAR_ICONS[id];
+              const active = id === activeId;
+              return (
+                <li key={id} className="relative">
+                  <span
+                    aria-hidden
+                    className={`absolute -left-3.5 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-emerald-500 transition-opacity ${
+                      active ? "opacity-100" : "opacity-0"
+                    }`}
+                  />
+                  <a
+                    href={`#${id}`}
+                    className={`flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[12px] transition ${
+                      active
+                        ? "bg-white/[0.05] text-white"
+                        : "text-white/45 hover:bg-white/[0.03] hover:text-white/80"
+                    }`}
+                  >
+                    {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
+                    <span className="truncate">{label}</span>
+                  </a>
+                </li>
+              );
+            })}
+            {visible.length === 0 && (
+              <li className="px-2.5 py-2 text-[11px] text-white/30">No matches</li>
+            )}
+          </ul>
+        </div>
+
+        {/* mini player footer */}
+        <div className="relative border-t border-white/[0.07] bg-black/25 px-3.5 py-3">
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-emerald-400/25 bg-gradient-to-br from-emerald-500/30 to-emerald-500/5 text-[11px] font-semibold tabular-nums text-emerald-300">
+              {score ?? "–"}
+            </span>
+            <span className="grid min-w-0">
+              <span className="truncate text-[12px] font-medium text-white/85">
+                {candidateName || "Candidate"}
+              </span>
+              <span className="truncate text-[10.5px] text-white/40">{roleTitle || "Role"}</span>
+            </span>
+          </div>
+          <div className="mt-2.5 flex items-center gap-2" aria-hidden>
+            <Volume2 className="h-3.5 w-3.5 shrink-0 text-white/40" />
+            <span className="relative h-1 flex-1 overflow-hidden rounded-full bg-white/10">
+              <span className="absolute inset-y-0 left-0 w-[62%] rounded-full bg-emerald-500" />
+              <span className="absolute top-1/2 left-[62%] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow" />
+            </span>
+            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-white/[0.06] text-white/45">
+              <ChevronDown className="h-3 w-3" />
+            </span>
+          </div>
+        </div>
+      </div>
     </nav>
   );
 }
@@ -225,7 +391,11 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[10.5rem_minmax(0,1fr)] lg:items-start">
-        <ReportNav />
+        <ReportNav
+          candidateName={session.candidateName || "Candidate"}
+          roleTitle={session.roleTitle || session.title}
+          score={scorecard?.overall?.score ?? null}
+        />
         <div className="grid min-w-0 gap-6">
 
       {scorecard ? (
