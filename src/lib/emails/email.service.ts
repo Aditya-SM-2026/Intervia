@@ -87,7 +87,7 @@ export function buildInvitationEmail(input: InvitationEmailInput): InvitationEma
     "- You can speak naturally and interrupt the interviewer at any point.",
     "",
     "Good luck!",
-    "The Intervia team",
+    "The Sreemedhas Agent team",
   ].join("\n");
 
   const html = `<!doctype html>
@@ -119,7 +119,7 @@ export function buildInvitationEmail(input: InvitationEmailInput): InvitationEma
         <li>You can speak naturally and interrupt the interviewer at any point.</li>
       </ul>
     </div>
-    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by Intervia — please do not reply to this email.</p>
+    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by Sreemedhas Agent — please do not reply to this email.</p>
   </div>
 </body></html>`;
 
@@ -217,7 +217,7 @@ export function buildReminderEmail(
     `- The interview takes about ${input.durationMinutes} minutes and is recorded.`,
     "",
     "See you very soon!",
-    "The Intervia team",
+    "The Sreemedhas Agent team",
   ].join("\n");
   const html = `<!doctype html>
 <html><body style="margin:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#1a1a2e">
@@ -241,7 +241,7 @@ export function buildReminderEmail(
         <li>The interview takes about ${input.durationMinutes} minutes and is recorded.</li>
       </ul>
     </div>
-    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by Intervia — please do not reply to this email.</p>
+    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by Sreemedhas Agent — please do not reply to this email.</p>
   </div>
 </body></html>`;
   return { from: invite.from, to: input.to, subject, text, html };

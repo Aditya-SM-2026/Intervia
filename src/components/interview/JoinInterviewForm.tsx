@@ -248,7 +248,7 @@ export function JoinInterviewForm({
               className="mt-1 size-4 shrink-0 accent-accent"
             />
             <span>
-              I give my consent for this interview to be conducted by Intervia AI
+              I give my consent for this interview to be conducted by Sreemedhas Agent
               {recruiterName ? (
                 <> on behalf of <strong>{recruiterName}</strong></>
               ) : (
@@ -310,7 +310,7 @@ export function JoinInterviewForm({
 
       <p className="text-xs text-muted">
         Email verified. The interview takes about {durationMinutes} minutes and is a spoken
-        conversation with Intervia AI. Use headphones if you can, and find a quiet place.
+        conversation with Sreemedhas Agent. Use headphones if you can, and find a quiet place.
         Recording starts when you join.
       </p>
 

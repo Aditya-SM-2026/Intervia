@@ -452,7 +452,7 @@ export function InterviewRoom({
 
         <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
           <div className="min-w-0">
-            <p className="text-sm font-semibold tracking-tight">Intervia</p>
+            <p className="text-sm font-semibold tracking-tight">Sreemedhas Agent</p>
             <h1 className="truncate text-sm text-muted">{roomTitle}</h1>
           </div>
           <div className="flex items-center gap-3">

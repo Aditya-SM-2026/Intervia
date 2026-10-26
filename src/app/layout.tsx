@@ -21,8 +21,8 @@ const display = Bricolage_Grotesque({
 
 export const metadata: Metadata = {
   title: {
-    default: "Intervia — AI-powered conversations for better hiring",
-    template: "%s | Intervia",
+    default: "Sreemedhas Agent — AI-powered interviews for better hiring",
+    template: "%s | Sreemedhas Agent",
   },
   description: "AI-powered conversations for better hiring.",
 };

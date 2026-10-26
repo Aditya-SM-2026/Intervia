@@ -91,9 +91,9 @@ export function TopNav() {
     <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
         <div className="flex items-center gap-8">
-          <Link href="/" className="flex items-center gap-2.5" aria-label="Intervia home">
+          <Link href="/" className="flex items-center gap-2.5" aria-label="Sreemedhas Agent home">
             <span className="grid size-8 place-items-center rounded-lg bg-accent text-sm font-semibold text-white">I</span>
-            <span className="text-lg font-semibold tracking-tight">Intervia</span>
+            <span className="text-lg font-semibold tracking-tight">Sreemedhas Agent</span>
           </Link>
           <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
             {NAV_LINKS.map((link) => {

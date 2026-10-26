@@ -8,7 +8,7 @@ const steps = [
   {
     icon: Sparkles,
     title: "Add the role and the resume",
-    body: "Intervia turns the job description into an interview plan: the competencies that matter, one core question for each, and what a strong answer looks like.",
+    body: "Sreemedhas Agent turns the job description into an interview plan: the competencies that matter, one core question for each, and what a strong answer looks like.",
   },
   {
     icon: Mic,
@@ -56,7 +56,7 @@ export default async function Home() {
                 A real interviews, held by voice, scored on evidence.
               </h1>
               <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted">
-                Intervia interviews each candidate out loud, to a plan built from your job
+                Sreemedhas Agent interviews each candidate out loud, to a plan built from your job
                 description, and gives you a scorecard where every score points to what the
                 candidate said.
               </p>
@@ -236,7 +236,7 @@ export default async function Home() {
 
       <footer className="border-t border-border">
         <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-3 px-5 py-6 text-sm text-muted sm:flex-row sm:items-center sm:px-8">
-          <p>© {new Date().getFullYear()} Intervia</p>
+          <p>© {new Date().getFullYear()} Sreemedhas Agent</p>
           <p className="inline-flex items-center gap-1.5">
             <ShieldCheck className="h-4 w-4 text-candidate" />
             Scores backed by the transcript. Decisions by people.

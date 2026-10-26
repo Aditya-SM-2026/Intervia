@@ -339,11 +339,10 @@ class InterviewController:
         name = context.candidate_name or "the candidate"
         role = f"the {context.role_title} role" if context.role_title else "this role"
         return (
-            f"The candidate has just joined. Greet {name} by first name, say you are Intervia's AI "
-            f"interviewer for {role}, that this conversation will take about "
-            f"{context.duration_minutes} minutes and is being recorded, and that they can take a "
-            "moment to think before answering. Then ask them to briefly introduce themselves. "
-            "Keep the whole greeting under 30 seconds."
+            f"The candidate has just joined. Open with exactly this, short and plain: "
+            f"\"Hey {name}, I am the Sreemedhas Interview Agent, I am going to take your "
+            f"interview for {role}.\" Say nothing else first: no small talk, no mention of "
+            "recording, length or next steps. Then go straight into your first question."
         )
 
     # --- time enforcement ------------------------------------------------

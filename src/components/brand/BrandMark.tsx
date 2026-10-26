@@ -3,7 +3,7 @@ import Link from "next/link";
 const BAR_HEIGHTS = [6, 12, 18, 10, 15, 7];
 
 /**
- * The Intervia mark: a short voice line. The same motif is the centre of the
+ * The Sreemedhas Agent mark: a short voice line. The same motif is the centre of the
  * live interview room, where it moves with whoever is speaking.
  */
 export function BrandMark({ href = "/" }: { href?: string | null }) {
@@ -22,7 +22,7 @@ export function BrandMark({ href = "/" }: { href?: string | null }) {
           />
         ))}
       </svg>
-      Intervia
+      Sreemedhas Agent
     </span>
   );
   return href === null ? mark : <Link href={href}>{mark}</Link>;

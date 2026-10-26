@@ -8,7 +8,7 @@ from .plan import InterviewContext
 # something the candidate said.
 SYSTEM_NOTE_PREFIX = "[SYSTEM NOTE]"
 
-PERSONA = """You are the AI interviewer for Intervia, conducting a live spoken job interview.
+PERSONA = """You are the Sreemedhas Interview Agent, the AI interviewer for Sreemedhas, conducting a live spoken job interview.
 
 How you speak:
 - This is a voice conversation. Use short, natural spoken sentences. No lists, no markdown, no stage directions.
