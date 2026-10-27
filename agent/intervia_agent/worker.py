@@ -38,8 +38,8 @@ from .backend import Backend, iso_from_epoch, iso_now
 from .config import AGENT_NAME, CLIENT_EVENT_TOPIC, AgentConfig, load_env
 from .controller import (
     EVIDENCE_LEVELS,
-    HARD_STOP_GRACE_SECONDS,
-    WRAP_UP_LEAD_SECONDS,
+    CLOSING_LEAD_SECONDS,
+    CLOSING_OVERRUN_SECONDS,
     Directive,
     InterviewController,
 )
@@ -57,13 +57,12 @@ WATCHDOG_INTERVAL_SECONDS = 2.0
 CANDIDATE_REJOIN_GRACE_SECONDS = 300.0
 # A directive waits this long for the candidate to finish a sentence.
 MAX_WAIT_FOR_PAUSE_SECONDS = 15.0
-# After end_interview, the goodbye must have been silent this long to leave.
-END_SILENCE_SECONDS = 2.5
-END_MAX_WAIT_SECONDS = 25.0
-# If the interviewer finished a sentence this recently when it calls
-# end_interview, that sentence was the goodbye.
-GOODBYE_JUST_SAID_SECONDS = 3.0
-GOODBYE_MAX_SECONDS = 25.0
+# Spoken once, word for word, when the time is up. Short enough to finish
+# inside CLOSING_LEAD_SECONDS.
+CLOSING_SCRIPT = (
+    "I'm sorry to stop you there, but our time is up. Thank you for all the information "
+    "you've shared, it will be processed. Goodbye."
+)
 # Interviews that end this early are not marked completed, so the candidate
 # can rejoin with the same link (dropped connection, wrong device).
 MIN_COMPLETED_SECONDS = 60.0
@@ -84,17 +83,25 @@ class GatedAudioInput(io.AudioInput):
     While one model session is being replaced by another, anything the
     candidate says would reach neither. Holding the audio for that fraction of
     a second and then passing it on, in order, means no word is lost.
+
+    It can also mute the candidate for good: frames are replaced with silence,
+    so the model can no longer hear, answer or be interrupted by them.
     """
 
     def __init__(self, source: io.AudioInput) -> None:
         super().__init__(label="Gated", source=source)
         self._open = asyncio.Event()
         self._open.set()
+        self._muted = False
 
     def hold(self) -> None:
         self._open.clear()
 
     def release(self) -> None:
+        self._open.set()
+
+    def mute(self) -> None:
+        self._muted = True
         self._open.set()
 
     async def __anext__(self) -> rtc.AudioFrame:
@@ -105,6 +112,8 @@ class GatedAudioInput(io.AudioInput):
                 await asyncio.wait_for(self._open.wait(), timeout=GATE_MAX_HOLD_SECONDS)
             except TimeoutError:
                 self._open.set()
+        if self._muted:
+            return rtc.AudioFrame.create(frame.sample_rate, frame.num_channels, frame.samples_per_channel)
         return frame
 
 
@@ -137,7 +146,7 @@ class InterviewerAgent(Agent):
 
     async def on_enter(self) -> None:
         self._runtime.on_session_started()
-        if self._entering_note:
+        if self._entering_note and not self._runtime.closing:
             self._runtime.instruct(self._entering_note)
 
     @function_tool
@@ -158,6 +167,8 @@ class InterviewerAgent(Agent):
         """
         runtime = self._runtime
         assert runtime.controller is not None
+        if runtime.closing:
+            return "The interview is closing. Say nothing more."
         before = runtime.controller.step_key()
         briefing = runtime.next_topic(summary_of_last_answer, evidence)
         if runtime.fresh_sessions and runtime.controller.step_key() != before:
@@ -168,20 +179,16 @@ class InterviewerAgent(Agent):
     @function_tool
     async def end_interview(self, context: RunContext) -> str:
         """End the interview. Call this only after you have said goodbye to the candidate."""
+        # The system alone ends the interview, on its own timer, with its own
+        # goodbye: a model-chosen goodbye came early or twice.
+        if self._runtime.closing:
+            return "The interview has ended. Do not say anything more."
         controller = self._runtime.controller
-        remaining = controller.total_seconds - controller.elapsed() if controller else 0.0
-        # Strict schedule: the goodbye is spoken at T-8s, but the interview
-        # itself must run to the booked limit — the goodbye fills the final
-        # 8 seconds. Ending at T-8 would finish the meeting ~10s early.
-        if remaining > HARD_STOP_GRACE_SECONDS:
-            return (
-                f"Cannot end the interview yet: about {max(1, int(remaining))} seconds of the "
-                "scheduled time remain. The goodbye has been spoken; stay on the line quietly "
-                "or offer brief parting remarks until the system ends the session."
-            )
-        self._runtime.request_end("interviewer_ended")
-        # Anything spoken after this would be a second goodbye.
-        return "The interview has ended. Do not say anything more."
+        remaining = controller.remaining() if controller else 0.0
+        return (
+            f"Cannot end the interview: about {max(1, int(remaining))} seconds of the scheduled "
+            "time remain. Do not say goodbye. Continue the interview; the system will close it."
+        )
 
 
 class InterviewRuntime:
@@ -199,7 +206,6 @@ class InterviewRuntime:
         self._finished = False
         self._started_at_iso: str | None = None
         self._tasks: set[asyncio.Task[Any]] = set()
-        self._end_task: asyncio.Task[None] | None = None
         self._rejoin_task: asyncio.Task[None] | None = None
         self._outcome_task: asyncio.Task[None] | None = None
         # True while no candidate is in the room after one had joined.
@@ -220,8 +226,8 @@ class InterviewRuntime:
         self._user_stopped_at: float | None = None
         self._response_latency: float | None = None
         self._last_interviewer_turn_at: float | None = None
-        # Set when the time-up goodbye has been requested by the system.
-        self._time_up = False
+        # Set once the system closing has begun (the last CLOSING_LEAD_SECONDS).
+        self.closing = False
 
     # --- lifecycle -------------------------------------------------------
 
@@ -266,7 +272,8 @@ class InterviewRuntime:
                 audio_input=room_io.AudioInputOptions(frame_size_ms=20),
             ),
         )
-        if self.fresh_sessions and self.session.input.audio is not None:
+        # Always gated: the closing mutes the candidate through it.
+        if self.session.input.audio is not None:
             self._gate = GatedAudioInput(self.session.input.audio)
             self.session.input.audio = self._gate
         self.backend.add_event(
@@ -285,6 +292,7 @@ class InterviewRuntime:
         self.backend.add_event("interview_started", {"durationMinutes": self.context.duration_minutes})
         self.instruct(self.controller.opening_instructions())
         self._spawn(self._watchdog())
+        self._spawn(self._closing_timer())
 
     def instruct(self, text: str, allow_interruptions: bool = True) -> Any:
         """Has the interviewer act on a system instruction now.
@@ -348,7 +356,7 @@ class InterviewRuntime:
     def _maybe_renew_session(self) -> None:
         """Rolling mode: once the session is old enough, and the interviewer has
         just finished speaking, continue in a fresh one."""
-        if not self.rolling or self._renewing or self._finished or self._end_task is not None:
+        if not self.rolling or self._renewing or self._finished or self.closing:
             return
         assert self.controller is not None
         if self.controller.step_key()[0] in ("closing", "ended"):
@@ -366,7 +374,7 @@ class InterviewRuntime:
             # the start of another sentence.
             if (
                 self._finished
-                or self._end_task is not None
+                or self.closing
                 or self.session.agent_state != "listening"
                 or time.monotonic() - self._session_started_at < self.config.rolling_seconds
             ):
@@ -498,40 +506,6 @@ class InterviewRuntime:
         )
         return briefing
 
-    def request_end(self, reason: str) -> None:
-        assert self.controller is not None
-        self.controller.begin_closing()
-        if self._end_task is None:
-            now = time.time()
-            # The goodbye has just been spoken: leave now. Waiting gives the
-            # model time to answer the tool result with a second goodbye.
-            goodbye_said = any(
-                at is not None and now - at < GOODBYE_JUST_SAID_SECONDS
-                for at in (self._agent_stopped_at, self._last_interviewer_turn_at)
-            )
-            self._end_task = self._spawn(
-                self._end_after_goodbye("time_up" if self._time_up else reason, goodbye_said)
-            )
-
-    async def _end_after_goodbye(self, reason: str, goodbye_said: bool = False) -> None:
-        """Leaves once the interviewer has finished speaking its goodbye."""
-        assert self.session is not None
-        if goodbye_said:
-            await asyncio.sleep(0.4)
-            await self.finish(reason)
-            return
-        deadline = time.monotonic() + END_MAX_WAIT_SECONDS
-        quiet_since: float | None = None
-        while time.monotonic() < deadline:
-            if self.session.agent_state == "speaking":
-                quiet_since = None
-            else:
-                quiet_since = quiet_since or time.monotonic()
-                if time.monotonic() - quiet_since >= END_SILENCE_SECONDS:
-                    break
-            await asyncio.sleep(0.2)
-        await self.finish(reason)
-
     # --- time enforcement ------------------------------------------------
 
     async def _watchdog(self) -> None:
@@ -547,10 +521,6 @@ class InterviewRuntime:
         self.backend.add_event(
             "controller_directive", {**self.controller.state_snapshot(), "kind": directive.kind}
         )
-        if directive.kind == "hard_stop":
-            await self.finish("time_up")
-            return
-
         if directive.kind == "note":
             await self._note(directive.instructions)
             return
@@ -558,8 +528,7 @@ class InterviewRuntime:
         # Spoken directives wait for a gap: never over the candidate, and never
         # on top of the interviewer's own sentence.
         await self._wait_for_quiet(MAX_WAIT_FOR_PAUSE_SECONDS)
-        if directive.kind == "wrap_up":
-            await self._say_goodbye_and_finish(directive.instructions)
+        if self.closing or self._finished:
             return
         try:
             if self.fresh_sessions:
@@ -591,6 +560,8 @@ class InterviewRuntime:
         # Adding to the conversation while the interviewer is mid-sentence
         # would cut that sentence off; the candidate speaking is fine.
         await self._wait_for_quiet(MAX_WAIT_FOR_PAUSE_SECONDS, candidate=False)
+        if self.closing or self._finished:
+            return
         try:
             agent = self.session.current_agent
             chat_ctx = agent.chat_ctx.copy()
@@ -599,24 +570,63 @@ class InterviewRuntime:
         except Exception as error:  # noqa: BLE001
             logger.error("could not deliver system note: %s", error)
 
-    async def _say_goodbye_and_finish(self, instructions: str) -> None:
-        """Time is up: the goodbye and the ending do not depend on the model
-        choosing to call end_interview."""
-        assert self.session is not None
-        self._time_up = True
+    async def _closing_timer(self) -> None:
+        """Starts the closing exactly CLOSING_LEAD_SECONDS before the limit.
+
+        Its own timer rather than the watchdog's tick, which can be up to a
+        tick late and can be busy waiting for a pause.
+        """
+        assert self.controller is not None
+        await asyncio.sleep(max(0.0, self.controller.remaining() - CLOSING_LEAD_SECONDS))
+        await self._close_interview()
+
+    async def _close_interview(self) -> None:
+        """Time is up: a fixed goodbye nothing can interrupt, then the call ends
+        at the limit.
+
+        Whatever the candidate is doing, even mid-sentence, the interviewer
+        stops listening first: their audio is replaced with silence, so the
+        model can neither be cut off by them nor answer them afterwards.
+        """
+        assert self.controller is not None and self.session is not None
+        if self._finished or self.closing:
+            return
+        self.closing = True
+        self.controller.start_closing()
+        self.backend.add_event("closing_started", self.controller.state_snapshot())
+        limit = time.monotonic() + max(0.0, self.controller.remaining())
+        if self._gate is not None:
+            self._gate.mute()
+        # Anything the interviewer is saying stops now.
+        self._interrupt_speech()
+        # Let the model close the candidate's (now silent) turn, so it does not
+        # answer that turn after the goodbye.
+        await asyncio.sleep(self.config.turn_silence_ms / 1000 + 0.3)
+        self._interrupt_speech()
         try:
-            # From here on, anything the interviewer says is a goodbye, even if
-            # the candidate speaks again before the room closes.
-            await self.session.current_agent.update_instructions(
-                "The interview time is over. Do not ask any more questions. Whatever the "
-                "candidate says, reply only with a brief thank-you and goodbye."
+            handle = self.instruct(
+                f'The interview time is up. Say exactly this, and nothing else: "{CLOSING_SCRIPT}"',
+                allow_interruptions=False,
             )
-            handle = self.instruct(instructions, allow_interruptions=False)
-            await asyncio.wait_for(handle.wait_for_playout(), timeout=GOODBYE_MAX_SECONDS)
-            await asyncio.sleep(1.0)
+            await asyncio.wait_for(
+                handle.wait_for_playout(),
+                timeout=max(0.5, limit + CLOSING_OVERRUN_SECONDS - time.monotonic()),
+            )
         except Exception as error:  # noqa: BLE001
-            logger.warning("goodbye was not completed cleanly: %s", error)
+            logger.warning("closing goodbye was not completed cleanly: %s", error)
+        # Nothing after the goodbye reaches the candidate.
+        if self.session.output.audio is not None:
+            self.session.output.set_audio_enabled(False)
+        # The call ends at the booked limit, not before.
+        await asyncio.sleep(max(0.0, limit - time.monotonic()))
         await self.finish("time_up")
+
+    def _interrupt_speech(self) -> None:
+        assert self.session is not None
+        try:
+            self.session.interrupt(force=True)
+        except Exception as error:  # noqa: BLE001 - nothing playing is fine
+            logger.debug("nothing to interrupt: %s", error)
 
     # --- capture ---------------------------------------------------------
 
@@ -744,7 +754,7 @@ class InterviewRuntime:
                 self._rejoin_task.cancel()
                 self._rejoin_task = None
                 self.backend.add_event("candidate_reconnected")
-            if was_gone:
+            if was_gone and not self.closing:
                 # A returning candidate resumes the same session: the clock,
                 # plan and transcript were never reset. Instruct the
                 # interviewer to continue seamlessly instead of greeting.
@@ -768,9 +778,9 @@ class InterviewRuntime:
         # The candidate did not come back. The interview still ends exactly at
         # its scheduled time: hold the room until the clock runs out (a
         # returning candidate resumes the session in the meantime), then the
-        # time-up wrap-up closes it. This sleep is only a safety net in case
-        # the time-up watchdog cannot fire.
-        controller = self._runtime.controller
+        # system closing ends it. This sleep is only a safety net in case
+        # the closing timer cannot fire.
+        controller = self.controller
         remaining = controller.total_seconds - controller.elapsed() if controller else 0.0
         if remaining > 0:
             await asyncio.sleep(remaining + 5.0)

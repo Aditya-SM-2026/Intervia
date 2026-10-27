@@ -26,23 +26,15 @@ MIN_TOPIC_SECONDS = 90.0
 # How far past its budget a topic may run before the controller moves on.
 TOPIC_OVERRUN_GRACE_SECONDS = 25.0
 INTRO_OVERRUN_GRACE_SECONDS = 30.0
-# After the time-up goodbye has been requested, how long until a forced stop.
-# Kept small so the session never runs meaningfully past its scheduled end.
-HARD_STOP_GRACE_SECONDS = 1.0
-# The wrap-up directive fires this long before the limit, so the spoken
-# thank-you + goodbye lands right at the scheduled end time.
-WRAP_UP_LEAD_SECONDS = 8.0
-# The goodbye may be spoken (and end_interview called) only inside the
-# closing window: the last stretch before the limit, when the
-# "almost out of time" note has already gone out.
+# The closing is owned by the system, never by the model: this long before the
+# limit the candidate's audio is cut from the model, the interviewer says a
+# fixed thank-you and goodbye (which nothing can interrupt), and the call ends
+# at the limit. Same for every interview length.
+CLOSING_LEAD_SECONDS = 10.0
+# If the goodbye is still playing at the limit, it may finish for this long.
+CLOSING_OVERRUN_SECONDS = 3.0
+# Inside this last stretch no new topic or question block is started.
 CLOSING_WINDOW_SECONDS = 30.0
-# The goodbye must start this long before the time limit, for every duration
-# (user spec: greeting 8 seconds before the end, end exactly at the limit):
-# the silent wrap-up note is placed this far ahead, and the spoken wrap-up
-# (thank-you + goodbye) lands right at GOODBYE_LEAD_SECONDS before the end.
-GOODBYE_LEAD_SECONDS = 8.0
-# The silent note needs a little runway before the goodbye itself.
-GOODBYE_NOTE_LEAD_SECONDS = GOODBYE_LEAD_SECONDS + 8.0
 # The interviewer may not leave a topic before this share of its time budget
 # is used: it is asked to probe deeper instead (at most MAX_HOLDS times).
 FORCE_AFTER_NOTE_SECONDS = 60.0
@@ -82,10 +74,11 @@ class Directive:
     "note" is silent: it is placed in the conversation for the interviewer to
     act on at its next natural turn, so it never talks over the candidate or
     answers its own question. The other kinds make the interviewer speak now
-    and are used only when a note was not acted on, or time has run out.
+    and are used only when a note was not acted on. The end of the interview
+    is not a directive: the runtime closes it on its own timer.
     """
 
-    kind: Literal["note", "advance", "candidate_questions", "wrap_up", "hard_stop"]
+    kind: Literal["note", "advance", "candidate_questions"]
     instructions: str
 
 
@@ -103,8 +96,6 @@ class InterviewController:
         self.phase = Phase.INTRO
         self.topics = [TopicRecord(competency=c) for c in context.competencies]
         self._active_index: int | None = None
-        self._wrap_up_sent = False
-        self._hard_stop_sent = False
         self._intro_nudged = False
         # Set once the closing phase is due: the next topic request ends the topics.
         self._closing_due = False
@@ -113,15 +104,12 @@ class InterviewController:
         # Capped at a fifth of the interview so very short (test) interviews
         # still leave most of their time for the topics.
         self.intro_seconds = min(_clamp(self.total_seconds * 0.1, 60.0, 150.0), self.total_seconds * 0.2)
-        # Closing is not a fixed slice of the interview any more: the goodbye
-        # must start GOODBYE_LEAD_SECONDS before the limit, whatever the
-        # duration. The closing "phase" only exists to place the silent note
-        # (GOODBYE_NOTE_LEAD_SECONDS ahead) and the wrap-up directive.
-        self.closing_seconds = min(GOODBYE_NOTE_LEAD_SECONDS, self.total_seconds * 0.2)
+        # The topics stop this long before the limit (the "almost out of time"
+        # note); the system closing takes the last CLOSING_LEAD_SECONDS.
+        self.closing_seconds = min(CLOSING_WINDOW_SECONDS, self.total_seconds * 0.2)
         self.min_topic_seconds = min(MIN_TOPIC_SECONDS, self.total_seconds * 0.25)
         # How long a silent note may go unanswered before the controller speaks up.
-        # Clamped so the wrap-up lands at GOODBYE_LEAD_SECONDS before the limit.
-        self.force_after_seconds = min(FORCE_AFTER_NOTE_SECONDS, self.total_seconds * 0.15, self.closing_seconds - GOODBYE_LEAD_SECONDS)
+        self.force_after_seconds = min(FORCE_AFTER_NOTE_SECONDS, self.total_seconds * 0.15)
         self.probe_limit = PROBE_LIMITS.get(context.difficulty, 2)
 
     # --- clock -----------------------------------------------------------
@@ -202,12 +190,7 @@ class InterviewController:
         instructions to the interviewer.
         """
         if self.phase in (Phase.CLOSING, Phase.ENDED):
-            remaining = self.total_seconds - self.elapsed()
-            if remaining > WRAP_UP_LEAD_SECONDS + 2:
-                # The plan ended early but the clock has not: keep talking.
-                self.phase = Phase.CANDIDATE_QUESTIONS
-                return self._candidate_questions_briefing()
-            return "The interview is closing. Say goodbye and call end_interview."
+            return "The interview is closing. Say nothing more."
         if self.phase == Phase.CANDIDATE_QUESTIONS:
             return self._candidate_questions_briefing()
 
@@ -314,11 +297,11 @@ class InterviewController:
         remaining = self.total_seconds - self.elapsed()
         if remaining <= CLOSING_WINDOW_SECONDS:
             return (
-                "All planned topics are done and the interview is nearly out of time. Ask the "
-                "candidate whether they have any questions. Answer briefly from the job "
-                "description only; for anything you do not know, say the recruiter will follow "
-                "up. Then thank them, say the recruiter will be in touch with next steps, say "
-                "goodbye, and call end_interview."
+                "All planned topics are done and the interview is nearly out of time. Do not "
+                "start a new topic. Let the candidate finish, acknowledge briefly, and ask one "
+                "short follow-up on what they just said. Do NOT thank them for their time, do "
+                "NOT say goodbye and do NOT call end_interview: the system closes the interview "
+                "itself in the final seconds."
             )
         minutes = max(1, int(remaining // 60))
         return (
@@ -331,7 +314,7 @@ class InterviewController:
             "resume — areas the plan has not covered yet (specific projects, tools, past "
             "challenges, how they work with a team). One question at a time, building on what "
             "they say, exactly like the earlier topics. Do NOT say goodbye and do NOT call "
-            "end_interview: a system message will tell you when the time is up."
+            "end_interview: the system closes the interview itself when the time is up."
         )
 
     def opening_instructions(self) -> str:
@@ -353,45 +336,23 @@ class InterviewController:
             return None
         elapsed = self.elapsed()
 
-        if self._wrap_up_sent and not self._hard_stop_sent:
-            if elapsed >= self.total_seconds + HARD_STOP_GRACE_SECONDS:
-                self._hard_stop_sent = True
-                return Directive("hard_stop", "")
+        if self.phase == Phase.CLOSING:
+            # The system's closing owns the last seconds; nothing else is said.
             return None
-
-        if elapsed >= self.total_seconds - WRAP_UP_LEAD_SECONDS and not self._wrap_up_sent:
-            self._wrap_up_sent = True
-            if self.phase == Phase.CLOSING:
-                # The interviewer is already saying goodbye; do not ask twice.
-                return None
-            self._close_active(None, None, "controller")
-            self._enter_candidate_questions()
-            self.phase = Phase.CLOSING
-            return Directive(
-                "wrap_up",
-                "The scheduled time is up. In two sentences: thank the candidate, say the recruiter "
-                "will be in touch with next steps, and say goodbye. Do not ask anything else.",
-            )
 
         # Running over is handled in two steps: first a silent note that the
         # interviewer acts on after the candidate's current answer, and only if
         # that goes unanswered does the controller make it speak.
         if self.phase in (Phase.INTRO, Phase.TOPIC) and elapsed >= self._topics_deadline():
+            # Only a silent note here: a spoken directive this close to the end
+            # would be cut off by the system closing.
             if not self._closing_due:
                 self._closing_due = True
                 return Directive(
                     "note",
-                    "The interview is almost out of time. Do not ask any more interview questions. "
-                    "When the candidate finishes their current answer, acknowledge it briefly and "
-                    "call start_next_topic.",
-                )
-            if elapsed >= self._topics_deadline() + min(self.force_after_seconds, self.closing_seconds / 2):
-                self._close_active(None, None, "controller")
-                self._enter_candidate_questions()
-                return Directive(
-                    "candidate_questions",
-                    "We are almost out of time. Briefly acknowledge the candidate's last answer, "
-                    "then: " + self._candidate_questions_briefing(),
+                    "The interview is almost out of time. Do not start a new topic. When the "
+                    "candidate finishes their current answer, acknowledge it briefly and call "
+                    "start_next_topic. Do not say goodbye: the system closes the interview.",
                 )
             return None
 
@@ -440,9 +401,13 @@ class InterviewController:
             "a few words, then move on.\n" + briefing,
         )
 
-    def begin_closing(self) -> None:
-        if self.phase != Phase.ENDED:
-            self.phase = Phase.CLOSING
+    def start_closing(self) -> None:
+        """The system closing has begun: the topic in progress ends here."""
+        if self.phase == Phase.ENDED:
+            return
+        self._close_active(None, None, "controller")
+        self._enter_candidate_questions()
+        self.phase = Phase.CLOSING
 
     def end(self) -> None:
         # The topic in progress when the interview ends was not moved on by anyone.

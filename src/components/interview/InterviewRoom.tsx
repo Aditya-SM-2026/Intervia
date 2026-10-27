@@ -338,7 +338,9 @@ export function InterviewRoom({
       // Server-authoritative hard stop: on a resume, only the remaining time
       // (plus grace for a goodbye) is scheduled, never the full duration.
       const stopAfterMs =
-        (resumeRemaining !== undefined ? Math.max(0, resumeRemaining) : durationMinutes * 60_000) +
+        (resumeRemaining !== undefined
+          ? Math.max(0, resumeRemaining) * 1000
+          : durationMinutes * 60_000) +
         30_000;
       hardStopTimerRef.current = setTimeout(() => {
         hardStopTimerRef.current = null;

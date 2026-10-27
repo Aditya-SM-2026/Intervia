@@ -144,3 +144,32 @@ def test_the_audio_gate_holds_frames_and_releases_them_in_order():
         return seen
 
     assert asyncio.run(scenario()) == [1, 2, 3]
+
+
+def test_the_muted_gate_passes_only_silence():
+    import asyncio
+
+    from livekit import rtc
+    from livekit.agents.voice import io
+
+    from intervia_agent.worker import GatedAudioInput
+
+    class Source(io.AudioInput):
+        def __init__(self) -> None:
+            super().__init__(label="test")
+
+        async def __anext__(self):
+            frame = rtc.AudioFrame.create(48000, 1, 960)
+            for i in range(960):
+                frame.data[i] = 1000
+            return frame
+
+    async def scenario() -> tuple[int, int]:
+        gate = GatedAudioInput(Source())
+        before = await gate.__anext__()
+        gate.mute()
+        after = await gate.__anext__()
+        assert after.samples_per_channel == 960 and after.sample_rate == 48000
+        return max(before.data), max(after.data)
+
+    assert asyncio.run(scenario()) == (1000, 0)

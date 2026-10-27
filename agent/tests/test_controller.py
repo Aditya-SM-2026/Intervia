@@ -51,7 +51,7 @@ def test_walks_every_topic_then_candidate_questions():
         clock.advance(controller.active_topic.budget_seconds * 0.7)
     closing = controller.next_topic("summary", "strong")
     assert controller.phase == Phase.CANDIDATE_QUESTIONS
-    assert "end_interview" in closing
+    assert "not say goodbye" in closing.lower()
     assert statuses(controller) == ["covered", "covered", "covered"]
     assert controller.topics[0].evidence == "adequate"
     assert controller.topics[0].advanced_by == "interviewer"
@@ -61,8 +61,8 @@ def test_budgets_share_the_time_left_before_closing():
     controller, clock = make_controller(minutes=20, topics=4)
     clock.advance(100)
     controller.next_topic()
-    # 20 min, closing reserve 16s: 1200 - 16 - 100 = 1084s over 4 equal topics.
-    assert round(controller.topics[0].budget_seconds) == 271
+    # 20 min, closing reserve 30s: 1200 - 30 - 100 = 1070s over 4 equal topics.
+    assert round(controller.topics[0].budget_seconds) == 268
 
 
 def test_drops_lowest_priority_topics_when_time_is_short():
@@ -126,29 +126,37 @@ def test_closing_note_makes_the_next_topic_request_end_the_topics():
     assert controller.tick().kind == "note"
     assert controller.phase == Phase.TOPIC
     closing = controller.next_topic("answer", "adequate")
-    assert controller.phase == Phase.CANDIDATE_QUESTIONS and "end_interview" in closing
+    assert controller.phase == Phase.CANDIDATE_QUESTIONS and "not say goodbye" in closing.lower()
     assert statuses(controller) == ["covered", "skipped", "skipped"]
 
 
-def test_closing_then_wrap_up_then_hard_stop():
+def test_the_end_is_never_a_directive_the_model_can_act_on():
+    for minutes in (2, 5, 20, 30):
+        controller, clock = make_controller(minutes=minutes, topics=2)
+        clock.advance(20)
+        controller.next_topic()
+        kinds = []
+        while controller.elapsed() < controller.total_seconds + 5:
+            clock.advance(1)
+            directive = controller.tick()
+            if directive is not None:
+                kinds.append(directive.kind)
+                assert "goodbye" not in directive.instructions.lower().replace("not say goodbye", "")
+        assert set(kinds) <= {"note", "advance", "candidate_questions"}, minutes
+
+
+def test_system_closing_ends_the_topics_and_silences_the_plan():
     controller, clock = make_controller(minutes=10, topics=2)
     clock.advance(60)
     controller.next_topic()
-    clock.advance(600 - 60 - controller.closing_seconds)
-    assert controller.tick().kind == "note"
-
-    # The wrap-up fires 8 s before the limit so the goodbye lands on time.
-    clock.advance(9)
-    directive = controller.tick()
-    assert directive is not None and directive.kind == "wrap_up"
+    clock.advance(600 - 60 - 10)
+    controller.start_closing()
     assert controller.phase == Phase.CLOSING
     assert statuses(controller) == ["covered", "skipped"]
+    assert controller.topics[0].advanced_by == "controller"
     assert controller.tick() is None
-
-    clock.advance(10)  # 1 s past the limit: forced stop (exact end)
-    directive = controller.tick()
-    assert directive is not None and directive.kind == "hard_stop"
-    assert controller.tick() is None
+    assert controller.next_topic("late", "weak") == "The interview is closing. Say nothing more."
+    assert controller.phase == Phase.CLOSING
 
 
 def test_interviewer_is_held_on_a_topic_it_leaves_too_early():
@@ -180,20 +188,19 @@ def test_no_hold_when_enough_time_was_spent_or_candidate_has_nothing():
 
 def test_short_test_interview_still_reaches_a_topic():
     controller, clock = make_controller(minutes=2, topics=1)
-    assert controller.intro_seconds == 24 and controller.closing_seconds == 16
+    assert controller.intro_seconds == 24 and controller.closing_seconds == 24
     clock.advance(20)
     assert "Question 1?" in controller.next_topic()
-    assert round(controller.topics[0].budget_seconds) == 84
+    assert round(controller.topics[0].budget_seconds) == 76
 
 
-def test_no_second_goodbye_when_already_closing_at_time_up():
-    controller, clock = make_controller(minutes=10, topics=1)
-    clock.advance(595)
-    controller.begin_closing()  # the interviewer called end_interview
-    clock.advance(10)
-    assert controller.tick() is None
-    clock.advance(46)
-    assert controller.tick().kind == "hard_stop"  # still forced if it never leaves
+def test_last_stretch_briefing_never_asks_for_a_goodbye():
+    controller, clock = make_controller(minutes=5, topics=1)
+    clock.advance(20)
+    controller.next_topic()
+    clock.advance(300 - 20 - 25)
+    briefing = controller.next_topic("done", "adequate")
+    assert "not say goodbye" in briefing.lower() and "call end_interview." not in briefing
 
 
 def test_probe_limit_follows_difficulty():
