@@ -48,3 +48,21 @@ test("listRecordings reads a LiveKit-egress style GCS recording_started", () => 
   assert.equal(ref.kind, "gcs");
   if (ref.kind === "gcs") assert.deepEqual(ref.object, { bucket: "b", path: "p/x.mp4" });
 });
+
+test("the uploaded GCS copy keeps the recording's real start time", () => {
+  // The upload is logged minutes after the interview began. Answer windows are
+  // measured from the recording's start, so the uploaded ref must keep it.
+  const started = { ...event("recording_started", { storage: "local", recordingId: "candidate-abc" }), at: "2026-10-14T10:00:00.000Z" };
+  const uploaded = {
+    ...event("recording_uploaded", {
+      storage: "gcs",
+      bucket: "recordings-bucket",
+      path: "room-1/candidate-abc.play.webm",
+      recordingId: "candidate-abc",
+    }),
+    at: "2026-10-14T10:05:00.000Z",
+  };
+  const gcs = listRecordings([started, uploaded]).filter((ref) => ref.kind === "gcs");
+  assert.equal(gcs.length, 1);
+  assert.equal(gcs[0].startedAt, "2026-10-14T10:00:00.000Z");
+});

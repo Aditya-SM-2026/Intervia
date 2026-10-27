@@ -50,7 +50,7 @@ import type {
  */
 
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
-const SEGMENT_SECONDS = 150;
+export const SEGMENT_SECONDS = 150;
 const SEGMENT_TIMEOUT_MS = 180_000;
 const MAX_PARALLEL_SEGMENTS = 3;
 /** Without ffmpeg the whole file is sent as one clip, if it is small enough. */
@@ -184,7 +184,7 @@ const PROMPT_TAIL = [
   "Reply with a single JSON object: { faceVisible, answers: [{ id, whileListening, whileAnswering, steady, reading, note }], moments: [{ at, durationSeconds, kind, description }] }.",
 ].join("\n");
 
-function result(
+export function result(
   status: VideoBehaviour["status"],
   reason: string | null,
   extra?: Partial<VideoBehaviour>,
@@ -247,7 +247,7 @@ export async function pickRecording(events: readonly InterviewEvent[]): Promise<
 
 // --- analysis ----------------------------------------------------------------
 
-interface TimedAnswer {
+export interface TimedAnswer {
   turnSeq: number;
   /** Seconds into the recording. */
   start: number;
@@ -256,7 +256,7 @@ interface TimedAnswer {
 }
 
 /** Candidate answers placed on the recording's clock. */
-function timedAnswers(turns: readonly InterviewTurn[], recordingStartMs: number): TimedAnswer[] {
+export function timedAnswers(turns: readonly InterviewTurn[], recordingStartMs: number): TimedAnswer[] {
   const answers: TimedAnswer[] = [];
   let questionStartMs: number | null = null;
   for (const turn of turns) {
@@ -426,8 +426,103 @@ export function describeDirection(direction: GazeDirection): string {
   return DIRECTION_WORDS[direction];
 }
 
+/** One analyser's report for one clip, on the recording's own clock. */
+export interface SegmentOutcome {
+  offset: number;
+  faceVisible: boolean;
+  model: string;
+  answers: {
+    turnSeq: number;
+    start: number;
+    end: number;
+    whileListening: GazeDirection;
+    whileAnswering: GazeDirection;
+    steady: boolean;
+    reading: boolean;
+    note: string;
+  }[];
+  moments: {
+    atSeconds: number;
+    durationSeconds: number;
+    kind: VideoMomentKind;
+    description: string;
+  }[];
+}
+
+/**
+ * Turns per-clip reports into the stored video section. Shared by the inline
+ * analyser and by the analysis worker, so both produce the same shape.
+ */
+export function combineSegmentReports(
+  reports: readonly SegmentOutcome[],
+  options: {
+    totalSegments: number;
+    tab: { hiddenCount: number; hiddenSeconds: number };
+    durationSeconds: number | null;
+  },
+): VideoBehaviour {
+  const observed: AnswerGaze[] = [];
+  const moments: VideoMoment[] = [];
+  for (const report of reports) {
+    for (const item of report.answers) {
+      observed.push({
+        turnSeq: item.turnSeq,
+        atSeconds: Math.round(item.start),
+        durationSeconds: Math.round(item.end - item.start),
+        whileListening: item.whileListening,
+        whileAnswering: item.whileAnswering,
+        steady: item.steady,
+        reading: item.reading,
+        note: item.note,
+      });
+    }
+    for (const moment of report.moments) {
+      moments.push({
+        atSeconds: Math.round(moment.atSeconds),
+        durationSeconds: Math.round(moment.durationSeconds),
+        kind: moment.kind,
+        description: moment.description,
+      });
+    }
+  }
+  observed.sort((a, b) => a.atSeconds - b.atSeconds);
+  moments.sort((a, b) => a.atSeconds - b.atSeconds);
+
+  const faceSeen = reports.some((report) => report.faceVisible);
+  const pattern = gazePattern(observed);
+  const enough = faceSeen && pattern.answersObserved >= MIN_ANSWERS_FOR_PATTERN;
+  const partial = reports.length < options.totalSegments;
+  const model = [...new Set(reports.map((report) => report.model))].join(", ");
+
+  return {
+    status: "analysed",
+    // With no face, or too few answers to judge, there is nothing to score:
+    // the factor is left out rather than shown as a clean 100.
+    score: enough ? videoBehaviourScore(moments, options.tab, pattern) : null,
+    attentionPercent:
+      pattern.answersObserved === 0
+        ? null
+        : Math.round(
+            (100 * (pattern.answersObserved - pattern.sameSpotAnswers)) / pattern.answersObserved,
+          ),
+    moments,
+    summary: summarise(pattern, moments, faceSeen),
+    model,
+    reason: !faceSeen
+      ? "No face could be seen in the recording, so on-camera behaviour was not scored."
+      : !enough
+        ? "Too few answers could be judged on camera to score a pattern."
+        : partial
+          ? "Part of the recording could not be analysed; the result covers the rest."
+          : null,
+    answers: observed,
+    pattern,
+    durationSeconds: options.durationSeconds === null ? null : Math.round(options.durationSeconds),
+  };
+}
+
 /** Two factual sentences, written from the computed pattern, not by a model. */
-function summarise(pattern: GazePattern, moments: readonly VideoMoment[], faceSeen: boolean): string {
+export function summarise(pattern: GazePattern, moments: readonly VideoMoment[], faceSeen: boolean): string {
   if (!faceSeen) return "No face could be seen in the recording.";
   const parts: string[] = [];
   if (pattern.answersObserved === 0) {
@@ -720,7 +815,7 @@ function parseJsonObject(text: string): unknown {
 }
 
 /** "mm:ss" or "h:mm:ss" to seconds. */
-function parseClock(value: string): number {
+export function parseClock(value: string): number {
   const parts = value.trim().split(":").map(Number);
   if (parts.length < 2 || parts.length > 3 || parts.some((part) => !Number.isFinite(part))) {
     return Number.NaN;

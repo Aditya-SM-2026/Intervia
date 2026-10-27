@@ -25,13 +25,24 @@ export interface RecordingEvent {
 /** Every recording logged for an interview, oldest first. */
 export function listRecordings(events: readonly RecordingEvent[]): RecordingRef[] {
   const found: RecordingRef[] = [];
+  // The uploaded copy is logged when the upload finished, minutes after the
+  // interview started. Answer windows are measured from the recording's real
+  // start, so the upload honours the matching "recording_started" timestamp.
+  const starts = new Map<string, string>();
+  for (const event of events) {
+    if (event.type !== "recording_started") continue;
+    const id = event.data.recordingId;
+    if (typeof id === "string") starts.set(id, event.at);
+  }
   for (const event of events) {
     if (event.type !== "recording_started" && event.type !== "recording_uploaded") continue;
     const { bucket, path: objectPath, storage, recordingId, mimeType } = event.data;
     if (event.type === "recording_uploaded" && typeof bucket === "string" && typeof objectPath === "string") {
       // The copy of a locally-stored recording that was pushed to GCS once it
       // finished; playable from any deployment, so it is always listed.
-      found.push({ kind: "gcs", object: { bucket, path: objectPath }, startedAt: event.at });
+      const startedAt =
+        (typeof recordingId === "string" ? starts.get(recordingId) : undefined) ?? event.at;
+      found.push({ kind: "gcs", object: { bucket, path: objectPath }, startedAt });
       continue;
     }
     if (storage === "local" && typeof recordingId === "string") {

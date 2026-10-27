@@ -35,6 +35,13 @@ import {
   skippedAnalysesFor,
 } from "./transcript-quality";
 import { analyseCandidateVideo, hasRecording, pickRecording } from "./video-analysis.service";
+import {
+  buildVideoJob,
+  enqueueVideoAnalysis,
+  queuedVideo,
+  videoAnalysisMode,
+  type VideoJob,
+} from "./video-analysis.worker";
 
 /**
  * Post-interview scoring. Runs after the live interview, never during it:
@@ -129,6 +136,62 @@ const inFlight = (globalThis as unknown as InFlight).__scorecardInFlight ??
   ((globalThis as unknown as InFlight).__scorecardInFlight = new Map());
 
 type ScoreOutcome = { scorecard: Scorecard | null; reason: string | null };
+
+/** Jobs waiting to be handed to the analysis worker once the scorecard is stored. */
+const pendingVideoJobs = new Map<string, VideoJob>();
+
+/**
+ * Decides how the on-camera section is produced: reuse an earlier result,
+ * skip it for a thin transcript, hand it to the worker, or (the default)
+ * analyse it inline in this process.
+ */
+async function planVideo(
+  roomId: string,
+  events: readonly InterviewEvent[],
+  turns: readonly InterviewTurn[],
+  previous: Scorecard | null,
+  tab: { hiddenCount: number; hiddenSeconds: number },
+  deeperAnalysis: boolean,
+  skipReason: string,
+): Promise<VideoBehaviour> {
+  if (previous?.video?.status === "analysed" && previous.video.answers !== undefined) {
+    return previous.video;
+  }
+  if (!deeperAnalysis) return skippedVideoBehaviour(`${skipReason} - video analysis skipped`);
+  if (videoAnalysisMode() === "worker") {
+    const built = await buildVideoJob(roomId, events, turns, tab);
+    if ("job" in built) {
+      pendingVideoJobs.set(roomId, built.job);
+      return queuedVideo();
+    }
+    return built.behaviour;
+  }
+  return analyseCandidateVideo(events, turns, tab);
+}
+
+/** Hands a queued job to the worker; a failed hand-off is stored, not hidden. */
+async function deliverVideoJob(roomId: string, job: VideoJob): Promise<void> {
+  const sent = await enqueueVideoAnalysis(job);
+  if (sent) return;
+  const repository = getInterviewRepository();
+  const scorecard = await repository.getScorecard(roomId);
+  if (!scorecard) return;
+  await repository.saveScorecard({
+    ...scorecard,
+    video: {
+      status: "failed",
+      score: null,
+      attentionPercent: null,
+      moments: [],
+      summary: "",
+      model: null,
+      reason: "The analysis worker could not be reached. Regenerate to try again.",
+      answers: [],
+      pattern: null,
+      durationSeconds: null,
+    },
+  });
+}
 
 /**
  * Everything the recruiter's interview page needs. Generates the scorecard on
@@ -238,6 +301,11 @@ export async function scoreInterview(
       const previous = await repository.getScorecard(roomId);
       const scorecard = await buildScorecard(session, session.plan, turns, events, previous);
       await repository.saveScorecard(scorecard);
+      const queuedJob = pendingVideoJobs.get(roomId);
+      if (queuedJob) {
+        pendingVideoJobs.delete(roomId);
+        void deliverVideoJob(roomId, queuedJob);
+      }
       return { scorecard, reason: null };
     } catch (error) {
       console.error(
@@ -391,12 +459,7 @@ async function buildScorecard(
       secondScores.set(item.competencyId, item.score === null ? null : Math.round(item.score));
     }
   }
-  const videoPromise: Promise<VideoBehaviour> =
-    previous?.video?.status === "analysed" && previous.video.answers !== undefined
-      ? Promise.resolve(previous.video)
-      : deeperAnalysis
-        ? analyseCandidateVideo(events, turns, earlyTab)
-        : Promise.resolve(skippedVideoBehaviour(skipReason + " - video analysis skipped"));
+  const videoPromise: VideoBehaviour = await planVideo(session.id, events, turns, previous, earlyTab, deeperAnalysis, skipReason);
 
   if (withdrawn > 0) {
     notes.push(
@@ -451,7 +514,7 @@ async function buildScorecard(
   // An analysis of the recording is kept across regenerations: it is the slow
   // and costly step, and the recording does not change. It is started at the
   // top of this function, in parallel with the text graders.
-  const video: VideoBehaviour = await videoPromise;
+  const video: VideoBehaviour = videoPromise;
 
   const resumeMatch = buildResumeMatch(
     session,

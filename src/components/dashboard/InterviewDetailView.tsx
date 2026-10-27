@@ -1044,7 +1044,7 @@ function VideoSection({
     answer.whileAnswering === pattern.direction;
 
   return (
-    <section id="video" className="scroll-mt-6">
+    <section id="video" className="scroll-mt-6" data-video-model={video.model ?? undefined}>
       <SectionHeading
         title="On-camera behaviour"
         note="From the recording of the candidate's own camera. Everyone looks away to think, so a single look counts for nothing. What is measured is whether the candidate kept returning to the same spot off the screen while answering, and not while listening. These are clips to watch, not proof."
@@ -1153,6 +1153,20 @@ function VideoSection({
                 </ul>
               )}
             </>
+          ) : video.status === "queued" ? (
+            <div className="mt-4 space-y-2 text-sm text-muted">
+              <p className="inline-flex items-center gap-2">
+                <span className="size-2 animate-pulse rounded-full bg-accent" />
+                The recording is being analysed in the background.
+              </p>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink hover:bg-white/[0.04]"
+              >
+                Refresh
+              </button>
+            </div>
           ) : (
             <p className="mt-4 text-sm text-muted">
               {video.reason ?? "The recording has not been analysed."} This factor is left out of the
