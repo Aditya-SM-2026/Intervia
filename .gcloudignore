@@ -6,6 +6,7 @@ node_modules
 *.log
 *.txt
 !video-analysis/requirements.txt
+!worker/requirements.txt
 .dockerignore
 .gcloudignore
 .data
@@ -13,4 +14,6 @@ node_modules
 graphify-out
 agent/.venv
 agent/tests
+video-analysis/.venv
+media
 **/__pycache__
