@@ -185,12 +185,67 @@ async function deliverVideoJob(roomId: string, job: VideoJob): Promise<void> {
       moments: [],
       summary: "",
       model: null,
-      reason: "The analysis worker could not be reached. Regenerate to try again.",
+      reason: "The analysis worker could not be reached. Try the video analysis again in a moment.",
       answers: [],
       pattern: null,
       durationSeconds: null,
     },
   });
+}
+
+/**
+ * Runs the on-camera analysis for one interview when a recruiter asks for it.
+ *
+ * Scoring runs keep the transcript gate, so a thin interview never pays for
+ * video work on its own. This is the deliberate override: the recruiter looks
+ * at a report whose video was skipped or failed and asks for it anyway.
+ */
+export async function requestVideoAnalysis(
+  roomId: string,
+): Promise<
+  | { queued: true }
+  | { queued: false; code: "ROOM_NOT_FOUND" | "ROOM_UNAVAILABLE"; reason: string }
+> {
+  const repository = getInterviewRepository();
+  const scorecard = await repository.getScorecard(roomId);
+  if (!scorecard) {
+    return { queued: false, code: "ROOM_NOT_FOUND", reason: "This interview has no report yet." };
+  }
+
+  const status = scorecard.video?.status;
+  if (status === "queued") {
+    return {
+      queued: false,
+      code: "ROOM_UNAVAILABLE",
+      reason: "The video analysis is already running.",
+    };
+  }
+  if (status === "analysed" && scorecard.video?.answers !== undefined) {
+    return {
+      queued: false,
+      code: "ROOM_UNAVAILABLE",
+      reason: "This interview already has a video analysis.",
+    };
+  }
+
+  const [turns, events] = await Promise.all([
+    repository.getTurns(roomId),
+    repository.getEvents(roomId),
+  ]);
+  const built = await buildVideoJob(roomId, events, turns, tabStatsFromEvents(events));
+  if ("behaviour" in built) {
+    // Nothing to send to the worker: store why, so the card explains itself.
+    await repository.saveScorecard({ ...scorecard, video: built.behaviour });
+    return {
+      queued: false,
+      code: "ROOM_UNAVAILABLE",
+      reason: built.behaviour.reason || "This recording cannot be analysed.",
+    };
+  }
+
+  await repository.saveScorecard({ ...scorecard, video: queuedVideo() });
+  await deliverVideoJob(roomId, built.job);
+  return { queued: true };
 }
 
 /**

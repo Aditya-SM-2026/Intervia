@@ -230,6 +230,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
   const [detail, setDetail] = useState<InterviewDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isVideoRequesting, setIsVideoRequesting] = useState(false);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -253,6 +254,33 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
     };
   }, [roomId, router]);
 
+  // While the analyser is working, refresh the report until the result lands.
+  const videoQueued = detail?.scorecard?.video?.status === "queued";
+  useEffect(() => {
+    if (!videoQueued) return;
+    let cancelled = false;
+    let attempts = 0;
+    const timer = setInterval(() => {
+      attempts += 1;
+      if (attempts > 40) {
+        clearInterval(timer);
+        return;
+      }
+      fetchDetail(`/api/dashboard/interviews/${roomId}`, "GET")
+        .then((result) => {
+          if (cancelled || result === "unauthorized") return;
+          setDetail(result);
+        })
+        .catch(() => {
+          // Keep trying; a single failed poll should not stop the wait.
+        });
+    }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [videoQueued, roomId]);
+
   async function handleRegenerate() {
     setIsRegenerating(true);
     try {
@@ -267,6 +295,30 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       setError(cause instanceof Error ? cause.message : "Could not regenerate the scorecard.");
     } finally {
       setIsRegenerating(false);
+    }
+  }
+
+  /** Asks the analyser to look at this recording, even though scoring skipped it. */
+  async function handleAnalyseVideo() {
+    setIsVideoRequesting(true);
+    try {
+      const response = await fetch(`/api/dashboard/interviews/${roomId}/video`, { method: "POST" });
+      if (response.status === 401) {
+        router.replace(`/login?next=/dashboard/${roomId}`);
+        return;
+      }
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        showToast(body?.error?.message ?? "Could not start the video analysis.");
+        return;
+      }
+      showToast("Video analysis started");
+      const result = await fetchDetail(`/api/dashboard/interviews/${roomId}`, "GET");
+      if (result !== "unauthorized") setDetail(result);
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : "Could not start the video analysis.");
+    } finally {
+      setIsVideoRequesting(false);
     }
   }
 
@@ -416,6 +468,8 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
                 videoRef={videoRef}
                 durationSeconds={session.outcome?.elapsedSeconds ?? null}
                 onPlay={playFrom}
+                onAnalyseVideo={handleAnalyseVideo}
+                isAnalysing={isVideoRequesting}
               />
             </>
           ) : (
@@ -1461,6 +1515,8 @@ function VideoSection({
   videoRef,
   durationSeconds,
   onPlay,
+  onAnalyseVideo,
+  isAnalysing,
 }: {
   scorecard: Scorecard;
   hasRecording: boolean;
@@ -1468,6 +1524,8 @@ function VideoSection({
   videoRef: React.RefObject<HTMLVideoElement | null>;
   durationSeconds: number | null;
   onPlay: (seconds: number) => void;
+  onAnalyseVideo: () => void;
+  isAnalysing: boolean;
 }) {
   const video = scorecard.video;
   if (!video) return null;
@@ -1619,9 +1677,41 @@ function VideoSection({
               )}
             </>
           ) : (
-            <p className="mt-3 text-xs text-slate-500">
-              {video.reason ?? "The recording has not been analysed."}
-            </p>
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-slate-500">
+                {video.reason ?? "The recording has not been analysed."}
+              </p>
+              {video.status === "queued" && (
+                <p className="flex items-center gap-2 text-xs font-medium text-blue-600 dark:text-accent">
+                  <span className="size-1.5 animate-pulse rounded-full bg-blue-500 dark:bg-accent" />
+                  The analyser is working on this recording. This card updates by itself.
+                </p>
+              )}
+              {hasRecording && (video.status === "skipped" || video.status === "failed") && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={onAnalyseVideo}
+                    disabled={isAnalysing}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60 dark:border-border dark:bg-surface dark:text-slate-200"
+                  >
+                    {video.status === "failed" ? (
+                      <RotateCcw className="size-3.5" />
+                    ) : (
+                      <Video className="size-3.5" />
+                    )}
+                    {isAnalysing
+                      ? "Starting…"
+                      : video.status === "failed"
+                        ? "Try video analysis again"
+                        : "Analyse video anyway"}
+                  </button>
+                  <span className="text-[11px] text-slate-400">
+                    Watches the recording for eye contact and presence. Takes about a minute.
+                  </span>
+                </div>
+              )}
+            </div>
           )}
 
           <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/80 p-3 text-[11px] text-slate-500 dark:border-border dark:bg-background/40">
