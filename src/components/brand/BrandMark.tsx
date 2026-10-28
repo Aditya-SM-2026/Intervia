@@ -1,28 +1,22 @@
+import Image from "next/image";
 import Link from "next/link";
 
-const BAR_HEIGHTS = [6, 12, 18, 10, 15, 7];
-
 /**
- * The Sreemedhas Agent mark: a short voice line. The same motif is the centre of the
- * live interview room, where it moves with whoever is speaking.
+ * The product mark: the Sreemedhas company logo. The artwork is dark ink on
+ * transparent, so it always sits on a light plate — that keeps it legible in
+ * both the light and the dark theme.
  */
 export function BrandMark({ href = "/" }: { href?: string | null }) {
   const mark = (
-    <span className="inline-flex items-center gap-2.5 font-display text-lg font-semibold tracking-tight">
-      <svg width="26" height="20" viewBox="0 0 26 20" aria-hidden="true">
-        {BAR_HEIGHTS.map((height, index) => (
-          <rect
-            key={index}
-            x={index * 4.4}
-            y={(20 - height) / 2}
-            width="2.6"
-            height={height}
-            rx="1.3"
-            fill={index < 3 ? "var(--accent)" : "var(--candidate)"}
-          />
-        ))}
-      </svg>
-      Sreemedhas Agent
+    <span className="inline-flex items-center rounded-lg bg-white px-2.5 py-1.5">
+      <Image
+        src="/company_logo_sreemedhas.png"
+        alt="Sreemedhas Software Technologies"
+        width={150}
+        height={40}
+        priority
+        className="h-7 w-auto object-contain"
+      />
     </span>
   );
   return href === null ? mark : <Link href={href}>{mark}</Link>;

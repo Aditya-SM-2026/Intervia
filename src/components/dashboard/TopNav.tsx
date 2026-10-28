@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, FileText, LogOut, Monitor, Moon, Plus, Search, Sun } from "lucide-react";
 import type { DashboardAnalytics } from "@/lib/dashboard/dashboard.types";
@@ -92,8 +93,16 @@ export function TopNav() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
         <div className="flex items-center gap-8">
           <Link href="/" className="flex items-center gap-2.5" aria-label="Sreemedhas Agent home">
-            <span className="grid size-8 place-items-center rounded-lg bg-accent text-sm font-semibold text-white">I</span>
-            <span className="text-lg font-semibold tracking-tight">Sreemedhas Agent</span>
+            <span className="inline-flex items-center rounded-lg bg-white px-2 py-1">
+              <Image
+                src="/company_logo_sreemedhas.png"
+                alt="Sreemedhas Software Technologies"
+                width={140}
+                height={37}
+                priority
+                className="h-7 w-auto object-contain"
+              />
+            </span>
           </Link>
           <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
             {NAV_LINKS.map((link) => {

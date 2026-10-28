@@ -27,6 +27,19 @@ class Competency:
 
 
 @dataclass(frozen=True)
+class AgentPersonality:
+    """Recruiter overrides for the interviewer's instructions.
+
+    Every field is optional: empty means "use the built-in text in prompts.py",
+    so an untouched settings screen leaves the agent exactly as it was.
+    """
+
+    persona: str = ""
+    conduct: str = ""
+    styles: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class InterviewContext:
     interview_id: str
     role_title: str
@@ -40,6 +53,7 @@ class InterviewContext:
     # "standard": one model session per interview. "rolling": a fresh session
     # at each topic change and every minute or two (see worker.py).
     voice_mode: str = "standard"
+    personality: AgentPersonality = field(default_factory=AgentPersonality)
 
 
 FALLBACK_COMPETENCIES: tuple[Competency, ...] = (
@@ -122,6 +136,20 @@ def parse_context(interview_id: str, payload: Any) -> InterviewContext:
     difficulty = _text(interview.get("difficulty"), "medium")
     voice_mode = _text(interview.get("voiceMode"), "standard")
 
+    personality_raw = data.get("personality") if isinstance(data.get("personality"), dict) else {}
+    styles_raw = (
+        personality_raw.get("styles") if isinstance(personality_raw.get("styles"), dict) else {}
+    )
+    personality = AgentPersonality(
+        persona=_text(personality_raw.get("persona")),
+        conduct=_text(personality_raw.get("conduct")),
+        styles={
+            key: value.strip()
+            for key, value in styles_raw.items()
+            if key in DIFFICULTIES and isinstance(value, str) and value.strip()
+        },
+    )
+
     return InterviewContext(
         interview_id=interview_id,
         role_title=_text(interview.get("roleTitle")),
@@ -133,4 +161,5 @@ def parse_context(interview_id: str, payload: Any) -> InterviewContext:
         candidate_summary=_text(plan.get("candidateSummary")),
         competencies=competencies or FALLBACK_COMPETENCIES,
         voice_mode=voice_mode if voice_mode in VOICE_MODES else "standard",
+        personality=personality,
     )

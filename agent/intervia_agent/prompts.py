@@ -40,7 +40,15 @@ STYLES = {
 
 
 def build_instructions(context: InterviewContext) -> str:
-    sections = [PERSONA, CONDUCT, STYLES.get(context.difficulty, STYLES["medium"])]
+    # A recruiter can override any part of this from Settings; an empty value
+    # keeps the built-in text above, so the agent only changes once someone
+    # actually writes something.
+    personality = context.personality
+    persona = personality.persona or PERSONA
+    conduct = personality.conduct or CONDUCT
+    default_style = STYLES.get(context.difficulty, STYLES["medium"])
+    style = personality.styles.get(context.difficulty) or default_style
+    sections = [persona, conduct, style]
 
     logistics = [
         "Interview details:",
