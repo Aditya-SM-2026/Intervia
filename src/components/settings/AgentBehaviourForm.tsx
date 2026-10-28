@@ -54,7 +54,6 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
     "extra-hard": initial.styles["extra-hard"] ?? "",
   });
   const [saving, setSaving] = useState(false);
-  const [resetting, setResetting] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,6 +72,7 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
       const response = await fetch("/api/settings/agent", {
         method: "PUT",
         headers: { "content-type": "application/json" },
+        // The voice is managed on its own page; this save leaves it untouched.
         body: JSON.stringify({ persona, conduct, styles }),
       });
       if (!response.ok) {
@@ -90,11 +90,17 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
   }
 
   async function restoreDefaults() {
-    setResetting(true);
+    setSaving(true);
     setError(null);
     setSaved(null);
     try {
-      const response = await fetch("/api/settings/agent", { method: "DELETE" });
+      // Clearing the text through PUT keeps the chosen voice intact. DELETE
+      // would reset the whole row, including the voice.
+      const response = await fetch("/api/settings/agent", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ persona: "", conduct: "", styles: {} }),
+      });
       if (!response.ok) throw new Error("Could not restore the basic personality.");
       setPersona("");
       setConduct("");
@@ -103,7 +109,7 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
-      setResetting(false);
+      setSaving(false);
     }
   }
 
@@ -207,7 +213,7 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
         <button
           type="button"
           onClick={save}
-          disabled={saving || resetting}
+          disabled={saving}
           className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
         >
           {saving ? (
@@ -220,11 +226,11 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
         <button
           type="button"
           onClick={restoreDefaults}
-          disabled={saving || resetting}
+          disabled={saving}
           className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-background disabled:opacity-60"
         >
           <RotateCcw className="size-4" aria-hidden />
-          {resetting ? "Restoring…" : "Restore basic personality"}
+          Restore basic personality
         </button>
         <Link
           href="/dashboard/settings"

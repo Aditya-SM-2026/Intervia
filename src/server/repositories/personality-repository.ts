@@ -27,14 +27,17 @@ CREATE TABLE IF NOT EXISTS agent_settings (
   persona TEXT NOT NULL DEFAULT '',
   conduct TEXT NOT NULL DEFAULT '',
   styles JSONB NOT NULL DEFAULT '{}'::jsonb,
+  voice TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE agent_settings ADD COLUMN IF NOT EXISTS voice TEXT NOT NULL DEFAULT '';
 `;
 
 let memoryRow: AgentPersonality = {
   persona: "",
   conduct: "",
   styles: {},
+  voice: "",
   updatedAt: null,
 };
 
@@ -70,6 +73,7 @@ interface SettingsRow {
   persona: string;
   conduct: string;
   styles: Record<string, string> | null;
+  voice: string | null;
   updated_at: Date;
 }
 
@@ -78,15 +82,16 @@ export async function readAgentPersonality(): Promise<AgentPersonality> {
 
   await ensureSchema();
   const result = await getPool().query<SettingsRow>(
-    "SELECT persona, conduct, styles, updated_at FROM agent_settings WHERE id = $1",
+    "SELECT persona, conduct, styles, voice, updated_at FROM agent_settings WHERE id = $1",
     [ROW_ID],
   );
   const row = result.rows[0];
-  if (!row) return { persona: "", conduct: "", styles: {}, updatedAt: null };
+  if (!row) return { persona: "", conduct: "", styles: {}, voice: "", updatedAt: null };
   return {
     persona: row.persona ?? "",
     conduct: row.conduct ?? "",
     styles: row.styles ?? {},
+    voice: row.voice ?? "",
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
   };
 }
@@ -95,6 +100,7 @@ export async function writePersonality(input: {
   persona: string;
   conduct: string;
   styles: Record<string, string>;
+  voice: string;
 }): Promise<AgentPersonality> {
   const updatedAt = new Date().toISOString();
 
@@ -103,6 +109,7 @@ export async function writePersonality(input: {
       persona: input.persona,
       conduct: input.conduct,
       styles: input.styles,
+      voice: input.voice,
       updatedAt,
     };
     return memoryRow;
@@ -110,14 +117,15 @@ export async function writePersonality(input: {
 
   await ensureSchema();
   await getPool().query(
-    `INSERT INTO agent_settings (id, persona, conduct, styles, updated_at)
-     VALUES ($1, $2, $3, $4::jsonb, now())
+    `INSERT INTO agent_settings (id, persona, conduct, styles, voice, updated_at)
+     VALUES ($1, $2, $3, $4::jsonb, $5, now())
      ON CONFLICT (id) DO UPDATE SET
        persona = EXCLUDED.persona,
        conduct = EXCLUDED.conduct,
        styles = EXCLUDED.styles,
+       voice = EXCLUDED.voice,
        updated_at = EXCLUDED.updated_at`,
-    [ROW_ID, input.persona, input.conduct, JSON.stringify(input.styles)],
+    [ROW_ID, input.persona, input.conduct, JSON.stringify(input.styles), input.voice],
   );
   return { ...input, updatedAt };
 }

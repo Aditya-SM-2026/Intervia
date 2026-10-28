@@ -37,6 +37,8 @@ class AgentPersonality:
     persona: str = ""
     conduct: str = ""
     styles: dict[str, str] = field(default_factory=dict)
+    # Gemini Live voice name chosen in Settings; empty keeps GEMINI_LIVE_VOICE.
+    voice: str = ""
 
 
 @dataclass(frozen=True)
@@ -148,6 +150,7 @@ def parse_context(interview_id: str, payload: Any) -> InterviewContext:
             for key, value in styles_raw.items()
             if key in DIFFICULTIES and isinstance(value, str) and value.strip()
         },
+        voice=_text(personality_raw.get("voice")),
     )
 
     return InterviewContext(

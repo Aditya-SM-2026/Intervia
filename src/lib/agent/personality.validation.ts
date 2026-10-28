@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DIFFICULTIES } from "./personality.types";
+import { AGENT_VOICE_IDS } from "./agent-voices";
 
 const MAX_PERSONA = 8000;
 const MAX_CONDUCT = 12000;
@@ -17,6 +18,8 @@ export const personalityInputSchema = z.object({
     )
     .partial()
     .optional(),
+  /** One of the voices offered in Settings. Left out keeps the current one. */
+  voice: z.enum(AGENT_VOICE_IDS).optional(),
 });
 
 export type PersonalityInput = z.infer<typeof personalityInputSchema>;

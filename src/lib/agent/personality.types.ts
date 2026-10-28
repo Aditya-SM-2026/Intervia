@@ -47,6 +47,8 @@ export interface AgentPersonality {
   persona: string;
   conduct: string;
   styles: Partial<Record<AgentDifficulty, string>>;
+  /** A voice id from agent-voices.ts. Empty keeps the environment default. */
+  voice: string;
   updatedAt: string | null;
 }
 
@@ -54,6 +56,7 @@ export const EMPTY_PERSONALITY: AgentPersonality = {
   persona: "",
   conduct: "",
   styles: {},
+  voice: "",
   updatedAt: null,
 };
 

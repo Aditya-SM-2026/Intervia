@@ -55,15 +55,20 @@ export async function saveAgentPersonality(input: {
   persona?: string;
   conduct?: string;
   styles?: Partial<Record<AgentDifficulty, string>>;
+  voice?: string;
 }): Promise<AgentPersonality> {
+  // A partial save must not wipe the fields it did not mention: the behaviour
+  // page sends text only, the voice page sends a voice only.
+  const current = await readAgentPersonality();
   return writePersonality({
-    persona: (input.persona ?? "").trim(),
-    conduct: (input.conduct ?? "").trim(),
-    styles: trimStyles(input.styles ?? {}),
+    persona: input.persona !== undefined ? input.persona.trim() : current.persona,
+    conduct: input.conduct !== undefined ? input.conduct.trim() : current.conduct,
+    styles: input.styles !== undefined ? trimStyles(input.styles) : current.styles,
+    voice: input.voice !== undefined ? input.voice : current.voice,
   });
 }
 
 /** Clears every override, so the agent goes back to the code's defaults. */
 export async function resetAgentPersonality(): Promise<AgentPersonality> {
-  return writePersonality({ persona: "", conduct: "", styles: {} });
+  return writePersonality({ persona: "", conduct: "", styles: {}, voice: "" });
 }

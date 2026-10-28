@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { Bot, ChevronRight, Database, SlidersHorizontal } from "lucide-react";
+import { Bot, ChevronRight, Database, Mic, SlidersHorizontal } from "lucide-react";
 import { TopNav } from "@/components/dashboard/TopNav";
 import { ThemeProvider } from "@/components/dashboard/theme";
 import { readAgentPersonalityForSettings } from "@/lib/agent/personality.service";
 import { isDefaultPersonality } from "@/lib/agent/personality.types";
+import { findAgentVoice } from "@/lib/agent/agent-voices";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -18,6 +19,7 @@ export const dynamic = "force-dynamic";
 export default async function SettingsPage() {
   const { personality, available } = await readAgentPersonalityForSettings();
   const basic = isDefaultPersonality(personality);
+  const voice = findAgentVoice(personality.voice);
 
   return (
     <ThemeProvider>
@@ -58,34 +60,65 @@ export default async function SettingsPage() {
             </div>
           </section>
 
-          <Link
-            href="/dashboard/settings/agent"
-            className="group flex items-center justify-between gap-4 rounded-2xl border border-border bg-surface p-5 transition hover:border-accent/50"
-          >
-            <div className="flex items-start gap-4">
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-accent/30 bg-accent/10 text-accent">
-                <Bot className="size-5" aria-hidden />
-              </span>
+          <div className="grid gap-6 sm:grid-cols-2">
+            <Link
+              href="/dashboard/settings/agent"
+              className="group flex flex-col justify-between gap-4 rounded-2xl border border-border bg-surface p-5 transition hover:border-accent/50"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-accent/30 bg-accent/10 text-accent">
+                  <Bot className="size-5" aria-hidden />
+                </span>
+                <ChevronRight
+                  className="size-5 shrink-0 text-muted transition group-hover:text-foreground"
+                  aria-hidden
+                />
+              </div>
               <div>
                 <p className="font-semibold tracking-tight">Modify agent behaviour</p>
-                <p className="mt-1 max-w-xl text-sm text-muted">
-                  Change how the interviewer speaks and runs the interview. Blank fields keep the
-                  built-in behaviour.
+                <p className="mt-1 text-sm text-muted">
+                  Change how the interviewer speaks and runs the interview. Blank text fields keep
+                  the built-in behaviour.
                 </p>
-                <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-muted">
+                <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-muted">
                   <SlidersHorizontal className="size-3.5" aria-hidden />
                   {basic ? "Basic personality in use" : "Custom behaviour in use"}
                 </p>
               </div>
-            </div>
-            <ChevronRight className="size-5 shrink-0 text-muted transition group-hover:text-foreground" aria-hidden />
-          </Link>
+            </Link>
+
+            <Link
+              href="/dashboard/settings/voice"
+              className="group flex flex-col justify-between gap-4 rounded-2xl border border-border bg-surface p-5 transition hover:border-accent/50"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-accent/30 bg-accent/10 text-accent">
+                  <Mic className="size-5" aria-hidden />
+                </span>
+                <ChevronRight
+                  className="size-5 shrink-0 text-muted transition group-hover:text-foreground"
+                  aria-hidden
+                />
+              </div>
+              <div>
+                <p className="font-semibold tracking-tight">Change voice tone</p>
+                <p className="mt-1 text-sm text-muted">
+                  Hear a short sample of each interviewer voice, then pick the one you want for
+                  every interview.
+                </p>
+                <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-muted">
+                  <Mic className="size-3.5" aria-hidden />
+                  {voice.name} · {voice.tone}
+                </p>
+              </div>
+            </Link>
+          </div>
 
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-semibold tracking-tight">Interview agent</h2>
             <dl className="mt-4 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
               <Row label="Voice conversation" value="Gemini Live, audio only" />
-              <Row label="Voice" value="Charon (set per environment)" />
+              <Row label="Voice" value={`${voice.name} · ${voice.tone}`} />
               <Row label="Language" value="English (plus the languages the candidate uses)" />
               <Row label="Join window" value="The agent waits up to 5 minutes for the candidate" />
               <Row label="Recording" value="Kept on the report and playable" />

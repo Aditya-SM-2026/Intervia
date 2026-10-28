@@ -5,6 +5,7 @@ import { getInterviewRoom } from "@/lib/interviews/interview.service";
 import { roomIdSchema } from "@/lib/interviews/interview.validation";
 import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
 import { getAgentPersonality } from "@/lib/agent/personality.service";
+import { geminiVoiceFor } from "@/lib/agent/agent-voices";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
 
@@ -27,10 +28,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   // The recruiter's personality overrides. A settings failure must never stop
   // an interview: fall back to the built-in prompts when the store is down.
-  let personality: { persona: string; conduct: string; styles: Record<string, string> } = {
+  let personality: {
+    persona: string;
+    conduct: string;
+    styles: Record<string, string>;
+    voice: string;
+  } = {
     persona: "",
     conduct: "",
     styles: {},
+    voice: "",
   };
   try {
     const stored = await getAgentPersonality();
@@ -38,6 +45,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       persona: stored.persona,
       conduct: stored.conduct,
       styles: stored.styles,
+      // The Gemini Live voice name; empty lets the worker keep its default.
+      voice: geminiVoiceFor(stored.voice),
     };
   } catch (error) {
     console.error(`[agent-api] personality unavailable: ${(error as Error).message}`);

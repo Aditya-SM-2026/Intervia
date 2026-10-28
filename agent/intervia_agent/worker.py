@@ -280,7 +280,7 @@ class InterviewRuntime:
             "agent_joined",
             {
                 "model": self.config.live_model,
-                "voice": self.config.live_voice,
+                "voice": self.context.personality.voice or self.config.live_voice,
                 "plan": bool(payload),
                 "voiceMode": self.context.voice_mode,
             },
@@ -311,7 +311,7 @@ class InterviewRuntime:
         """A Gemini Live model instance; each one opens its own session."""
         return google.realtime.RealtimeModel(
             model=self.config.live_model,
-            voice=self.config.live_voice,
+            voice=self.context.personality.voice or self.config.live_voice,
             temperature=0.7,
             input_audio_transcription=genai_types.AudioTranscriptionConfig(
                 language_codes=list(self.config.transcription_languages) or None
