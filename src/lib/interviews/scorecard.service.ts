@@ -197,8 +197,9 @@ async function deliverVideoJob(roomId: string, job: VideoJob): Promise<void> {
  * Runs the on-camera analysis for one interview when a recruiter asks for it.
  *
  * Scoring runs keep the transcript gate, so a thin interview never pays for
- * video work on its own. This is the deliberate override: the recruiter looks
- * at a report whose video was skipped or failed and asks for it anyway.
+ * video work on its own. This is the deliberate override: a recruiter can ask
+ * for the analysis on a report whose video was skipped or failed, or re-run it
+ * to get a fresh read.
  */
 export async function requestVideoAnalysis(
   roomId: string,
@@ -220,19 +221,16 @@ export async function requestVideoAnalysis(
       reason: "The video analysis is already running.",
     };
   }
-  if (status === "analysed" && scorecard.video?.answers !== undefined) {
-    return {
-      queued: false,
-      code: "ROOM_UNAVAILABLE",
-      reason: "This interview already has a video analysis.",
-    };
-  }
 
   const [turns, events] = await Promise.all([
     repository.getTurns(roomId),
     repository.getEvents(roomId),
   ]);
-  const built = await buildVideoJob(roomId, events, turns, tabStatsFromEvents(events));
+  // A recruiter asked for this one, so a recording kept only on this server is
+  // copied to the recordings bucket first: the worker has to be able to read it.
+  const built = await buildVideoJob(roomId, events, turns, tabStatsFromEvents(events), {
+    uploadLocal: true,
+  });
   if ("behaviour" in built) {
     // Nothing to send to the worker: store why, so the card explains itself.
     await repository.saveScorecard({ ...scorecard, video: built.behaviour });

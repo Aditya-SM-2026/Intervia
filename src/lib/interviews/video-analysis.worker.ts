@@ -9,6 +9,7 @@ import {
   type TimedAnswer,
 } from "./video-analysis.service";
 import { enqueueHttpTask } from "@/lib/queue/cloud-tasks";
+import { recordingsBucket, uploadRecordingToGcs } from "@/lib/recordings/gcs-upload";
 import type { InterviewEvent, InterviewTurn } from "./interview.types";
 import type { GazeDirection, VideoBehaviour, VideoMomentKind } from "./scorecard.types";
 
@@ -56,16 +57,40 @@ function storedRecording(
   return stored.at(-1) ?? null;
 }
 
+/** Where the worker should read the recording from. */
+type SourceLocation = { bucket: string; path: string; startTime: string };
+
+/**
+ * Resolves the recording the worker should read. Older interviews hold their
+ * recording only on this server's disk; copying it to the recordings bucket
+ * first makes it reachable from the worker.
+ */
+async function sourceLocation(events: readonly InterviewEvent[]): Promise<SourceLocation | null> {
+  const stored = storedRecording(events);
+  if (stored) {
+    return { bucket: stored.object.bucket, path: stored.object.path, startTime: stored.startedAt };
+  }
+  const local = listRecordings(events)
+    .filter((ref): ref is Extract<RecordingRef, { kind: "local" }> => ref.kind === "local")
+    .at(-1);
+  const bucket = recordingsBucket();
+  if (!local || !bucket) return null;
+  const objectPath = await uploadRecordingToGcs(local.recording);
+  if (!objectPath) return null;
+  return { bucket, path: objectPath, startTime: local.startedAt };
+}
+
 /**
  * Builds the worker payload, or returns the behaviour to store when there is
- * nothing to analyse. Worker mode needs a stored (GCS) recording: a local file
- * lives on the web instance's disk, so those interviews stay inline.
+ * nothing to analyse. Worker mode reads the stored (GCS) copy of a recording;
+ * when asked to, a server-only recording is published to the bucket first.
  */
 export async function buildVideoJob(
   roomId: string,
   events: readonly InterviewEvent[],
   turns: readonly InterviewTurn[],
   tab: { hiddenCount: number; hiddenSeconds: number },
+  options: { uploadLocal?: boolean } = {},
 ): Promise<{ job: VideoJob } | { behaviour: VideoBehaviour }> {
   const chosen = await pickRecording(events);
   if (!chosen) {
@@ -73,21 +98,29 @@ export async function buildVideoJob(
       behaviour: result("no_recording", "This interview was not recorded, so there is no video to analyse."),
     };
   }
-  const stored = storedRecording(events);
-  if (!stored) {
+  let location: SourceLocation | null = null;
+  if (options.uploadLocal) {
+    location = await sourceLocation(events);
+  } else {
+    const stored = storedRecording(events);
+    if (stored) {
+      location = { bucket: stored.object.bucket, path: stored.object.path, startTime: stored.startedAt };
+    }
+  }
+  if (!location) {
     return {
       behaviour: result(
         "not_configured",
-        "The recording is only on the web server, so the analysis worker cannot read it.",
+        "The video is stored only on the web server and could not be prepared for analysis.",
       ),
     };
   }
-  const answers: TimedAnswer[] = timedAnswers(turns, Date.parse(stored.startedAt));
+  const answers: TimedAnswer[] = timedAnswers(turns, Date.parse(location.startTime));
   return {
     job: {
       roomId,
-      recording: { bucket: stored.object.bucket, path: stored.object.path },
-      startedAt: stored.startedAt,
+      recording: { bucket: location.bucket, path: location.path },
+      startedAt: location.startTime,
       answers: answers.map((answer) => ({
         turnSeq: answer.turnSeq,
         start: answer.start,

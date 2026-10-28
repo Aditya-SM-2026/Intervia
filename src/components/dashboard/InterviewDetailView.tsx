@@ -1677,7 +1677,7 @@ function VideoSection({
               )}
             </>
           ) : (
-            <div className="mt-3 space-y-3">
+            <div className="mt-3 space-y-2">
               <p className="text-xs text-slate-500">
                 {video.reason ?? "The recording has not been analysed."}
               </p>
@@ -1687,30 +1687,31 @@ function VideoSection({
                   The analyser is working on this recording. This card updates by itself.
                 </p>
               )}
-              {hasRecording && (video.status === "skipped" || video.status === "failed") && (
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={onAnalyseVideo}
-                    disabled={isAnalysing}
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60 dark:border-border dark:bg-surface dark:text-slate-200"
-                  >
-                    {video.status === "failed" ? (
-                      <RotateCcw className="size-3.5" />
-                    ) : (
-                      <Video className="size-3.5" />
-                    )}
-                    {isAnalysing
-                      ? "Starting…"
-                      : video.status === "failed"
-                        ? "Try video analysis again"
-                        : "Analyse video anyway"}
-                  </button>
-                  <span className="text-[11px] text-slate-400">
-                    Watches the recording for eye contact and presence. Takes about a minute.
-                  </span>
-                </div>
-              )}
+            </div>
+          )}
+
+          {hasRecording && (
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={onAnalyseVideo}
+                disabled={isAnalysing || video.status === "queued"}
+                className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RotateCcw
+                  className={`size-3.5 ${isAnalysing || video.status === "queued" ? "animate-spin" : ""}`}
+                />
+                {isAnalysing || video.status === "queued"
+                  ? "Analysing recording"
+                  : video.status === "analysed"
+                    ? "Regenerate video analysis"
+                    : video.status === "failed"
+                      ? "Try video analysis again"
+                      : "Analyse this video"}
+              </button>
+              <span className="text-[11px] text-slate-500">
+                Re-watches the recording for eye contact and presence. Takes about a minute.
+              </span>
             </div>
           )}
 
