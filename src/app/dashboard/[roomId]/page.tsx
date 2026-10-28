@@ -15,7 +15,7 @@ export default async function InterviewReportPage({
   return (
     <ThemeProvider>
       <TopNav />
-      <main className="w-full px-4 py-8 sm:px-8 lg:px-10">
+      <main className="min-h-[calc(100vh-64px)] w-full bg-[#f8fafc] px-4 py-6 sm:px-6 lg:px-8 dark:bg-background">
         <InterviewDetailView roomId={roomId} />
       </main>
     </ThemeProvider>
