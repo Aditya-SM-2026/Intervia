@@ -1543,11 +1543,12 @@ function VideoSection({
     answer.steady &&
     answer.whileAnswering === pattern.direction;
 
-  const measurableAnswers = answers.filter(
-    (answer) =>
-      answer.durationSeconds > 0 && answer.whileAnswering !== "unclear" && !answer.reason,
+  // Turns with no spoken answer have no footage to look at, so they are left
+  // out of the timeline and the table entirely.
+  const answerRows = answers.filter((answer) => answer.durationSeconds > 0);
+  const measurable = answerRows.filter(
+    (answer) => answer.whileAnswering !== "unclear" && !answer.reason,
   ).length;
-  const answerable = answers.filter((answer) => answer.durationSeconds > 0).length;
 
   return (
     <section id="video" className={`${cardClasses} scroll-mt-24`} data-video-model={video.model ?? undefined}>
@@ -1583,10 +1584,10 @@ function VideoSection({
             </div>
           )}
 
-          {total !== null && (answers.length > 0 || video.moments.length > 0) && (
+          {total !== null && (answerRows.length > 0 || video.moments.length > 0) && (
             <>
               <div className="relative mt-4 h-3 rounded-full bg-slate-100 dark:bg-slate-800">
-                {answers.map((answer) => (
+                {answerRows.map((answer) => (
                   <button
                     key={answer.turnSeq}
                     type="button"
@@ -1727,18 +1728,16 @@ function VideoSection({
         </div>
 
         {/* Where the candidate looked table */}
-        {answers.length > 0 && (
+        {answerRows.length > 0 && (
           <div className="lg:col-span-2 mt-2">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Where the candidate looked, answer by answer
             </h3>
-            {answerable > 0 && (
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                {measurableAnswers === answerable
-                  ? `${answerable} of ${answerable} answers could be measured on camera.`
-                  : `${measurableAnswers} of ${answerable} answers could be measured on camera. The rest say why not.`}
-              </p>
-            )}
+            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+              {measurable === answerRows.length
+                ? `${answerRows.length} of ${answerRows.length} answers could be measured on camera.`
+                : `${measurable} of ${answerRows.length} answers could be measured on camera. The rest say why not.`}
+            </p>
             <div className="mt-2.5 overflow-x-auto rounded-xl border border-slate-200/80 dark:border-border">
               <table className="w-full text-left text-xs">
                 <thead>
@@ -1750,7 +1749,7 @@ function VideoSection({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-border/60">
-                  {answers.map((answer) => (
+                  {answerRows.map((answer) => (
                     <tr
                       key={answer.turnSeq}
                       className={onSpot(answer) ? "bg-amber-50/60 dark:bg-amber-950/20" : undefined}
