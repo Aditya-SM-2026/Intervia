@@ -15,7 +15,7 @@ import os
 import threading
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 
 from pipeline import run_job
 
@@ -32,10 +32,9 @@ def healthz() -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.post("/analyse", status_code=202)
+@app.post("/analyse")
 def analyse(
     payload: dict[str, Any],
-    background: BackgroundTasks,
     x_internal_secret: str | None = Header(default=None),
 ) -> dict[str, Any]:
     if not _secret_ok(x_internal_secret):
@@ -46,10 +45,12 @@ def analyse(
     if not room_id or not recording.get("bucket") or not recording.get("path"):
         raise HTTPException(status_code=400, detail="roomId and recording are required.")
 
-    # Answer right away: Cloud Tasks treats a 2xx as delivered, and the work
-    # itself can take a minute on a cold container.
-    background.add_task(run_job, payload)
-    return {"ok": True, "queued": True, "roomId": room_id}
+    # Wait for the work. Cloud Run throttles CPU once a request has been
+    # answered, and can retire the instance, so a background job would be
+    # throttled out from under the analysis. Holding the request open also
+    # makes Cloud Tasks retry a job that failed instead of counting it as sent.
+    run_job(payload)
+    return {"ok": True, "roomId": room_id}
 
 
 @app.post("/analyse-sync")
