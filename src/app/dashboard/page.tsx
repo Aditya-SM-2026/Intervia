@@ -1,5 +1,7 @@
 ﻿import type { Metadata } from "next";
 import { Suspense } from "react";
+import Link from "next/link";
+import { Settings } from "lucide-react";
 import { TopNav } from "@/components/dashboard/TopNav";
 import { DashboardView } from "@/components/dashboard/DashboardView";
 import { ThemeProvider } from "@/components/dashboard/theme";
@@ -42,14 +44,23 @@ export default function DashboardPage() {
               <div className="h-2 w-32 rounded-full bg-muted/40" />
             </div>
           </div>
-          <div className="relative">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-accent">
-              Post-interview reports
-            </p>
-            <h1 className="mb-2 text-4xl font-semibold tracking-tight">Interview reports</h1>
-            <p className="max-w-xl text-muted">
-              Every interview with its transcript, analysis and AI-usage assessment.
-            </p>
+          <div className="relative flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-accent">
+                Post-interview reports
+              </p>
+              <h1 className="mb-2 text-4xl font-semibold tracking-tight">Interview reports</h1>
+              <p className="max-w-xl text-muted">
+                Every interview with its transcript, analysis and AI-usage assessment.
+              </p>
+            </div>
+            <Link
+              href="/dashboard/settings"
+              className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-medium transition hover:border-accent/50 hover:text-accent"
+            >
+              <Settings className="size-4" aria-hidden />
+              Settings
+            </Link>
           </div>
         </div>
         <Suspense fallback={<div className="h-64 animate-pulse rounded-2xl border border-border bg-surface" aria-hidden />}>

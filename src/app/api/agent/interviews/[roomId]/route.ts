@@ -4,6 +4,7 @@ import { requireAgent } from "@/lib/auth/guards";
 import { getInterviewRoom } from "@/lib/interviews/interview.service";
 import { roomIdSchema } from "@/lib/interviews/interview.validation";
 import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
+import { getAgentPersonality } from "@/lib/agent/personality.service";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
 
@@ -24,7 +25,26 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const room = await getInterviewRoom(roomId);
   if (!room) return interviewErrorResponse("ROOM_NOT_FOUND", "Interview not found.");
 
+  // The recruiter's personality overrides. A settings failure must never stop
+  // an interview: fall back to the built-in prompts when the store is down.
+  let personality: { persona: string; conduct: string; styles: Record<string, string> } = {
+    persona: "",
+    conduct: "",
+    styles: {},
+  };
+  try {
+    const stored = await getAgentPersonality();
+    personality = {
+      persona: stored.persona,
+      conduct: stored.conduct,
+      styles: stored.styles,
+    };
+  } catch (error) {
+    console.error(`[agent-api] personality unavailable: ${(error as Error).message}`);
+  }
+
   return NextResponse.json({
+    personality,
     interview: {
       id: room.id,
       roleTitle: room.roleTitle ?? room.title,
