@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Bot, ChevronRight, Database, SlidersHorizontal } from "lucide-react";
 import { TopNav } from "@/components/dashboard/TopNav";
 import { ThemeProvider } from "@/components/dashboard/theme";
-import { getAgentPersonality } from "@/lib/agent/personality.service";
+import { readAgentPersonalityForSettings } from "@/lib/agent/personality.service";
 import { isDefaultPersonality } from "@/lib/agent/personality.types";
 
 export const metadata: Metadata = {
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 /** Product and agent settings, in the shape of a usual app settings page. */
 export default async function SettingsPage() {
-  const personality = await getAgentPersonality();
+  const { personality, available } = await readAgentPersonalityForSettings();
   const basic = isDefaultPersonality(personality);
 
   return (
@@ -32,6 +32,12 @@ export default async function SettingsPage() {
         </div>
 
         <div className="grid gap-6">
+          {!available && (
+            <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+              The saved agent settings could not be loaded just now, so the built-in
+              personality is shown. Saving still works; try again if the values look stale.
+            </p>
+          )}
           <section className="rounded-2xl border border-border bg-surface p-5">
             <div className="flex flex-wrap items-center gap-4">
               <span className="grid h-14 w-44 place-items-center rounded-xl bg-white px-3 py-2">

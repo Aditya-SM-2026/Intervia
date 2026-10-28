@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { TopNav } from "@/components/dashboard/TopNav";
 import { ThemeProvider } from "@/components/dashboard/theme";
 import { AgentBehaviourForm } from "@/components/settings/AgentBehaviourForm";
-import { getAgentPersonality } from "@/lib/agent/personality.service";
+import { readAgentPersonalityForSettings } from "@/lib/agent/personality.service";
 
 export const metadata: Metadata = {
   title: "Agent behaviour",
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 /** The editable interviewer instructions: persona, conduct and per-difficulty style. */
 export default async function AgentBehaviourPage() {
-  const personality = await getAgentPersonality();
+  const { personality, available } = await readAgentPersonalityForSettings();
 
   return (
     <ThemeProvider>
@@ -35,6 +35,12 @@ export default async function AgentBehaviourPage() {
             optional: leave it empty to keep the built-in text from the agent&apos;s prompts.
           </p>
         </div>
+        {!available && (
+          <p className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+            The saved behaviour could not be loaded just now, so the boxes show the built-in
+            personality. Saving will overwrite it, so check the values before you save.
+          </p>
+        )}
         <AgentBehaviourForm initial={personality} />
       </main>
     </ThemeProvider>
