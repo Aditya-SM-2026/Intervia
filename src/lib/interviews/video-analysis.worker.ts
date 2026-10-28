@@ -184,6 +184,8 @@ interface WorkerAnswer {
   steady?: boolean;
   reading?: boolean;
   note?: string;
+  reason?: string | null;
+  measuredFrames?: number;
 }
 
 interface WorkerMoment {
@@ -243,6 +245,8 @@ export function videoBehaviourFromWorker(
       steady: answer.steady === true,
       reading: answer.reading === true,
       note: String(answer.note ?? "").slice(0, 300),
+      reason: answer.reason ? String(answer.reason).slice(0, 240) : null,
+      measuredFrames: Number(answer.measuredFrames) || 0,
     })),
     moments: (segment.moments ?? []).map((moment) => ({
       atSeconds: Number(moment.atSeconds) || 0,

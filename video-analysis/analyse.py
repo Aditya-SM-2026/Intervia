@@ -19,8 +19,10 @@ Usage:
 Answers are clip-local: `questionStart`, `start` and `end` are seconds from
 the start of THIS clip. Output is a single JSON object:
   { faceVisible, answers: [{id, whileListening, whileAnswering, steady,
-     reading, note}], moments: [{at, durationSeconds, kind, description}] }
-where `at` is "mm:ss" from the start of the clip.
+     reading, note, reason, measuredFrames, totalFrames}],
+    moments: [{at, durationSeconds, kind, description}] }
+where `at` is "mm:ss" from the start of the clip, and `reason` says in plain
+words why an answer could not be read (null when it was).
 """
 
 from __future__ import annotations
@@ -91,6 +93,13 @@ HEAD_WEIGHT = 0.35
 NO_FACE_MOMENT_SECONDS = 5.0
 # An answer is judged only if enough frames inside it could be read.
 MIN_ANSWER_FRAMES = 3
+# A face narrower than this many pixels is re-detected on an upscaled frame, so
+# a candidate sitting far from the camera still gives usable eye landmarks.
+MIN_FACE_PX = 110
+# Frames dimmer than this are locally contrast-enhanced before landmarking.
+CLAHE_BELOW = 95.0
+# Below this mean luminance a frame is not worth reading as gaze.
+DARK_LEVEL = 55.0
 
 
 def eye_metrics(shape, outer, inner, iris) -> tuple[float, float]:
@@ -168,6 +177,77 @@ def looks_like_reading(sequence: list[str], vertical: list[float]) -> bool:
     return changes >= 4 and low_vertical
 
 
+def luminance(frame) -> float:
+    """Mean brightness of the picture, 0 (black) to 255 (white)."""
+    return float(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).mean())
+
+
+_CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
+
+def brighten(frame, level: float):
+    """Locally boost contrast on dim frames so the eyes stay visible.
+
+    Only applied when the frame really is dark, so normal footage is untouched.
+    """
+    if level >= CLAHE_BELOW:
+        return frame
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+    lightness, a, b = cv2.split(lab)
+    merged = cv2.merge((_CLAHE.apply(lightness), a, b))
+    return cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+
+
+def detect_face(frame, mesh):
+    """Face landmarks for this frame, re-detecting upscaled when the face is small.
+
+    Returns (landmarks or None, face width in pixels of the original frame).
+    Landmarks are normalised, so an upscaled detection maps back directly.
+    """
+    height, width = frame.shape[:2]
+    result = mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    if not result.multi_face_landmarks:
+        return None, 0.0
+    shape = result.multi_face_landmarks[0].landmark
+    if len(shape) < 478:
+        return None, 0.0
+    xs = [point.x for point in shape]
+    face_px = (max(xs) - min(xs)) * width
+    if face_px >= MIN_FACE_PX or width >= 1600:
+        return shape, face_px
+    scale = min(3.0, MIN_FACE_PX / max(1.0, face_px))
+    enlarged = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    again = mesh.process(cv2.cvtColor(enlarged, cv2.COLOR_BGR2RGB))
+    if not again.multi_face_landmarks:
+        return shape, face_px
+    better = again.multi_face_landmarks[0].landmark
+    if len(better) < 478:
+        return shape, face_px
+    return better, face_px * scale
+
+
+def answer_reason(window: list[dict]) -> str | None:
+    """Plain-language reason an answer could not be read, or None when it was."""
+    if not window:
+        return "This answer falls outside the analysed part of the recording."
+    faces = [frame for frame in window if frame["face"]]
+    if not faces:
+        return "The candidate was not in the picture during this answer."
+    usable = [frame for frame in faces if frame["direction"] != "unclear"]
+    if len(usable) >= MIN_ANSWER_FRAMES:
+        return None
+    dark = [frame for frame in faces if frame["level"] < DARK_LEVEL]
+    if len(dark) >= 0.6 * len(faces):
+        return "The picture was too dark to make out the eyes during this answer."
+    closed = [frame for frame in faces if frame["openness"] < 0.03]
+    if len(closed) >= 0.6 * len(faces):
+        return "The eyes were closed or not visible for most of this answer."
+    small = [frame for frame in faces if frame["facePx"] < MIN_FACE_PX]
+    if len(small) >= 0.6 * len(faces):
+        return "The candidate's face was too small in the picture to read the eyes."
+    return "Too few clear frames to judge this answer."
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--video", required=True)
@@ -209,12 +289,14 @@ def main() -> None:
             break
         if index % step == 0:
             t = index / source_fps
-            result = mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            shape = None
-            if result.multi_face_landmarks:
-                shape = result.multi_face_landmarks[0].landmark
-            if shape is None or len(shape) < 478:
-                frames.append({"t": t, "direction": "unclear", "gx": 0.0, "vy": 0.0, "face": False})
+            level = luminance(frame)
+            picture = brighten(frame, level)
+            shape, face_px = detect_face(picture, mesh)
+            if shape is None:
+                frames.append({
+                    "t": t, "direction": "unclear", "gx": 0.0, "vy": 0.0,
+                    "face": False, "level": level, "facePx": 0.0, "openness": 0.0,
+                })
             else:
                 total_frames += 1
                 iris_left = eye_metrics(shape, LEFT_EYE_OUTER, LEFT_EYE_INNER, LEFT_IRIS)
@@ -232,7 +314,11 @@ def main() -> None:
                 if openness < 0.03:
                     direction = "unclear"  # eyes closed or blinked
                 faced_frames += 1
-                frames.append({"t": t, "direction": direction, "gx": gx, "vy": vy, "face": True})
+                frames.append({
+                    "t": t, "direction": direction, "gx": gx, "vy": vy,
+                    "face": True, "level": level, "facePx": face_px, "openness": openness,
+                })
+
         index += 1
     capture.release()
     mesh.close()
@@ -256,7 +342,10 @@ def main() -> None:
                 "whileAnswering": "unclear",
                 "steady": False,
                 "reading": False,
-                "note": "" if not answering else "Too few clear frames to judge this answer.",
+                "note": "",
+                "reason": answer_reason(answering),
+                "measuredFrames": len(usable),
+                "totalFrames": len(answering),
             })
             continue
         listening_usable = [f for f in listening if f["direction"] != "unclear"]
@@ -280,6 +369,9 @@ def main() -> None:
             "steady": steady,
             "reading": reading,
             "note": "; ".join(note_parts)[:300],
+            "reason": None,
+            "measuredFrames": len(usable),
+            "totalFrames": len(answering),
         })
 
     # --- moments -------------------------------------------------------------

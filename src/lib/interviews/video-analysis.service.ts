@@ -440,6 +440,10 @@ export interface SegmentOutcome {
     steady: boolean;
     reading: boolean;
     note: string;
+    /** Set when the answer could not be read; says why, in plain words. */
+    reason?: string | null;
+    /** Frames inside the answer that gave a usable reading. */
+    measuredFrames?: number;
   }[];
   moments: {
     atSeconds: number;
@@ -474,6 +478,8 @@ export function combineSegmentReports(
         steady: item.steady,
         reading: item.reading,
         note: item.note,
+        reason: item.reason ?? null,
+        measuredFrames: item.measuredFrames ?? 0,
       });
     }
     for (const moment of report.moments) {
@@ -511,7 +517,7 @@ export function combineSegmentReports(
     reason: !faceSeen
       ? "No face could be seen in the recording, so on-camera behaviour was not scored."
       : !enough
-        ? "Too few answers could be judged on camera to score a pattern."
+        ? `${pattern.answersObserved} of ${observed.length} answers could be measured on camera, too few to score a pattern.`
         : partial
           ? "Part of the recording could not be analysed; the result covers the rest."
           : null,

@@ -167,6 +167,10 @@ export interface AnswerGaze {
   /** The eyes moved line by line, as when reading text. */
   reading: boolean;
   note: string;
+  /** When the answer could not be read: why, in plain words. */
+  reason?: string | null;
+  /** Frames inside the answer that gave a usable reading. */
+  measuredFrames?: number;
 }
 
 /**

@@ -1543,6 +1543,10 @@ function VideoSection({
     answer.steady &&
     answer.whileAnswering === pattern.direction;
 
+  const measurableAnswers = answers.filter(
+    (answer) => answer.whileAnswering !== "unclear" && !answer.reason,
+  ).length;
+
   return (
     <section id="video" className={`${cardClasses} scroll-mt-24`} data-video-model={video.model ?? undefined}>
       <CardHeading
@@ -1726,6 +1730,13 @@ function VideoSection({
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Where the candidate looked, answer by answer
             </h3>
+            {answers.length > 0 && (
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                {measurableAnswers === answers.length
+                  ? `${answers.length} of ${answers.length} answers could be measured on camera.`
+                  : `${measurableAnswers} of ${answers.length} answers could be measured on camera. The rest say why not.`}
+              </p>
+            )}
             <div className="mt-2.5 overflow-x-auto rounded-xl border border-slate-200/80 dark:border-border">
               <table className="w-full text-left text-xs">
                 <thead>
@@ -1759,13 +1770,19 @@ function VideoSection({
                         <GazeCell direction={answer.whileAnswering} strong={onSpot(answer)} />
                       </td>
                       <td className="px-3.5 py-2.5 align-top text-slate-600 dark:text-slate-400">
-                        {[
-                          onSpot(answer) ? "Held on the same spot as other answers." : null,
-                          answer.reading ? "Reading-like eye movement." : null,
-                          answer.note || null,
-                        ]
-                          .filter(Boolean)
-                          .join(" ") || <span className="text-slate-400">Nothing notable.</span>}
+                        {answer.reason ? (
+                          <span className="block text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                            {answer.reason}
+                          </span>
+                        ) : (
+                          [
+                            onSpot(answer) ? "Held on the same spot as other answers." : null,
+                            answer.reading ? "Reading-like eye movement." : null,
+                            answer.note || null,
+                          ]
+                            .filter(Boolean)
+                            .join(" ") || <span className="text-slate-400">Nothing notable.</span>
+                        )}
                       </td>
                     </tr>
                   ))}

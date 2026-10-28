@@ -120,9 +120,10 @@ def cut_clips(source: Path, workdir: Path, duration: float | None) -> list[dict[
                 "-i",
                 str(source),
                 "-an",
-                # One frame a second is plenty for gaze and keeps a clip cheap.
+                # Three frames a second at a higher resolution: enough samples
+                # for a steady reading, and a face large enough for eye landmarks.
                 "-vf",
-                "fps=1,scale=640:-2",
+                "fps=3,scale=1280:-2",
                 "-c:v",
                 "libx264",
                 "-preset",
@@ -203,7 +204,7 @@ def measure(clip: dict[str, Any], schedule: list[dict[str, Any]], workdir: Path)
                 "--answers-file",
                 str(answers_file),
                 "--fps",
-                os.environ.get("VIDEO_ANALYSIS_FPS", "1"),
+                os.environ.get("VIDEO_ANALYSIS_FPS", "3"),
             ],
             capture_output=True,
             text=True,
@@ -239,6 +240,9 @@ def measure(clip: dict[str, Any], schedule: list[dict[str, Any]], workdir: Path)
                 "steady": bool(item.get("steady")),
                 "reading": bool(item.get("reading")),
                 "note": str(item.get("note") or "")[:300],
+                "reason": str(item["reason"])[:240] if item.get("reason") else None,
+                "measuredFrames": int(item.get("measuredFrames") or 0),
+                "totalFrames": int(item.get("totalFrames") or 0),
             }
         )
     moments = []
