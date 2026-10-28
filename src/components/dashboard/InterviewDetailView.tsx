@@ -1544,8 +1544,10 @@ function VideoSection({
     answer.whileAnswering === pattern.direction;
 
   const measurableAnswers = answers.filter(
-    (answer) => answer.whileAnswering !== "unclear" && !answer.reason,
+    (answer) =>
+      answer.durationSeconds > 0 && answer.whileAnswering !== "unclear" && !answer.reason,
   ).length;
+  const answerable = answers.filter((answer) => answer.durationSeconds > 0).length;
 
   return (
     <section id="video" className={`${cardClasses} scroll-mt-24`} data-video-model={video.model ?? undefined}>
@@ -1730,11 +1732,11 @@ function VideoSection({
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
               Where the candidate looked, answer by answer
             </h3>
-            {answers.length > 0 && (
+            {answerable > 0 && (
               <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                {measurableAnswers === answers.length
-                  ? `${answers.length} of ${answers.length} answers could be measured on camera.`
-                  : `${measurableAnswers} of ${answers.length} answers could be measured on camera. The rest say why not.`}
+                {measurableAnswers === answerable
+                  ? `${answerable} of ${answerable} answers could be measured on camera.`
+                  : `${measurableAnswers} of ${answerable} answers could be measured on camera. The rest say why not.`}
               </p>
             )}
             <div className="mt-2.5 overflow-x-auto rounded-xl border border-slate-200/80 dark:border-border">

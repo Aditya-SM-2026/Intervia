@@ -226,10 +226,15 @@ def detect_face(frame, mesh):
     return better, face_px * scale
 
 
-def answer_reason(window: list[dict]) -> str | None:
+def answer_reason(window: list[dict], start: float, end: float, duration: float) -> str | None:
     """Plain-language reason an answer could not be read, or None when it was."""
+    if end - start < 0.34:
+        # A turn with no spoken answer: there is nothing to watch.
+        return "The candidate did not answer here, so there was nothing to measure."
     if not window:
-        return "This answer falls outside the analysed part of the recording."
+        if start >= duration:
+            return "The recording ends before this answer."
+        return "There is no picture at this point in the recording."
     faces = [frame for frame in window if frame["face"]]
     if not faces:
         return "The candidate was not in the picture during this answer."
@@ -343,7 +348,7 @@ def main() -> None:
                 "steady": False,
                 "reading": False,
                 "note": "",
-                "reason": answer_reason(answering),
+                "reason": answer_reason(answering, start, end, duration),
                 "measuredFrames": len(usable),
                 "totalFrames": len(answering),
             })
