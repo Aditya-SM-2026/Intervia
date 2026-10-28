@@ -7,39 +7,35 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { THEME_COOKIE, type ResolvedTheme, type ThemePreference } from "@/lib/theme";
 
 /**
- * Class-based theme handling with a persisted preference ("intervia-theme":
- * light | dark | system). The inline script in app/layout.tsx applies the
- * class before first paint; this provider takes over after hydration and
- * keeps following the system preference while "system" is selected.
+ * Class-based theme handling with a persisted preference ("intervia-theme" in
+ * localStorage: light | dark | system).
+ *
+ * The root layout reads the resolved theme from a cookie and puts the class on
+ * <html> in the HTML it sends, so the first paint is already correct without a
+ * blocking script. This provider takes over after hydration: it migrates an
+ * older localStorage-only preference, follows the system preference while
+ * "system" is selected, and keeps the cookie in step.
  */
 
-export type ThemePreference = "light" | "dark" | "system";
+export type { ThemePreference };
 
 const STORAGE_KEY = "intervia-theme";
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
 interface ThemeContextValue {
   preference: ThemePreference;
   /** The theme actually rendered (system preference resolved). */
-  resolved: "light" | "dark";
+  resolved: ResolvedTheme;
   setPreference: (preference: ThemePreference) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
-
-function applyTheme(preference: ThemePreference): "light" | "dark" {
-  const dark =
-    preference === "dark" ||
-    (preference === "system" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const root = document.documentElement;
-  root.classList.toggle("dark", dark);
-  root.style.colorScheme = dark ? "dark" : "light";
-  return dark ? "dark" : "light";
-}
 
 function readStoredPreference(): ThemePreference {
   try {
@@ -51,25 +47,39 @@ function readStoredPreference(): ThemePreference {
   return "light";
 }
 
-function readResolvedTheme(): "light" | "dark" {
-  // The inline script in app/layout.tsx has already applied the class before
-  // hydration; on the server there is no document, so default to light.
-  if (typeof document === "undefined") return "light";
-  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+function subscribeToSystem(onChange: () => void): () => void {
+  const query = window.matchMedia("(prefers-color-scheme: dark)");
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+function systemPrefersDark(): boolean {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preference, setPreferenceState] = useState<ThemePreference>(readStoredPreference);
-  const [resolved, setResolved] = useState<"light" | "dark">(readResolvedTheme);
+  const systemDark = useSyncExternalStore(
+    subscribeToSystem,
+    systemPrefersDark,
+    () => false, // No system preference on the server; the cookie decided there.
+  );
 
-  // Follow system changes while preference is "system".
+  const resolved: ResolvedTheme =
+    preference === "dark" || (preference === "system" && systemDark) ? "dark" : "light";
+
+  // Reflect the resolved theme on <html> and in the cookie the server reads on
+  // the next request. Touches only the DOM and the cookie — no React state.
   useEffect(() => {
-    if (preference !== "system") return;
-    const query = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => setResolved(applyTheme("system"));
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, [preference]);
+    const root = document.documentElement;
+    root.classList.toggle("dark", resolved === "dark");
+    root.style.colorScheme = resolved;
+    try {
+      document.cookie = `${THEME_COOKIE}=${resolved}; path=/; max-age=${COOKIE_MAX_AGE}; samesite=lax`;
+    } catch {
+      // Cookies blocked: the class still applies for this page view.
+    }
+  }, [resolved]);
 
   const setPreference = useCallback((next: ThemePreference) => {
     setPreferenceState(next);
@@ -78,7 +88,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } catch {
       // Persisting is best-effort.
     }
-    setResolved(applyTheme(next));
   }, []);
 
   const value = useMemo(

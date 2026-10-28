@@ -1,6 +1,7 @@
 import "server-only";
 import {
   DIFFICULTIES,
+  EMPTY_PERSONALITY,
   type AgentDifficulty,
   type AgentPersonality,
 } from "./personality.types";
@@ -16,6 +17,13 @@ import {
  * something here.
  */
 
+/** A read result that says whether the stored settings could be reached. */
+export interface PersonalityRead {
+  personality: AgentPersonality;
+  /** False when the store failed, so the screen can say so instead of crashing. */
+  available: boolean;
+}
+
 function trimStyles(styles: Partial<Record<AgentDifficulty, string>>): Record<string, string> {
   const cleaned: Record<string, string> = {};
   for (const difficulty of DIFFICULTIES) {
@@ -27,6 +35,20 @@ function trimStyles(styles: Partial<Record<AgentDifficulty, string>>): Record<st
 
 export async function getAgentPersonality(): Promise<AgentPersonality> {
   return readAgentPersonality();
+}
+
+/**
+ * The settings screen must still render when the database is unreachable (a
+ * proxy down, a paused instance): it shows the built-in personality and says
+ * the saved one could not be loaded, rather than throwing an error page.
+ */
+export async function readAgentPersonalityForSettings(): Promise<PersonalityRead> {
+  try {
+    return { personality: await readAgentPersonality(), available: true };
+  } catch (error) {
+    console.error(`[agent-settings] could not read settings: ${(error as Error).message}`);
+    return { personality: { ...EMPTY_PERSONALITY }, available: false };
+  }
 }
 
 export async function saveAgentPersonality(input: {
