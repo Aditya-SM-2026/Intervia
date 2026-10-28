@@ -132,6 +132,8 @@ export interface VideoMoment {
  */
 export type VideoStatus =
   | "analysed"
+  /** Handed to the analysis worker; the result arrives by callback. */
+  | "queued"
   | "no_recording"
   | "not_configured"
   | "failed"

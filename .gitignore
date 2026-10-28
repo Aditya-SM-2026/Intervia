@@ -51,3 +51,7 @@ next-env.d.ts
 /media/
 
 video-analysis/.venv/
+
+# Python
+__pycache__/
+*.pyc

@@ -1,0 +1,14 @@
+# Builds the video analysis worker image into the siva-nikhil project.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "build",
+        "-t",
+        "asia-south1-docker.pkg.dev/siva-nikhil/meetingbot/web-v2:video-worker",
+        "-f",
+        "worker/Dockerfile",
+        ".",
+      ]
+images:
+  - "asia-south1-docker.pkg.dev/siva-nikhil/meetingbot/web-v2:video-worker"
