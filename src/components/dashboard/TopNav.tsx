@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, FileText, LogOut, Monitor, Moon, Plus, Search, Sun } from "lucide-react";
+import { Bell, FileText, LogOut, Monitor, Moon, Plus, Search, Settings, Sun } from "lucide-react";
 import type { DashboardAnalytics } from "@/lib/dashboard/dashboard.types";
 import { Avatar } from "./primitives";
 import { Menu } from "./menu";
@@ -214,6 +214,7 @@ export function TopNav() {
             items={[
               { id: "create", label: "Create interview", icon: <Plus className="size-4" aria-hidden />, onSelect: () => router.push("/recruiter") },
               { id: "reports", label: "All reports", icon: <FileText className="size-4" aria-hidden />, onSelect: () => router.push("/dashboard") },
+              { id: "settings", label: "Settings", icon: <Settings className="size-4" aria-hidden />, onSelect: () => router.push("/dashboard/settings") },
               { id: "signout", label: "Sign out", icon: <LogOut className="size-4" aria-hidden />, onSelect: () => void signOut() },
             ]}
           />
