@@ -141,6 +141,31 @@ function isSmtpConfigured(): boolean {
   return Boolean(host && user && password);
 }
 
+/**
+ * A deployed server must never email a link that only works on a developer's
+ * machine. Local development still gets localhost links (that is the only
+ * address that resolves while testing), but a production build refuses to
+ * send instead of handing the candidate a dead address.
+ */
+function publicLinkProblem(candidateUrl: string): string | null {
+  if (process.env.NODE_ENV !== "production") return null;
+  let hostname: string;
+  try {
+    hostname = new URL(candidateUrl).hostname.toLowerCase();
+  } catch {
+    return "the interview link is not a valid URL";
+  }
+  const loopback =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "0.0.0.0" ||
+    hostname === "[::1]" ||
+    hostname === "::1";
+  return loopback
+    ? `the interview link points at ${hostname}, so it was not emailed. Set INTERVIA_PUBLIC_ORIGIN.`
+    : null;
+}
+
 function createTransport(): Transporter {
   const port = Number(process.env.SMTP_PORT?.trim() || 587);
   return nodemailer.createTransport({
@@ -166,6 +191,12 @@ export async function sendInterviewInvitation(
   input: InvitationEmailInput,
   transport?: Transporter,
 ): Promise<InviteEmailResult> {
+  const linkProblem = publicLinkProblem(input.candidateUrl);
+  if (linkProblem) {
+    console.error(`[email] refusing to email ${input.to}: ${linkProblem}`);
+    return { status: "failed", detail: linkProblem };
+  }
+
   if (!isSmtpConfigured() && !transport) {
     console.warn(
       `[email] SMTP not configured; invitation for ${input.to} logged to console only`,
@@ -290,6 +321,12 @@ export async function sendInterviewUpdate(
   input: InterviewUpdateEmailInput,
   transport?: Transporter,
 ): Promise<InviteEmailResult> {
+  const linkProblem = publicLinkProblem(input.candidateUrl);
+  if (linkProblem) {
+    console.error(`[email] refusing to email ${input.to}: ${linkProblem}`);
+    return { status: "failed", detail: linkProblem };
+  }
+
   if (!isSmtpConfigured() && !transport) {
     console.warn(
       `[email] SMTP not configured; update for ${input.to} logged to console only`,
@@ -386,6 +423,12 @@ export async function sendInterviewReminder(
     // Nothing to remind about for immediate interviews.
     return { status: "not_configured", detail: "Interview has no scheduled time" };
   }
+  const linkProblem = publicLinkProblem(input.candidateUrl);
+  if (linkProblem) {
+    console.error(`[email] refusing to email ${input.to}: ${linkProblem}`);
+    return { status: "failed", detail: linkProblem };
+  }
+
   if (!isSmtpConfigured() && !transport) {
     const message = buildReminderEmail(input, startsInMinutes);
     console.warn(`[email] SMTP not configured; reminder for ${input.to} logged to console only`);

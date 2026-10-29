@@ -62,5 +62,21 @@ const ncResult = await sendInterviewUpdate(input);
 check("not_configured status", ncResult.status === "not_configured", JSON.stringify(ncResult));
 check("nothing sent on not-configured", sent.length === 1);
 
+// 6. Production must never email a localhost link
+process.env.SMTP_HOST = "smtp.example.com";
+process.env.SMTP_USER = "user";
+process.env.SMTP_PASSWORD = "pass";
+const beforeLocal = sent.length;
+process.env.NODE_ENV = "production";
+const localResult = await sendInterviewUpdate(
+  { ...input, candidateUrl: "http://localhost:3000/interview/room-1" },
+  fakeTransport,
+);
+check("production refuses a localhost link", localResult.status === "failed", JSON.stringify(localResult));
+check("refusal names localhost", (localResult.detail ?? "").includes("localhost"), localResult.detail);
+check("nothing sent for localhost link", sent.length === beforeLocal);
+const publicResult = await sendInterviewUpdate(input, fakeTransport);
+check("production still sends a public link", publicResult.status === "sent", JSON.stringify(publicResult));
+
 console.log(`\n${passed}/${total} passed`);
 process.exit(passed === total ? 0 : 1);
