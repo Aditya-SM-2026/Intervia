@@ -231,6 +231,31 @@ export async function mediaDurationSeconds(file: string): Promise<number | null>
   }
 }
 
+/**
+ * Cloud Run refuses a single response over 32 MB, so a player that asks for
+ * the rest of a long recording ("bytes=0-") is answered in pieces. The
+ * Content-Range header still reports the whole file, so the player asks for
+ * the next piece and seeking keeps working.
+ */
+export const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Narrows an open-ended byte range so one response stays under the limit.
+ * `size` is optional so callers that do not know the object length (a stored
+ * object fetched by range) can still ask for a bounded piece.
+ */
+export function clampRange(range: string | null, size?: number): string | null {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range ?? "");
+  // Suffix ranges ("bytes=-500") and non-range headers are left alone.
+  if (!match || !match[1]) return range;
+  const start = Number(match[1]);
+  if (!Number.isFinite(start)) return range;
+  let end = start + MAX_RESPONSE_BYTES - 1;
+  if (match[2]) end = Math.min(end, Number(match[2]));
+  if (size !== undefined) end = Math.min(end, size - 1);
+  return `bytes=${start}-${end}`;
+}
+
 /** A web Response body for a file, or a byte range of it. */
 export async function fileResponse(
   file: string,
@@ -246,11 +271,15 @@ export async function fileResponse(
     "Cache-Control": "private, no-store",
   });
 
-  const range = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader ?? "");
+  const effectiveRange =
+    rangeHeader ?? (size > MAX_RESPONSE_BYTES ? "bytes=0-" : null);
+  const range = /^bytes=(\d*)-(\d*)$/.exec(effectiveRange ?? "");
   if (range && (range[1] || range[2])) {
     let start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
     let end = range[1] && range[2] ? Number(range[2]) : size - 1;
     end = Math.min(end, size - 1);
+    // One response must stay under Cloud Run's 32 MB ceiling.
+    if (range[1]) end = Math.min(end, start + MAX_RESPONSE_BYTES - 1);
     if (!Number.isFinite(start) || start > end) {
       headers.set("Content-Range", `bytes */${size}`);
       return new Response(null, { status: 416, headers });

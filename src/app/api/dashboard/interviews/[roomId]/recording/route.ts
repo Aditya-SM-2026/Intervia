@@ -4,7 +4,7 @@ import { requireRecruiter } from "@/lib/auth/guards";
 import { roomIdSchema } from "@/lib/interviews/interview.validation";
 import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
 import { pickRecording } from "@/lib/interviews/video-analysis.service";
-import { fileResponse, mimeFor, playableRecordingFile } from "@/lib/recordings/store";
+import { MAX_RESPONSE_BYTES, clampRange, fileResponse, mimeFor, playableRecordingFile } from "@/lib/recordings/store";
 import { fetchStoredObject } from "@/lib/storage/gcs";
 import { getInterviewRepository } from "@/server/repositories";
 
@@ -36,7 +36,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return fileResponse(file, mimeFor(recording.recording.format), range);
   }
 
-  const stored = await fetchStoredObject(recording.object, { range });
+  // Cloud Run answers 500 to any response over 32 MB, and a player streaming a
+  // long recording asks for the rest of it as one open-ended range. Ask the
+  // bucket for a bounded piece instead; Content-Range reports the true total,
+  // so the player follows up with the next piece.
+  const storedRange = clampRange(range) ?? `bytes=0-${MAX_RESPONSE_BYTES - 1}`;
+  const stored = await fetchStoredObject(recording.object, { range: storedRange });
   if (!stored) {
     return interviewErrorResponse("SERVER_ERROR", "The recording storage cannot be read from this server.");
   }
