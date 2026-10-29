@@ -780,7 +780,7 @@ function CandidateHeader({
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
               >
                 <Download className="size-3.5 text-slate-400" />
-                <span>Download PDF</span>
+                <span>Download report</span>
               </a>
             )}
 
