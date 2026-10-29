@@ -187,6 +187,132 @@ export async function sendInterviewInvitation(
   }
 }
 
+export interface InterviewUpdateEmailInput {
+  to: string;
+  candidateName: string;
+  roleTitle: string;
+  recruiterName: string | null;
+  candidateUrl: string;
+  scheduledAt: string | null;
+  expiresAt: string | null;
+  durationMinutes: number;
+  /** Human-readable description of each edit, e.g. "Length: 20 to 30 minutes". */
+  changes: readonly string[];
+}
+
+/**
+ * The "your interview has been updated" message. It repeats the details and
+ * lists exactly what the recruiter changed, so the candidate does not have to
+ * compare two emails.
+ */
+export function buildInterviewUpdateEmail(
+  input: InterviewUpdateEmailInput,
+): InvitationEmailMessage {
+  const whenLine = input.scheduledAt
+    ? formatMoment(input.scheduledAt)
+    : input.expiresAt
+      ? `any time before ${formatMoment(input.expiresAt)}`
+      : "any time";
+
+  const changeLines = input.changes.length
+    ? input.changes
+    : ["The interview details were updated."];
+
+  const subject = `Interview updated: ${input.roleTitle}`;
+  const text = [
+    `Hi ${input.candidateName},`,
+    "",
+    `The recruiter has updated your interview for the ${input.roleTitle} role. The link below opens it, with these details in place.`,
+    "",
+    "What changed:",
+    ...changeLines.map((line) => `- ${line}`),
+    "",
+    `When: ${whenLine}`,
+    `Duration: about ${input.durationMinutes} minutes`,
+    ...(input.recruiterName ? [`Interviewer: ${input.recruiterName}`] : []),
+    "",
+    "Join here:",
+    input.candidateUrl,
+    "",
+    "Notes:",
+    "- The link opens only for this email address.",
+    "- You need a laptop with a working camera and microphone; the interview is recorded.",
+    "",
+    "Good luck!",
+    "The Sreemedhas Agent team",
+  ].join("\n");
+
+  const changeItems = changeLines
+    .map((line) => `<li>${escapeHtml(line)}</li>`)
+    .join("");
+
+  const html = `<!doctype html>
+<html><body style="margin:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#1a1a2e">
+  <div style="max-width:560px;margin:0 auto;padding:24px 16px">
+    <div style="background:#ffffff;border-radius:12px;padding:28px">
+      <p style="margin:0 0 16px;font-size:16px">Hi <strong>${escapeHtml(input.candidateName)}</strong>,</p>
+      <p style="margin:0 0 16px;font-size:15px">
+        The recruiter has updated your interview for the
+        <strong>${escapeHtml(input.roleTitle)}</strong> role. Please use the link below.
+      </p>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px 16px;margin:0 0 20px;font-size:14px;line-height:1.7">
+        <p style="margin:0 0 6px;font-weight:bold">What changed</p>
+        <ul style="margin:0;padding-left:18px">${changeItems}</ul>
+      </div>
+      <div style="background:#f4f5f7;border-radius:8px;padding:14px 16px;margin:0 0 20px;font-size:15px;line-height:1.7">
+        <p style="margin:0 0 4px">When: <strong>${escapeHtml(whenLine)}</strong></p>
+        <p style="margin:0 0 4px">Duration: about <strong>${input.durationMinutes}</strong> minutes</p>
+        ${input.recruiterName ? `<p style="margin:0 0 4px">Interviewer: <strong>${escapeHtml(input.recruiterName)}</strong></p>` : ""}
+      </div>
+      <p style="margin:0 0 16px">
+        <a href="${input.candidateUrl}"
+           style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;
+                  padding:12px 22px;border-radius:8px;font-size:15px;font-weight:bold">
+          Open the interview
+        </a>
+      </p>
+      <p style="margin:0 0 6px;font-size:13px;color:#555">Or copy this link into your browser:</p>
+      <p style="margin:0 0 20px;font-size:13px"><a href="${input.candidateUrl}" style="color:#4f46e5;word-break:break-all">${input.candidateUrl}</a></p>
+      <ul style="margin:0;padding-left:18px;font-size:13px;color:#555;line-height:1.7">
+        <li>The link opens only for this email address.</li>
+        <li>You need a laptop with a working camera and microphone; the interview is recorded.</li>
+      </ul>
+    </div>
+    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by Sreemedhas Agent — please do not reply to this email.</p>
+  </div>
+</body></html>`;
+
+  return { from: fromAddress(), to: input.to, subject, text, html };
+}
+
+/** Sends the update email. Like the invitation, it never throws. */
+export async function sendInterviewUpdate(
+  input: InterviewUpdateEmailInput,
+  transport?: Transporter,
+): Promise<InviteEmailResult> {
+  if (!isSmtpConfigured() && !transport) {
+    console.warn(
+      `[email] SMTP not configured; update for ${input.to} logged to console only`,
+    );
+    console.warn(
+      `[email] would send to=${input.to} subject="${buildInterviewUpdateEmail(input).subject}" changes=${JSON.stringify(input.changes)}`,
+    );
+    return { status: "not_configured" };
+  }
+
+  const message = buildInterviewUpdateEmail(input);
+  const sender = transport ?? createTransport();
+  try {
+    await sender.sendMail(message);
+    console.info(`[email] update sent to ${input.to} (${message.subject})`);
+    return { status: "sent" };
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    console.error(`[email] update failed for ${input.to}: ${detail}`);
+    return { status: "failed", detail };
+  }
+}
+
 export interface ReminderEmailMessage {
   from: string;
   to: string;

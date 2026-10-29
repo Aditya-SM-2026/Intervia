@@ -3,12 +3,16 @@ import { randomBytes } from "node:crypto";
 import type {
   CreateInterviewInput,
   DashboardListFilter,
+  DifficultyLevel,
   HumanDecision,
   InterviewApiError,
   InterviewRepository,
   InterviewRoom,
   InterviewStatus,
+  JobDescription,
+  ResumeInfo,
   SessionOutcome,
+  VoiceMode,
 } from "./interview.types";
 import { DuplicateInterviewError } from "./interview-errors";
 import { generateUploadToken } from "@/lib/uploads/resume-upload";
@@ -383,4 +387,164 @@ function isExpired(room: InterviewRoom): boolean {
 
 function isActiveStatus(status: InterviewStatus): boolean {
   return status === "scheduled" || status === "waiting" || status === "active";
+}
+/* -------------------------------------------------------------------------- */
+/* Editing a scheduled interview                                              */
+/* -------------------------------------------------------------------------- */
+
+const DIFFICULTY_LABELS: Record<DifficultyLevel, string> = {
+  easy: "Easy",
+  medium: "Medium",
+  hard: "Hard",
+  "extra-hard": "Extra hard",
+};
+
+const VOICE_LABELS: Record<VoiceMode, string> = {
+  standard: "Standard voice",
+  rolling: "Lower-cost voice",
+};
+
+/** What the edit screen needs: the room and whether it may still be changed. */
+export interface InterviewEditState {
+  room: InterviewRoom;
+  editable: boolean;
+  /** Why editing is closed, when it is. Shown on the edit screen. */
+  reason: string | null;
+}
+
+/**
+ * An interview stays editable only while nobody has started it: still
+ * scheduled, no transcript, no scorecard. Once the candidate has joined, the
+ * plan is what they were interviewed against, so it is frozen.
+ */
+export async function getInterviewEditState(roomId: string): Promise<InterviewEditState | null> {
+  const repository = getInterviewRepository();
+  const room = await repository.get(roomId);
+  if (!room) return null;
+
+  const [scorecard, turns] = await Promise.all([
+    repository.getScorecard(roomId),
+    repository.getTurns(roomId),
+  ]);
+
+  if (room.status !== "scheduled") {
+    const reason =
+      room.status === "completed"
+        ? "This interview is already complete, so it can no longer be edited."
+        : `This interview is ${room.status}, so it can no longer be edited.`;
+    return { room, editable: false, reason };
+  }
+  if (scorecard || turns.length > 0) {
+    return {
+      room,
+      editable: false,
+      reason: "The candidate has already opened this interview, so it can no longer be edited.",
+    };
+  }
+  return { room, editable: true, reason: null };
+}
+
+/** Every field the create form collects, as the edit form sends it back. */
+export interface InterviewEditInput {
+  recruiterName: string;
+  candidateName: string;
+  candidateEmail: string;
+  roleTitle: string;
+  durationMinutes: number;
+  difficulty: DifficultyLevel;
+  voiceMode: VoiceMode;
+  jobDescription: JobDescription | null;
+  /** A newly uploaded resume, or null to keep the one already stored. */
+  resume: ResumeInfo | null;
+}
+
+export type InterviewEditResult =
+  | { ok: true; room: InterviewRoom; changes: string[] }
+  | { ok: false; code: "ROOM_NOT_FOUND" | "ROOM_UNAVAILABLE"; message: string };
+
+/**
+ * Applies edits to an interview that has not started. The plan is rebuilt when
+ * anything that shapes it changed (role, job description, resume, length,
+ * difficulty), the link gets a fresh validity window, and the changes are
+ * returned as human-readable lines for the update email.
+ */
+export async function updateScheduledInterview(
+  roomId: string,
+  input: InterviewEditInput,
+): Promise<InterviewEditResult> {
+  const state = await getInterviewEditState(roomId);
+  if (!state) {
+    return { ok: false, code: "ROOM_NOT_FOUND", message: "This interview does not exist." };
+  }
+  if (!state.editable) {
+    return { ok: false, code: "ROOM_UNAVAILABLE", message: state.reason ?? "This interview can no longer be edited." };
+  }
+
+  const room = state.room;
+  const next: InterviewRoom = { ...room };
+  const changes: string[] = [];
+
+  if (input.recruiterName !== (room.recruiterName ?? "")) {
+    changes.push(`Interviewer: ${room.recruiterName ?? "not set"} to ${input.recruiterName}`);
+    next.recruiterName = input.recruiterName;
+  }
+  if (input.candidateName !== (room.candidateName ?? "")) {
+    changes.push(`Candidate name: ${room.candidateName ?? "not set"} to ${input.candidateName}`);
+    next.candidateName = input.candidateName;
+  }
+  if (input.candidateEmail !== (room.candidateEmail ?? "")) {
+    changes.push(`Candidate email: ${room.candidateEmail ?? "not set"} to ${input.candidateEmail}`);
+    next.candidateEmail = input.candidateEmail;
+  }
+
+  const roleChanged = input.roleTitle !== (room.roleTitle ?? "");
+  if (roleChanged) {
+    changes.push(`Role: ${room.roleTitle ?? "not set"} to ${input.roleTitle}`);
+    next.roleTitle = input.roleTitle;
+    next.title = input.roleTitle;
+  }
+  if (input.durationMinutes !== room.durationMinutes) {
+    changes.push(`Length: ${room.durationMinutes} to ${input.durationMinutes} minutes`);
+    next.durationMinutes = input.durationMinutes;
+  }
+  if (input.difficulty !== room.difficulty) {
+    changes.push(`Interviewer style: ${DIFFICULTY_LABELS[room.difficulty]} to ${DIFFICULTY_LABELS[input.difficulty]}`);
+    next.difficulty = input.difficulty;
+  }
+  if (input.voiceMode !== room.voiceMode) {
+    changes.push(`Voice engine: ${VOICE_LABELS[room.voiceMode]} to ${VOICE_LABELS[input.voiceMode]}`);
+    next.voiceMode = input.voiceMode;
+  }
+
+  const jdChanged = (input.jobDescription?.text ?? "") !== (room.jobDescription?.text ?? "");
+  if (jdChanged) {
+    changes.push("Job description: updated");
+    next.jobDescription = input.jobDescription;
+  }
+
+  const resumeChanged = input.resume !== null;
+  if (resumeChanged) {
+    changes.push(`Resume: replaced with ${input.resume?.fileName ?? "a new file"}`);
+    next.resume = input.resume;
+  }
+
+  if (changes.length === 0) return { ok: true, room, changes };
+
+  if (roleChanged || jdChanged || resumeChanged || input.durationMinutes !== room.durationMinutes) {
+    next.plan = await generateInterviewPlan({
+      roleTitle: next.roleTitle ?? next.title,
+      durationMinutes: next.durationMinutes,
+      difficulty: next.difficulty,
+      jobDescription: next.jobDescription,
+      resume: next.resume,
+    });
+  }
+
+  // A fresh window, so the link in the update email works even when the
+  // original had already expired.
+  next.expiresAt = new Date(Date.now() + LINK_VALIDITY_HOURS * 60 * MS_PER_MINUTE).toISOString();
+  next.reminderSentAt = null;
+
+  await getInterviewRepository().save(next);
+  return { ok: true, room: next, changes };
 }

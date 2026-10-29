@@ -10,6 +10,7 @@ import {
   Download,
   Eye,
   MoreHorizontal,
+  Pencil,
   Trash2,
 } from "lucide-react";
 import type { DashboardInterviewSummary } from "@/lib/dashboard/dashboard.types";
@@ -75,7 +76,7 @@ interface ReportsTableProps {
   onToggleAll: () => void;
   sortDir: "asc" | "desc";
   onSortToggle: () => void;
-  onAction: (action: "view" | "download" | "delete", roomId: string) => void;
+  onAction: (action: "view" | "download" | "edit" | "delete", roomId: string) => void;
 }
 
 export function ReportsTable({
@@ -254,6 +255,16 @@ export function ReportsTable({
                                 label: "Download report",
                                 icon: <Download className="size-4" aria-hidden />,
                                 onSelect: () => onAction("download", room.id),
+                              }]
+                            : []),
+                          // Editing is open only while the interview is still
+                          // scheduled and the candidate has not started it.
+                          ...(room.status === "scheduled" && !scorecard
+                            ? [{
+                                id: "edit",
+                                label: "Edit interview",
+                                icon: <Pencil className="size-4" aria-hidden />,
+                                onSelect: () => onAction("edit", room.id),
                               }]
                             : []),
                           {

@@ -26,6 +26,15 @@ interface CreateInterviewFormProps {
   isSubmitting: boolean;
   /** Role title pre-filled from the roles page (share link / add candidate). */
   initialRoleTitle?: string;
+  /**
+   * Values to start from when editing an existing interview. The resume file
+   * is never sent to the browser; its name is shown so the recruiter knows
+   * one is on file and only uploading replaces it.
+   */
+  initial?: Partial<CreateInterviewFormValues> & { existingResumeName?: string | null };
+  submitLabel?: string;
+  submittingLabel?: string;
+  footerNote?: string;
 }
 
 const inputClasses =
@@ -145,15 +154,25 @@ function PdfPicker({
   );
 }
 
-export function CreateInterviewForm({ onSubmit, isSubmitting, initialRoleTitle }: CreateInterviewFormProps) {
-  const [recruiterName, setRecruiterName] = useState("");
-  const [candidateName, setCandidateName] = useState("");
-  const [candidateEmail, setCandidateEmail] = useState("");
-  const [roleTitle, setRoleTitle] = useState(initialRoleTitle ?? "");
-  const [durationMinutes, setDurationMinutes] = useState(DEFAULT_DURATION_MINUTES);
-  const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>("standard");
-  const [jobDescriptionText, setJobDescriptionText] = useState("");
+export function CreateInterviewForm({
+  onSubmit,
+  isSubmitting,
+  initialRoleTitle,
+  initial,
+  submitLabel = "Create interview",
+  submittingLabel = "Building the interview plan…",
+  footerNote,
+}: CreateInterviewFormProps) {
+  const [recruiterName, setRecruiterName] = useState(initial?.recruiterName ?? "");
+  const [candidateName, setCandidateName] = useState(initial?.candidateName ?? "");
+  const [candidateEmail, setCandidateEmail] = useState(initial?.candidateEmail ?? "");
+  const [roleTitle, setRoleTitle] = useState(initial?.roleTitle ?? initialRoleTitle ?? "");
+  const [durationMinutes, setDurationMinutes] = useState(
+    initial?.durationMinutes ?? DEFAULT_DURATION_MINUTES,
+  );
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>(initial?.difficulty ?? "medium");
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>(initial?.voiceMode ?? "standard");
+  const [jobDescriptionText, setJobDescriptionText] = useState(initial?.jobDescriptionText ?? "");
   const [jobDescriptionPdf, setJobDescriptionPdf] = useState<File | null>(null);
   const [resume, setResume] = useState<File | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -415,7 +434,9 @@ export function CreateInterviewForm({ onSubmit, isSubmitting, initialRoleTitle }
             <span className={labelClasses}>Candidate resume (optional)</span>
             <PdfPicker file={resume} onChange={setResume} prompt="or drop it here" />
             <p className="mt-1.5 text-xs text-muted">
-              No resume yet? A one-time upload link is generated for the candidate.
+              {initial?.existingResumeName && !resume
+                ? `On file: ${initial.existingResumeName}. Upload a PDF to replace it.`
+                : "No resume yet? A one-time upload link is generated for the candidate."}
             </p>
           </div>
         </fieldset>
@@ -432,16 +453,20 @@ export function CreateInterviewForm({ onSubmit, isSubmitting, initialRoleTitle }
 
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-surface px-5 py-4 sm:px-6">
         <p className="text-sm text-muted">
-          <span className="font-medium text-foreground">{durationMinutes} minutes</span>,{" "}
-          {style?.label.toLowerCase()} style,{" "}
-          {voiceMode === "rolling" ? "lower-cost voice" : "standard voice"}. Link valid for 3 days.
+          {footerNote ?? (
+            <>
+              <span className="font-medium text-foreground">{durationMinutes} minutes</span>,{" "}
+              {style?.label.toLowerCase()} style,{" "}
+              {voiceMode === "rolling" ? "lower-cost voice" : "standard voice"}. Link valid for 3 days.
+            </>
+          )}
         </p>
         <button
           type="submit"
           disabled={isSubmitting}
           className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSubmitting ? "Building the interview plan…" : "Create interview"}
+          {isSubmitting ? submittingLabel : submitLabel}
         </button>
       </div>
     </form>

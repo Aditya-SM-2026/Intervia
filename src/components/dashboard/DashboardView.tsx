@@ -253,9 +253,13 @@ export function DashboardView() {
       });
   }
 
-  function onRowAction(action: "view" | "download" | "delete", roomId: string) {
+  function onRowAction(action: "view" | "download" | "edit" | "delete", roomId: string) {
     if (action === "view") {
       router.push(`/dashboard/${roomId}`);
+      return;
+    }
+    if (action === "edit") {
+      router.push(`/dashboard/${roomId}/edit`);
       return;
     }
     if (action === "download") {
