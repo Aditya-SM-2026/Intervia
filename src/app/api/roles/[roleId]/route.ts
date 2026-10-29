@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
 import { ZodError } from "zod";
-import { getRoleSummary, updateRole } from "@/lib/roles/role.service";
+import { getRoleSummary, deleteRoles, updateRole } from "@/lib/roles/role.service";
 import { formatRoleValidationIssues } from "@/lib/roles/role.validation";
 import { describeRoleError, roleErrorResponse } from "@/lib/roles/role-errors";
 import { ROOM_ID_PATTERN } from "@/lib/interviews/interview.validation";
@@ -62,5 +62,30 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
     console.error(`[roles] update failed: ${describeRoleError(error)}`);
     return roleErrorResponse("SERVER_ERROR", "Could not update the role. Please try again.");
+  }
+}
+
+/**
+ * Deletes one role. Its interviews are kept (detached), so candidate reports,
+ * recordings and analyses remain available from the Interviews page.
+ */
+export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+  const denied = await requireRecruiter();
+  if (denied) return denied;
+
+  const { roleId } = await params;
+  if (!validRoleId(roleId)) {
+    return roleErrorResponse("INVALID_INPUT", "This role ID is invalid.");
+  }
+
+  try {
+    const deleted = await deleteRoles([roleId]);
+    if (deleted === 0) {
+      return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
+    }
+    return NextResponse.json({ deleted });
+  } catch (error) {
+    console.error(`[roles] delete failed: ${describeRoleError(error)}`);
+    return roleErrorResponse("SERVER_ERROR", "Could not delete the role. Please try again.");
   }
 }

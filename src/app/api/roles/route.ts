@@ -4,6 +4,7 @@ import { requireRecruiter } from "@/lib/auth/guards";
 import { ZodError } from "zod";
 import {
   createRole,
+  deleteRoles,
   listRoles,
 } from "@/lib/roles/role.service";
 import { formatRoleValidationIssues } from "@/lib/roles/role.validation";
@@ -54,5 +55,43 @@ export async function POST(request: NextRequest) {
     }
     console.error(`[roles] create failed: ${describeRoleError(error)}`);
     return roleErrorResponse("SERVER_ERROR", "Could not create the role. Please try again.");
+  }
+}
+
+/**
+ * Deletes several roles at once. Body: `{ "ids": ["role_...", ...] }`.
+ * Interviews are kept and detached from the deleted roles.
+ */
+export async function DELETE(request: NextRequest) {
+  const denied = await requireRecruiter();
+  if (denied) return denied;
+
+  let payload: unknown;
+  try {
+    payload = await request.json();
+  } catch {
+    return roleErrorResponse("INVALID_INPUT", "Request body must be valid JSON.");
+  }
+
+  const ids =
+    payload && typeof payload === "object" && Array.isArray((payload as { ids?: unknown }).ids)
+      ? ((payload as { ids: unknown[] }).ids.filter((id): id is string => typeof id === "string"))
+      : null;
+  if (!ids || ids.length === 0) {
+    return roleErrorResponse("INVALID_INPUT", "Choose at least one role to delete.");
+  }
+  if (ids.length > 200) {
+    return roleErrorResponse("INVALID_INPUT", "Delete 200 roles at most in one go.");
+  }
+
+  try {
+    const deleted = await deleteRoles(ids);
+    if (deleted === 0) {
+      return roleErrorResponse("ROLE_NOT_FOUND", "None of those roles exist any more.");
+    }
+    return NextResponse.json({ deleted });
+  } catch (error) {
+    console.error(`[roles] delete failed: ${describeRoleError(error)}`);
+    return roleErrorResponse("SERVER_ERROR", "Could not delete the roles. Please try again.");
   }
 }

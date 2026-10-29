@@ -1,6 +1,7 @@
 import "server-only";
 import type { HumanDecision } from "@/lib/interviews/interview.types";
 import { recordDecision } from "@/lib/interviews/interview.service";
+import { ROOM_ID_PATTERN } from "@/lib/interviews/interview.validation";
 import type { RoleCandidateSummary, RoleSummary } from "@/lib/roles/role.types";
 import { createRoleSchema, updateRoleSchema } from "@/lib/roles/role.validation";
 import {
@@ -67,6 +68,16 @@ export async function ensureRoleForTitle(title: string | null | undefined): Prom
 export async function updateRole(id: string, input: unknown) {
   const parsed = updateRoleSchema.parse(input) as UpdateRoleRow;
   return repository().updateRole(id, parsed);
+}
+
+/**
+ * Deletes one or more roles. Interviews (with their reports, recordings and
+ * analyses) are kept and detached, so nothing a candidate said is lost.
+ */
+export async function deleteRoles(ids: readonly string[]): Promise<number> {
+  const unique = [...new Set(ids)].filter((id) => ROOM_ID_PATTERN.test(id));
+  if (unique.length === 0) return 0;
+  return repository().deleteRoles(unique);
 }
 
 /** Validates pagination the way the dashboard list does. */

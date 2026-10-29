@@ -62,6 +62,11 @@ export interface RoleRepository {
   getRole(id: string): Promise<Role | null>;
   listRoles(filter: RoleListFilter): Promise<Role[]>;
   updateRole(id: string, patch: UpdateRoleRow): Promise<Role | null>;
+  /**
+   * Deletes roles and detaches their interviews. Reports, recordings and
+   * analyses belong to the interviews and are kept.
+   */
+  deleteRoles(ids: readonly string[]): Promise<number>;
   /** Live stats for many roles in one call; roles without interviews get zeroed stats. */
   getRoleStats(roles: readonly { id: string; title: string }[]): Promise<Map<string, RoleStats>>;
   listRoleCandidates(
@@ -251,6 +256,26 @@ export function getPostgresRolesRepository(): RoleRepository {
       );
       const row = result.rows[0] as RolePgRow | undefined;
       return row ? rowToRole(row) : null;
+    },
+
+    async deleteRoles(ids: readonly string[]): Promise<number> {
+      if (ids.length === 0) return 0;
+      await ensureSchema();
+      const client = await getPool().connect();
+      try {
+        await client.query("BEGIN");
+        // Interviews outlive the role: detach them so reports, recordings and
+        // analyses stay reachable from the Interviews page.
+        await client.query("UPDATE interviews SET role_id = NULL WHERE role_id = ANY($1)", [ids]);
+        const result = await client.query("DELETE FROM roles WHERE id = ANY($1)", [ids]);
+        await client.query("COMMIT");
+        return result.rowCount ?? 0;
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async getRoleStats(
@@ -557,6 +582,14 @@ export function getInMemoryRolesRepository(): RoleRepository {
       };
       getStore().roles.set(id, updated);
       return updated;
+    },
+
+    async deleteRoles(ids: readonly string[]): Promise<number> {
+      let deleted = 0;
+      for (const id of ids) {
+        if (getStore().roles.delete(id)) deleted += 1;
+      }
+      return deleted;
     },
 
     async getRoleStats(

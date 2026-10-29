@@ -21,6 +21,7 @@ import {
   Search,
   Settings,
   Star,
+  Trash2,
   Trophy,
   UserPlus,
   Users,
@@ -40,6 +41,7 @@ import {
   type HireStage,
 } from "@/lib/roles/hire-stage";
 import { Menu } from "@/components/dashboard/menu";
+import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 
 /**
  * Roles workspace, built the way HR reads it:
@@ -313,6 +315,9 @@ function RoleCard({
   expanded,
   onNotice,
   onEdit,
+  selected,
+  onSelect,
+  onDelete,
 }: {
   role: RoleSummary;
   candidates: RoleCandidateSummary[] | null;
@@ -322,6 +327,9 @@ function RoleCard({
   expanded: boolean;
   onNotice: (message: string) => void;
   onEdit: () => void;
+  selected: boolean;
+  onSelect: (selected: boolean) => void;
+  onDelete: () => void;
 }) {
   const router = useRouter();
   const { Icon, classes } = roleVisual(role.title);
@@ -335,9 +343,20 @@ function RoleCard({
   }
 
   return (
-    <li className="rounded-2xl border border-border bg-surface transition hover:border-accent/40 hover:shadow-sm">
+    <div
+      className={`rounded-2xl border bg-surface transition hover:border-accent/40 hover:shadow-sm ${
+        selected ? "border-accent/60 ring-1 ring-accent/20" : "border-border"
+      }`}
+    >
       <div className="p-4 sm:p-5">
         <div className="flex items-start gap-4">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(event) => onSelect(event.target.checked)}
+            aria-label={`Select ${role.title}`}
+            className="mt-4 size-4 shrink-0 cursor-pointer accent-blue-600"
+          />
           <span aria-hidden className={`grid size-12 shrink-0 place-items-center rounded-xl ${classes}`}>
             <Icon className="size-6" />
           </span>
@@ -403,7 +422,14 @@ function RoleCard({
                     label: "Manage role",
                     onSelect: () => router.push(`/dashboard/roles/${role.id}`),
                   },
-                  { id: "share", label: "Copy invite link", onSelect: copyInvite },
+                  { id: "share", label: "Copy invite link", onSelect: copyInvite, separatorAfter: true },
+                  {
+                    id: "delete",
+                    label: "Delete role",
+                    icon: <Trash2 className="size-4" aria-hidden />,
+                    danger: true,
+                    onSelect: onDelete,
+                  },
                 ]}
               />
             </div>
@@ -459,17 +485,39 @@ function RoleCard({
           </div>
         </div>
       )}
-    </li>
+    </div>
   );
 }
 
 /** Compact comparison table for many roles. */
-function RolesListView({ roles }: { roles: RoleSummary[] }) {
+function RolesListView({
+  roles,
+  selectedIds,
+  onSelect,
+  onSelectAll,
+  onDelete,
+}: {
+  roles: RoleSummary[];
+  selectedIds: ReadonlySet<string>;
+  onSelect: (roleId: string, selected: boolean) => void;
+  onSelectAll: (selected: boolean) => void;
+  onDelete: (role: RoleSummary) => void;
+}) {
+  const allSelected = roles.length > 0 && roles.every((role) => selectedIds.has(role.id));
   return (
     <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-background text-left text-xs uppercase tracking-wide text-muted">
+            <th scope="col" className="w-10 px-4 py-3 font-medium">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={(event) => onSelectAll(event.target.checked)}
+                aria-label="Select all roles"
+                className="size-4 cursor-pointer accent-blue-600"
+              />
+            </th>
             <th scope="col" className="px-4 py-3 font-medium">Role</th>
             <th scope="col" className="px-4 py-3 font-medium">Status</th>
             <th scope="col" className="px-4 py-3 font-medium">Candidates</th>
@@ -483,6 +531,15 @@ function RolesListView({ roles }: { roles: RoleSummary[] }) {
         <tbody>
           {roles.map((role) => (
             <tr key={role.id} className="border-b border-border transition last:border-b-0 hover:bg-background">
+              <td className="px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(role.id)}
+                  onChange={(event) => onSelect(role.id, event.target.checked)}
+                  aria-label={`Select ${role.title}`}
+                  className="size-4 cursor-pointer accent-blue-600"
+                />
+              </td>
               <td className="px-4 py-3">
                 <div className="flex items-center gap-2.5">
                   {(() => {
@@ -527,6 +584,14 @@ function RolesListView({ roles }: { roles: RoleSummary[] }) {
                   >
                     Add candidate
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(role)}
+                    aria-label={`Delete ${role.title}`}
+                    className="grid size-8 place-items-center rounded-lg border border-transparent text-muted transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-600"
+                  >
+                    <Trash2 className="size-3.5" aria-hidden />
+                  </button>
                 </div>
               </td>
             </tr>
@@ -680,6 +745,9 @@ export function RolesView() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
+  const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   function load() {
     fetchRoles()
@@ -859,6 +927,51 @@ export function RolesView() {
     }
   }
 
+  function toggleSelected(roleId: string, selected: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (selected) next.add(roleId);
+      else next.delete(roleId);
+      return next;
+    });
+  }
+
+  function askDelete(ids: string[]) {
+    setError(null);
+    setDeleteIds([...new Set(ids)]);
+  }
+
+  async function confirmDelete() {
+    if (!deleteIds || deleteIds.length === 0 || deleting) return;
+    setDeleting(true);
+    try {
+      const response = await fetch("/api/roles", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: deleteIds }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { deleted?: number; error?: { message?: string } }
+        | null;
+      if (!response.ok) {
+        throw new Error(body?.error?.message ?? "Could not delete the roles.");
+      }
+      const count = body?.deleted ?? deleteIds.length;
+      setNotice(
+        count === 1
+          ? "Role deleted. Its interviews and reports are still under Interviews."
+          : `${count} roles deleted. Their interviews and reports are still under Interviews.`,
+      );
+      setDeleteIds(null);
+      setSelectedIds(new Set());
+      await load();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Something went wrong.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const candidatesReady = roles !== null && Object.keys(candidateErrors).length + Object.keys(candidatesByRole).length >= roles.length;
   const hasActiveFilters = search !== "" || statusFilter !== "" || stageFilter !== "";
 
@@ -1002,6 +1115,31 @@ export function RolesView() {
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/40 bg-accent/5 px-4 py-3">
+          <p className="text-sm font-medium">
+            {selectedIds.size} role{selectedIds.size === 1 ? "" : "s"} selected
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium transition hover:bg-background"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => askDelete([...selectedIds])}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-red-700"
+            >
+              <Trash2 className="size-4" aria-hidden />
+              Delete selected
+            </button>
+          </div>
+        </div>
+      )}
+
       {showForm && (
         <form
           onSubmit={createRole}
@@ -1113,16 +1251,47 @@ export function RolesView() {
                       onToggle={() => toggleExpanded(role.id)}
                       onNotice={setNotice}
                       onEdit={() => setEditingId(role.id)}
+                      selected={selectedIds.has(role.id)}
+                      onSelect={(selected) => toggleSelected(role.id, selected)}
+                      onDelete={() => askDelete([role.id])}
                     />
                   )}
                 </li>
               ))}
             </ul>
           ) : (
-            <RolesListView roles={filtered} />
+            <RolesListView
+              roles={filtered}
+              selectedIds={selectedIds}
+              onSelect={toggleSelected}
+              onSelectAll={(selected) =>
+                setSelectedIds(selected ? new Set(filtered.map((role) => role.id)) : new Set())
+              }
+              onDelete={(role) => askDelete([role.id])}
+            />
           )}
         </>
       )}
+
+      <ConfirmDialog
+        open={deleteIds !== null}
+        title={
+          deleteIds && deleteIds.length === 1 ? "Delete this role?" : "Delete selected roles?"
+        }
+        body={
+          <p>
+            {deleteIds && deleteIds.length === 1
+              ? `"${(roles ?? []).find((role) => role.id === deleteIds[0])?.title ?? "This role"}" will be removed from the roles page. Its interviews, reports, recordings and analyses are kept and stay under Interviews.`
+              : `${deleteIds?.length ?? 0} roles will be removed from the roles page. Their interviews, reports, recordings and analyses are kept and stay under Interviews.`}
+          </p>
+        }
+        confirmLabel={deleteIds && deleteIds.length === 1 ? "Delete role" : "Delete roles"}
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => {
+          if (!deleting) setDeleteIds(null);
+        }}
+      />
     </div>
   );
 }
