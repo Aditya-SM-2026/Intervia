@@ -63,7 +63,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const data = Buffer.from(await file.arrayBuffer());
-  await storeResumeFile(room.id, validation.kind, data);
+  const stored = await storeResumeFile(room.id, validation.kind, data, file.name);
 
   let text = "";
   let unreadable = false;
@@ -80,7 +80,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
     unreadable = true;
   }
 
-  const updated = { ...room, resume: { fileName: file.name, text, ...(unreadable ? { unreadable: true } : {}) }, uploadUsedAt: new Date().toISOString() };
+  const updated = {
+    ...room,
+    resume: {
+      fileName: file.name,
+      text,
+      ...(unreadable ? { unreadable: true } : {}),
+      ...(stored.objectPath ? { objectPath: stored.objectPath } : {}),
+    },
+    uploadUsedAt: new Date().toISOString(),
+  };
   await repository.save(updated);
   await repository.appendEvents(room.id, [
     { type: "resume_uploaded", at: new Date().toISOString(), data: { fileName: file.name, bytes: file.size } },

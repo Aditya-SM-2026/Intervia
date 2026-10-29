@@ -49,6 +49,11 @@ export interface ResumeInfo {
   text: string;
   /** Set when the PDF could not be read; the interview then runs JD-only. */
   unreadable?: boolean;
+  /**
+   * Where the candidate's original file is kept (in the recordings bucket).
+   * Interviews created before this existed only have the extracted text.
+   */
+  objectPath?: string;
 }
 
 /** Candidate consent captured at the email gate, before joining. */

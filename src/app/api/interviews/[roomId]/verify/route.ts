@@ -118,7 +118,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         return interviewErrorResponse("INVALID_INPUT", messages[validation.reason]);
       }
       const data = Buffer.from(await resumeFile.arrayBuffer());
-      await storeResumeFile(roomId, validation.kind, data);
+      const stored = await storeResumeFile(roomId, validation.kind, data, resumeFile.name);
       let text = "";
       let unreadable = false;
       if (validation.kind === "pdf") {
@@ -134,7 +134,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
       await repository.save({
         ...result.room,
-        resume: { fileName: resumeFile.name, text, ...(unreadable ? { unreadable: true } : {}) },
+        resume: {
+          fileName: resumeFile.name,
+          text,
+          ...(unreadable ? { unreadable: true } : {}),
+          ...(stored.objectPath ? { objectPath: stored.objectPath } : {}),
+        },
       });
       await repository.appendEvents(roomId, [
         {

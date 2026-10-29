@@ -11,6 +11,8 @@ import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
 import { requireRecruiter } from "@/lib/auth/guards";
 import { ensureRoleForTitle } from "@/lib/roles/role.service";
 import { describeRoleError } from "@/lib/roles/role-errors";
+import { storeResumeFile } from "@/lib/uploads/resume-storage";
+import { getInterviewRepository } from "@/server/repositories";
 import {
   invitationInputFromRoom,
   sendInterviewInvitation,
@@ -151,6 +153,27 @@ export async function POST(request: NextRequest) {
       );
     }
     throw error;
+  }
+  // Keep the recruiter's own copy of the resume, so "View resume" opens the
+  // file they uploaded rather than only the text extracted from it. Best
+  // effort: a storage failure must not fail the interview.
+  if (resumeFile instanceof File && resumeFile.size > 0 && room.resume) {
+    try {
+      const extension = resumeFile.name.toLowerCase().split(".").pop();
+      const kind = extension === "doc" || extension === "docx" ? extension : "pdf";
+      const stored = await storeResumeFile(
+        room.id,
+        kind,
+        Buffer.from(await resumeFile.arrayBuffer()),
+        resumeFile.name,
+      );
+      if (stored.objectPath) {
+        room.resume = { ...room.resume, objectPath: stored.objectPath };
+        await getInterviewRepository().save(room);
+      }
+    } catch (error) {
+      console.error(`[interviews] resume copy failed: ${describeRoleError(error)}`);
+    }
   }
   // Every role a recruiter hires for must be visible on the roles page: if
   // this interview introduced a new role title, create the role record for

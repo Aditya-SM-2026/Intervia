@@ -51,6 +51,7 @@ ALTER TABLE interviews ADD COLUMN IF NOT EXISTS jd_text TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS resume_file_name TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS resume_text TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS resume_unreadable BOOLEAN;
+ALTER TABLE interviews ADD COLUMN IF NOT EXISTS resume_object_path TEXT;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS consent_given_at TIMESTAMPTZ;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;
@@ -92,7 +93,7 @@ CREATE TABLE IF NOT EXISTS scorecards (
 const ROOM_COLUMNS = `id, title, candidate_name, status, created_at, expires_at,
 recruiter_name, scheduled_at, candidate_email, role_title, role_id, difficulty, duration_minutes, jd_source, jd_text,
   resume_file_name, resume_text, resume_unreadable, consent_given_at, completed_at,
-  plan, outcome, decision, voice_mode, reminder_sent_at, upload_token, upload_used_at`;
+  plan, outcome, decision, voice_mode, reminder_sent_at, upload_token, upload_used_at, resume_object_path`;
 
 function getPool(): Pool {
   if (!globalRefs.__interviewPgPool) {
@@ -139,6 +140,7 @@ interface InterviewRow {
   resume_file_name: string | null;
   resume_text: string | null;
   resume_unreadable: boolean | null;
+  resume_object_path: string | null;
   consent_given_at: Date | null;
   completed_at: Date | null;
   scheduled_at: Date | null;
@@ -181,6 +183,7 @@ function rowToRoom(row: InterviewRow): InterviewRoom {
             fileName: row.resume_file_name,
             text: row.resume_text ?? "",
             ...(row.resume_unreadable ? { unreadable: true } : {}),
+            ...(row.resume_object_path ? { objectPath: row.resume_object_path } : {}),
           }
         : null,
     consent: row.consent_given_at ? { givenAt: row.consent_given_at.toISOString() } : null,
@@ -202,7 +205,7 @@ export function getPostgresInterviewRepository(): InterviewRepository {
       await getPool().query(
         `INSERT INTO interviews (${ROOM_COLUMNS})
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                 $19, $20, $21, $22, $23, $24, $25, $26, $27)
+                 $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
          ON CONFLICT (id) DO UPDATE SET
            title = EXCLUDED.title,
            candidate_name = EXCLUDED.candidate_name,
@@ -229,7 +232,8 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 role_id = EXCLUDED.role_id,
            reminder_sent_at = EXCLUDED.reminder_sent_at,
            upload_token = EXCLUDED.upload_token,
-           upload_used_at = EXCLUDED.upload_used_at`,
+           upload_used_at = EXCLUDED.upload_used_at,
+           resume_object_path = EXCLUDED.resume_object_path`,
         [
           room.id,
           room.title,
@@ -258,6 +262,7 @@ role_id = EXCLUDED.role_id,
           room.reminderSentAt,
           room.uploadToken,
           room.uploadUsedAt,
+          room.resume?.objectPath ?? null,
         ],
       );
     },
@@ -292,7 +297,7 @@ role_id = EXCLUDED.role_id,
         await client.query(
           `INSERT INTO interviews (${ROOM_COLUMNS})
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                   $19, $20, $21, $22, $23, $24, $25, $26, $27)`,
+                   $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)`,
           [
             room.id,
             room.title,
@@ -321,6 +326,7 @@ role_id = EXCLUDED.role_id,
             room.reminderSentAt,
             room.uploadToken,
             room.uploadUsedAt,
+            room.resume?.objectPath ?? null,
           ],
         );
         await client.query("COMMIT");

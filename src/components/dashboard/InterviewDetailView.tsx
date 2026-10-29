@@ -38,6 +38,7 @@ import {
   Clock,
   Copy,
   Download,
+  ExternalLink,
   FileSearch,
   FileText,
   Fingerprint,
@@ -401,6 +402,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       {resumeOpen && (
         <ResumeModal
           resume={session.resume}
+          roomId={roomId}
           candidateName={session.candidateName || "Candidate"}
           onClose={() => setResumeOpen(false)}
         />
@@ -412,6 +414,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
         peers={peers}
         roomId={roomId}
         canDownload={scorecard !== null}
+        hasResume={session.resume !== null}
         onOpenResume={() => setResumeOpen(true)}
         onRegenerate={handleRegenerate}
         isRegenerating={isRegenerating}
@@ -595,6 +598,7 @@ function CandidateHeader({
   peers,
   roomId,
   canDownload,
+  hasResume,
   onOpenResume,
   onRegenerate,
   isRegenerating,
@@ -604,6 +608,7 @@ function CandidateHeader({
   peers: PeerSummary[];
   roomId: string;
   canDownload: boolean;
+  hasResume: boolean;
   onOpenResume: () => void;
   onRegenerate: () => void;
   isRegenerating: boolean;
@@ -758,14 +763,16 @@ function CandidateHeader({
 
           {/* Quick Action Buttons */}
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={onOpenResume}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
-            >
-              <FileText className="size-3.5 text-slate-400" />
-              <span>View resume</span>
-            </button>
+            {hasResume && (
+              <button
+                type="button"
+                onClick={onOpenResume}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
+              >
+                <FileText className="size-3.5 text-slate-400" />
+                <span>View resume</span>
+              </button>
+            )}
 
             {canDownload && (
               <a
@@ -773,7 +780,7 @@ function CandidateHeader({
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
               >
                 <Download className="size-3.5 text-slate-400" />
-                <span>Download report</span>
+                <span>Download PDF</span>
               </a>
             )}
 
@@ -2211,14 +2218,20 @@ function PeersSection({ peers, currentId }: { peers: PeerSummary[]; currentId: s
 /** Resume Viewer Modal */
 function ResumeModal({
   resume,
+  roomId,
   candidateName,
   onClose,
 }: {
   resume: InterviewRoom["resume"];
+  roomId: string;
   candidateName: string;
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const fileUrl = `/api/dashboard/interviews/${roomId}/resume`;
+  const fileName = resume?.fileName || `${candidateName}_Resume.pdf`;
+  const isPdf = fileName.toLowerCase().endsWith(".pdf");
+  const hasOriginal = Boolean(resume?.objectPath);
 
   function copyText() {
     if (resume?.text) {
@@ -2230,36 +2243,71 @@ function ResumeModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs">
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-border dark:bg-surface">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-border">
-          <div>
+      <div className="flex max-h-[88vh] w-full max-w-3xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-border dark:bg-surface">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4 dark:border-border">
+          <div className="min-w-0">
             <h3 className="text-base font-bold text-slate-900 dark:text-foreground">
-              Candidate Resume
+              Candidate resume
             </h3>
-            <p className="text-xs text-slate-400">{resume?.fileName || `${candidateName}_Resume.pdf`}</p>
+            <p className="truncate text-xs text-slate-400">{fileName}</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
-          >
-            <X className="size-4" />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <a
+              href={fileUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-300"
+            >
+              <ExternalLink className="size-3.5 text-slate-400" />
+              <span>Open in new tab</span>
+            </a>
+            <a
+              href={fileUrl}
+              download={fileName}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-300"
+            >
+              <Download className="size-3.5 text-slate-400" />
+              <span>Download</span>
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close resume"
+              className="grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
         </div>
 
-        <div className="mt-4 flex-1 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/50 p-4 text-xs leading-relaxed font-mono text-slate-700 dark:border-border dark:bg-background/40 dark:text-slate-300 whitespace-pre-wrap">
-          {resume?.text || "No resume text available for this candidate."}
-        </div>
+        {hasOriginal && isPdf ? (
+          <iframe
+            src={`${fileUrl}#view=FitH`}
+            title={`Resume of ${candidateName}`}
+            className="mt-4 h-[62vh] w-full rounded-xl border border-slate-100 bg-slate-50 dark:border-border"
+          />
+        ) : (
+          <div className="mt-4 flex-1 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/50 p-4 text-xs leading-relaxed font-mono text-slate-700 dark:border-border dark:bg-background/40 dark:text-slate-300 whitespace-pre-wrap">
+            {resume?.text ||
+              (hasOriginal
+                ? "This is a Word document. Use Download to open the original."
+                : "No resume is available for this candidate.")}
+          </div>
+        )}
 
         <div className="mt-4 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={copyText}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-surface dark:text-slate-300"
-          >
-            <Copy className="size-3.5 text-slate-400" />
-            <span>{copied ? "Copied!" : "Copy text"}</span>
-          </button>
+          {resume?.text ? (
+            <button
+              type="button"
+              onClick={copyText}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-surface dark:text-slate-300"
+            >
+              <Copy className="size-3.5 text-slate-400" />
+              <span>{copied ? "Copied!" : "Copy text"}</span>
+            </button>
+          ) : (
+            <span />
+          )}
           <button
             type="button"
             onClick={onClose}
