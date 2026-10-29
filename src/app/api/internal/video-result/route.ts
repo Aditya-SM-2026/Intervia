@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getInterviewRepository } from "@/server/repositories";
+import { recomputeOverallWithVideo } from "@/lib/interviews/scorecard.service";
 import {
   videoBehaviourFromWorker,
   type VideoJob,
@@ -58,12 +59,18 @@ export async function POST(request: NextRequest) {
 
   const video = videoBehaviourFromWorker(job, body);
   // The worker is the authority on the recording's length; keep the stored one otherwise.
+  const storedVideo = {
+    ...video,
+    durationSeconds: video.durationSeconds ?? scorecard.video?.durationSeconds ?? null,
+  };
   await repository.saveScorecard({
     ...scorecard,
-    video: {
-      ...video,
-      durationSeconds: video.durationSeconds ?? scorecard.video?.durationSeconds ?? null,
-    },
+    video: storedVideo,
+    // The video score arrives after the scorecard was saved, so the weighted
+    // total (and the average shown at the top of the report) has to be
+    // recomputed now. Without this the video column stays empty even though
+    // the analysis finished.
+    overall: recomputeOverallWithVideo(scorecard, storedVideo.score),
   });
 
   return NextResponse.json({ ok: true, status: video.status });

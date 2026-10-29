@@ -11,6 +11,7 @@ import type { InterviewPlan, PlanCompetency } from "./plan.types";
 import {
   answerQualityScore,
   authenticityScore,
+  DEFAULT_WEIGHTS,
   measuredAuthenticitySignals,
   overallScore as combineFactors,
   parseWeights,
@@ -21,6 +22,7 @@ import type {
   Authenticity,
   AuthenticitySignal,
   CompetencyScore,
+  FactorId,
   IntegritySignals,
   InterviewDetailResponse,
   PeerSummary,
@@ -191,6 +193,31 @@ async function deliverVideoJob(roomId: string, job: VideoJob): Promise<void> {
       durationSeconds: null,
     },
   });
+}
+
+/**
+ * The total is recomputed whenever a factor arrives late. The video worker is
+ * asynchronous: the scorecard is saved first with the video still queued, and
+ * this puts the finished video score into the same weighted average the report
+ * header shows, instead of leaving the factor null.
+ */
+export function recomputeOverallWithVideo(
+  scorecard: Scorecard,
+  videoScore: number | null,
+): Scorecard["overall"] {
+  const scores: Record<FactorId, number | null> = {
+    answers: null,
+    resume: null,
+    authenticity: null,
+    video: null,
+  };
+  const weights: Record<FactorId, number> = { ...DEFAULT_WEIGHTS };
+  for (const factor of scorecard.overall?.factors ?? []) {
+    scores[factor.id] = factor.score;
+    weights[factor.id] = factor.weight;
+  }
+  scores.video = videoScore;
+  return combineFactors(scores, weights);
 }
 
 /**
