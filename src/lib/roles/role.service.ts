@@ -71,12 +71,15 @@ export async function updateRole(id: string, input: unknown) {
 }
 
 /**
- * Deletes one or more roles. Interviews (with their reports, recordings and
- * analyses) are kept and detached, so nothing a candidate said is lost.
+ * Deletes one or more roles together with their candidate interviews: the
+ * reports, recordings and analyses for those candidates go with them. Callers
+ * warn about that before calling.
  */
-export async function deleteRoles(ids: readonly string[]): Promise<number> {
+export async function deleteRoles(
+  ids: readonly string[],
+): Promise<{ roles: number; interviews: number }> {
   const unique = [...new Set(ids)].filter((id) => ROOM_ID_PATTERN.test(id));
-  if (unique.length === 0) return 0;
+  if (unique.length === 0) return { roles: 0, interviews: 0 };
   return repository().deleteRoles(unique);
 }
 

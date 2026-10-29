@@ -63,10 +63,11 @@ export interface RoleRepository {
   listRoles(filter: RoleListFilter): Promise<Role[]>;
   updateRole(id: string, patch: UpdateRoleRow): Promise<Role | null>;
   /**
-   * Deletes roles and detaches their interviews. Reports, recordings and
-   * analyses belong to the interviews and are kept.
+   * Deletes roles together with their candidate interviews: turns, events,
+   * scorecards and the interview rows themselves. A role is the container HR
+   * sees, so leaving its candidates behind in the dashboard is a surprise.
    */
-  deleteRoles(ids: readonly string[]): Promise<number>;
+  deleteRoles(ids: readonly string[]): Promise<{ roles: number; interviews: number }>;
   /** Live stats for many roles in one call; roles without interviews get zeroed stats. */
   getRoleStats(roles: readonly { id: string; title: string }[]): Promise<Map<string, RoleStats>>;
   listRoleCandidates(
@@ -258,18 +259,28 @@ export function getPostgresRolesRepository(): RoleRepository {
       return row ? rowToRole(row) : null;
     },
 
-    async deleteRoles(ids: readonly string[]): Promise<number> {
-      if (ids.length === 0) return 0;
+    async deleteRoles(ids: readonly string[]): Promise<{ roles: number; interviews: number }> {
+      if (ids.length === 0) return { roles: 0, interviews: 0 };
       await ensureSchema();
       const client = await getPool().connect();
       try {
         await client.query("BEGIN");
-        // Interviews outlive the role: detach them so reports, recordings and
-        // analyses stay reachable from the Interviews page.
-        await client.query("UPDATE interviews SET role_id = NULL WHERE role_id = ANY($1)", [ids]);
+        const rooms = await client.query<{ id: string }>(
+          "SELECT id FROM interviews WHERE role_id = ANY($1)",
+          [ids],
+        );
+        const roomIds = rooms.rows.map((row) => row.id);
+        let interviews = 0;
+        if (roomIds.length > 0) {
+          await client.query("DELETE FROM interview_turns WHERE room_id = ANY($1)", [roomIds]);
+          await client.query("DELETE FROM interview_events WHERE room_id = ANY($1)", [roomIds]);
+          await client.query("DELETE FROM scorecards WHERE room_id = ANY($1)", [roomIds]);
+          const removed = await client.query("DELETE FROM interviews WHERE id = ANY($1)", [roomIds]);
+          interviews = removed.rowCount ?? 0;
+        }
         const result = await client.query("DELETE FROM roles WHERE id = ANY($1)", [ids]);
         await client.query("COMMIT");
-        return result.rowCount ?? 0;
+        return { roles: result.rowCount ?? 0, interviews };
       } catch (error) {
         await client.query("ROLLBACK").catch(() => {});
         throw error;
@@ -584,12 +595,22 @@ export function getInMemoryRolesRepository(): RoleRepository {
       return updated;
     },
 
-    async deleteRoles(ids: readonly string[]): Promise<number> {
-      let deleted = 0;
+    async deleteRoles(ids: readonly string[]): Promise<{ roles: number; interviews: number }> {
+      const store = getInterviewStore();
+      let roles = 0;
+      let interviews = 0;
       for (const id of ids) {
-        if (getStore().roles.delete(id)) deleted += 1;
+        for (const [roomId, room] of store.rooms) {
+          if (room.roleId !== id) continue;
+          store.rooms.delete(roomId);
+          store.turns.delete(roomId);
+          store.events.delete(roomId);
+          store.scorecards.delete(roomId);
+          interviews += 1;
+        }
+        if (getStore().roles.delete(id)) roles += 1;
       }
-      return deleted;
+      return { roles, interviews };
     },
 
     async getRoleStats(

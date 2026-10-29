@@ -66,8 +66,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * Deletes one role. Its interviews are kept (detached), so candidate reports,
- * recordings and analyses remain available from the Interviews page.
+ * Deletes one role together with its candidate interviews, so the candidates
+ * disappear from the dashboard as well as the roles page.
  */
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   const denied = await requireRecruiter();
@@ -79,11 +79,11 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    const deleted = await deleteRoles([roleId]);
-    if (deleted === 0) {
+    const result = await deleteRoles([roleId]);
+    if (result.roles === 0) {
       return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
     }
-    return NextResponse.json({ deleted });
+    return NextResponse.json({ deleted: result.roles, interviews: result.interviews });
   } catch (error) {
     console.error(`[roles] delete failed: ${describeRoleError(error)}`);
     return roleErrorResponse("SERVER_ERROR", "Could not delete the role. Please try again.");

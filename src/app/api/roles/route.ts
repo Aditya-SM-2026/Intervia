@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
 /**
  * Deletes several roles at once. Body: `{ "ids": ["role_...", ...] }`.
- * Interviews are kept and detached from the deleted roles.
+ * Each role's candidate interviews go with it.
  */
 export async function DELETE(request: NextRequest) {
   const denied = await requireRecruiter();
@@ -85,11 +85,11 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const deleted = await deleteRoles(ids);
-    if (deleted === 0) {
+    const result = await deleteRoles(ids);
+    if (result.roles === 0) {
       return roleErrorResponse("ROLE_NOT_FOUND", "None of those roles exist any more.");
     }
-    return NextResponse.json({ deleted });
+    return NextResponse.json({ deleted: result.roles, interviews: result.interviews });
   } catch (error) {
     console.error(`[roles] delete failed: ${describeRoleError(error)}`);
     return roleErrorResponse("SERVER_ERROR", "Could not delete the roles. Please try again.");

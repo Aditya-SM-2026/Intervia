@@ -951,16 +951,25 @@ export function RolesView() {
         body: JSON.stringify({ ids: deleteIds }),
       });
       const body = (await response.json().catch(() => null)) as
-        | { deleted?: number; error?: { message?: string } }
+        | { deleted?: number; interviews?: number; error?: { message?: string } }
         | null;
       if (!response.ok) {
         throw new Error(body?.error?.message ?? "Could not delete the roles.");
       }
       const count = body?.deleted ?? deleteIds.length;
+      const removedInterviews = body?.interviews ?? 0;
       setNotice(
         count === 1
-          ? "Role deleted. Its interviews and reports are still under Interviews."
-          : `${count} roles deleted. Their interviews and reports are still under Interviews.`,
+          ? removedInterviews > 0
+            ? `Role deleted, along with ${removedInterviews} candidate interview${
+                removedInterviews === 1 ? "" : "s"
+              }.`
+            : "Role deleted."
+          : removedInterviews > 0
+            ? `${count} roles deleted, along with ${removedInterviews} candidate interview${
+                removedInterviews === 1 ? "" : "s"
+              }.`
+            : `${count} roles deleted.`,
       );
       setDeleteIds(null);
       setSelectedIds(new Set());
@@ -971,6 +980,9 @@ export function RolesView() {
       setDeleting(false);
     }
   }
+
+  const rolesToDelete = deleteIds ? (roles ?? []).filter((role) => deleteIds.includes(role.id)) : [];
+  const interviewsToDelete = rolesToDelete.reduce((sum, role) => sum + role.stats.interviews, 0);
 
   const candidatesReady = roles !== null && Object.keys(candidateErrors).length + Object.keys(candidatesByRole).length >= roles.length;
   const hasActiveFilters = search !== "" || statusFilter !== "" || stageFilter !== "";
@@ -1279,13 +1291,30 @@ export function RolesView() {
           deleteIds && deleteIds.length === 1 ? "Delete this role?" : "Delete selected roles?"
         }
         body={
-          <p>
-            {deleteIds && deleteIds.length === 1
-              ? `"${(roles ?? []).find((role) => role.id === deleteIds[0])?.title ?? "This role"}" will be removed from the roles page. Its interviews, reports, recordings and analyses are kept and stay under Interviews.`
-              : `${deleteIds?.length ?? 0} roles will be removed from the roles page. Their interviews, reports, recordings and analyses are kept and stay under Interviews.`}
-          </p>
+          <div className="space-y-2">
+            <p>
+              {deleteIds && deleteIds.length === 1
+                ? `"${rolesToDelete[0]?.title ?? "This role"}" will be removed from the roles page.`
+                : `${deleteIds?.length ?? 0} roles will be removed from the roles page.`}
+            </p>
+            <p>
+              {interviewsToDelete > 0
+                ? `${interviewsToDelete} candidate interview${
+                    interviewsToDelete === 1 ? "" : "s"
+                  } will also be deleted, including reports, recordings and video analyses. This cannot be undone.`
+                : "They have no candidates, so nothing else is removed."}
+            </p>
+          </div>
         }
-        confirmLabel={deleteIds && deleteIds.length === 1 ? "Delete role" : "Delete roles"}
+        confirmLabel={
+          interviewsToDelete > 0
+            ? deleteIds && deleteIds.length === 1
+              ? "Delete role and candidates"
+              : "Delete roles and candidates"
+            : deleteIds && deleteIds.length === 1
+              ? "Delete role"
+              : "Delete roles"
+        }
         busy={deleting}
         onConfirm={confirmDelete}
         onCancel={() => {
