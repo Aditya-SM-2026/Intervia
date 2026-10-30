@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import type { DifficultyLevel, VoiceMode } from "@/lib/interviews/interview.types";
+import type { DifficultyLevel } from "@/lib/interviews/interview.types";
 import {
   DEFAULT_DURATION_MINUTES,
   MAX_DURATION_MINUTES,
@@ -15,7 +15,6 @@ export interface CreateInterviewFormValues {
   roleTitle: string;
   durationMinutes: number;
   difficulty: DifficultyLevel;
-  voiceMode: VoiceMode;
   jobDescriptionText?: string;
   jobDescriptionPdf?: File;
   resume?: File;
@@ -47,19 +46,6 @@ const DIFFICULTY_OPTIONS: { value: DifficultyLevel; label: string; hint: string 
   { value: "medium", label: "Medium", hint: "Practical questions with one follow-up each." },
   { value: "hard", label: "Hard", hint: "Digs into decisions, trade-offs and results." },
   { value: "extra-hard", label: "Extra hard", hint: "Bar-raiser. Changes constraints, chases reasoning." },
-];
-
-const VOICE_OPTIONS: { value: VoiceMode; label: string; hint: string }[] = [
-  {
-    value: "standard",
-    label: "Standard (current version)",
-    hint: "One continuous voice session for the whole interview. This is the version you have tested. About $1.80 an hour in a 3-minute test, and the rate rises as the interview gets longer.",
-  },
-  {
-    value: "rolling",
-    label: "Lower cost (fresh session every 90 seconds)",
-    hint: "Same interviewer and voice. The session is renewed at each topic and about every 90 seconds, carrying the conversation as text, so earlier audio is not paid for again. About $1.10 an hour in a 3-minute test, and the rate stays flat.",
-  },
 ];
 
 /** Minutes offered as one-tap choices, kept to those inside the allowed range. */
@@ -171,13 +157,11 @@ export function CreateInterviewForm({
     initial?.durationMinutes ?? DEFAULT_DURATION_MINUTES,
   );
   const [difficulty, setDifficulty] = useState<DifficultyLevel>(initial?.difficulty ?? "medium");
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>(initial?.voiceMode ?? "standard");
   const [jobDescriptionText, setJobDescriptionText] = useState(initial?.jobDescriptionText ?? "");
   const [jobDescriptionPdf, setJobDescriptionPdf] = useState<File | null>(null);
   const [resume, setResume] = useState<File | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const voice = VOICE_OPTIONS.find((option) => option.value === voiceMode) ?? VOICE_OPTIONS[0];
   const style = DIFFICULTY_OPTIONS.find((option) => option.value === difficulty);
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -195,7 +179,6 @@ export function CreateInterviewForm({
       roleTitle: roleTitle.trim(),
       durationMinutes,
       difficulty,
-      voiceMode,
       ...(jobDescriptionPdf ? { jobDescriptionPdf } : { jobDescriptionText: jobDescriptionText.trim() }),
       ...(resume ? { resume } : {}),
     });
@@ -362,27 +345,6 @@ export function CreateInterviewForm({
               <p className="mt-1.5 text-xs text-muted">{style?.hint}</p>
             </div>
 
-            <div>
-              <label htmlFor="voice-mode" className={labelClasses}>
-                Voice engine
-              </label>
-              <select
-                id="voice-mode"
-                value={voiceMode}
-                onChange={(event) => setVoiceMode(event.target.value as VoiceMode)}
-                aria-describedby="voice-mode-hint"
-                className={`${inputClasses} cursor-pointer pr-8`}
-              >
-                {VOICE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <p id="voice-mode-hint" className="mt-1.5 text-xs text-muted">
-                {voice.hint} The cost of each interview is shown on its dashboard page.
-              </p>
-            </div>
           </fieldset>
         </div>
 
@@ -456,8 +418,7 @@ export function CreateInterviewForm({
           {footerNote ?? (
             <>
               <span className="font-medium text-foreground">{durationMinutes} minutes</span>,{" "}
-              {style?.label.toLowerCase()} style,{" "}
-              {voiceMode === "rolling" ? "lower-cost voice" : "standard voice"}. Link valid for 3 days.
+              {style?.label.toLowerCase()} style. Link valid for 24 hours.
             </>
           )}
         </p>

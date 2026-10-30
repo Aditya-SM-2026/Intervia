@@ -101,10 +101,10 @@ export default async function SettingsPage() {
                 />
               </div>
               <div>
-                <p className="font-semibold tracking-tight">Change voice tone</p>
+                <p className="font-semibold tracking-tight">Voice and engine</p>
                 <p className="mt-1 text-sm text-muted">
-                  Hear a short sample of each interviewer voice, then pick the one you want for
-                  every interview.
+                  Hear a sample of each interviewer voice, and choose which engine runs the call.
+                  Every interview uses both.
                 </p>
                 <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-muted">
                   <Mic className="size-3.5" aria-hidden />
@@ -119,6 +119,10 @@ export default async function SettingsPage() {
             <dl className="mt-4 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
               <Row label="Voice conversation" value="Gemini Live, audio only" />
               <Row label="Voice" value={`${voice.name} · ${voice.tone}`} />
+              <Row
+                label="Voice engine"
+                value={personality.voiceMode === "rolling" ? "Lower cost" : "Standard"}
+              />
               <Row label="Language" value="English (plus the languages the candidate uses)" />
               <Row label="Join window" value="The agent waits up to 5 minutes for the candidate" />
               <Row label="Recording" value="Kept on the report and playable" />

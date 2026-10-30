@@ -42,6 +42,9 @@ export const DEFAULT_STYLES: Record<AgentDifficulty, string> = {
     "Interviewer style: bar-raiser. Chase the reasoning several levels down, change a constraint after the first answer and see whether they adapt, and ask about failure modes unprompted. Stay cool and professional, never hostile.",
 };
 
+/** Which voice engine the live interviewer runs on. Empty keeps the default. */
+export type AgentVoiceEngine = "standard" | "rolling";
+
 /** An empty field means "use the built-in default for that part". */
 export interface AgentPersonality {
   persona: string;
@@ -49,6 +52,8 @@ export interface AgentPersonality {
   styles: Partial<Record<AgentDifficulty, string>>;
   /** A voice id from agent-voices.ts. Empty keeps the environment default. */
   voice: string;
+  /** Voice engine for new interviews. Empty uses the built-in default. */
+  voiceMode: AgentVoiceEngine | "";
   updatedAt: string | null;
 }
 
@@ -57,6 +62,7 @@ export const EMPTY_PERSONALITY: AgentPersonality = {
   conduct: "",
   styles: {},
   voice: "",
+  voiceMode: "",
   updatedAt: null,
 };
 

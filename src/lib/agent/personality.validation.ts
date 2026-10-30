@@ -20,6 +20,8 @@ export const personalityInputSchema = z.object({
     .optional(),
   /** One of the voices offered in Settings. Left out keeps the current one. */
   voice: z.enum(AGENT_VOICE_IDS).optional(),
+  /** Voice engine for new interviews. Left out keeps the current one. */
+  voiceMode: z.enum(["standard", "rolling"]).optional(),
 });
 
 export type PersonalityInput = z.infer<typeof personalityInputSchema>;

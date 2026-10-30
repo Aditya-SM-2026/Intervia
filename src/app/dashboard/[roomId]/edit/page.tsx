@@ -55,7 +55,6 @@ export default async function EditInterviewPage({
                 roleTitle: room.roleTitle ?? room.title,
                 durationMinutes: room.durationMinutes,
                 difficulty: room.difficulty,
-                voiceMode: room.voiceMode,
                 jobDescriptionText: room.jobDescription?.text ?? "",
                 existingResumeName: room.resume?.fileName ?? null,
               }}

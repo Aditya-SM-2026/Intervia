@@ -29,10 +29,10 @@ export default async function AgentVoicePage() {
             <ArrowLeft className="size-4" aria-hidden />
             Settings
           </Link>
-          <h1 className="text-4xl font-semibold tracking-tight">Change voice tone</h1>
+          <h1 className="text-4xl font-semibold tracking-tight">Voice and engine</h1>
           <p className="mt-2 max-w-2xl text-muted">
-            Pick how the interviewer sounds. Listen to a sample for each voice, then save the one
-            you want. Every interview from then on uses it.
+            Pick how the interviewer sounds, and which engine runs the call. Listen to a sample for
+            each voice, choose the engine, then save. Every interview from then on uses both.
           </p>
         </div>
         {!available && (

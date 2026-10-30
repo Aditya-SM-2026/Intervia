@@ -9,6 +9,7 @@ import {
 import type { InterviewApiError } from "@/lib/interviews/interview.types";
 import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
 import { requireRecruiter } from "@/lib/auth/guards";
+import { getAgentPersonality } from "@/lib/agent/personality.service";
 import { ensureRoleForTitle } from "@/lib/roles/role.service";
 import { describeRoleError } from "@/lib/roles/role-errors";
 import { storeResumeFile } from "@/lib/uploads/resume-storage";
@@ -130,10 +131,21 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // The voice engine is a settings choice now, not something the recruiter
+  // picks per interview. A failed read must not block scheduling.
+  let voiceMode = parsed.data.voiceMode;
+  try {
+    const personality = await getAgentPersonality();
+    if (personality.voiceMode) voiceMode = personality.voiceMode;
+  } catch (error) {
+    console.error(`[interviews] could not read the voice engine setting: ${(error as Error).message}`);
+  }
+
   let room;
   try {
     room = await createInterviewRoom({
       ...parsed.data,
+      voiceMode,
       scheduledAt: scheduled.value,
       jobDescription,
       resume,

@@ -9,12 +9,15 @@ import {
   VOICE_SAMPLE_TEXT,
   type AgentVoiceId,
 } from "@/lib/agent/agent-voices";
-import type { AgentPersonality } from "@/lib/agent/personality.types";
+import type { AgentPersonality, AgentVoiceEngine } from "@/lib/agent/personality.types";
 
 /** The voice picker: five options, each with a playable sample. */
 export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
   const [voice, setVoice] = useState<AgentVoiceId>(
     (initial.voice as AgentVoiceId | "") || DEFAULT_AGENT_VOICE_ID,
+  );
+  const [voiceMode, setVoiceMode] = useState<AgentVoiceEngine>(
+    initial.voiceMode === "rolling" ? "rolling" : "standard",
   );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
@@ -89,7 +92,7 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
       const response = await fetch("/api/settings/agent", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ voice }),
+        body: JSON.stringify({ voice, voiceMode }),
       });
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as
@@ -97,7 +100,7 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
           | null;
         throw new Error(body?.error?.message ?? "Could not save the voice.");
       }
-      setSaved("Voice saved. Every interview from now on uses it.");
+      setSaved("Voice settings saved. Every new interview from now on uses them.");
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
@@ -183,6 +186,59 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
             {previewError}
           </p>
         )}
+      </div>
+
+      <div className="rounded-2xl border border-border bg-surface p-5">
+        <h2 className="text-lg font-semibold tracking-tight">Voice engine</h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted">
+          How the live call is run. This applies to every interview from now on, and it is no
+          longer chosen when an interview is created.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {[
+            {
+              value: "standard" as AgentVoiceEngine,
+              title: "Standard",
+              hint: "One continuous session for the whole interview. The version tested most. About $1.80 an hour in a 3-minute test, and the rate rises as the interview gets longer.",
+            },
+            {
+              value: "rolling" as AgentVoiceEngine,
+              title: "Lower cost",
+              hint: "Same interviewer and voice, renewed at each topic and about every 90 seconds, carrying the conversation as text. About $1.10 an hour, and the rate stays flat.",
+            },
+          ].map((option) => {
+            const isSelected = voiceMode === option.value;
+            return (
+              <label
+                key={option.value}
+                className={`cursor-pointer rounded-xl border p-4 transition ${
+                  isSelected ? "border-accent bg-accent-soft" : "border-border hover:border-accent/40"
+                }`}
+              >
+                <span className="flex items-start gap-3">
+                  <input
+                    type="radio"
+                    name="voice-engine"
+                    value={option.value}
+                    checked={isSelected}
+                    onChange={() => {
+                      setVoiceMode(option.value);
+                      setSaved(null);
+                    }}
+                    style={{ accentColor: "var(--accent)" }}
+                    className="mt-1 size-4 shrink-0"
+                  />
+                  <span className="min-w-0">
+                    <span className="block font-semibold tracking-tight">{option.title}</span>
+                    <span className="mt-1 block text-xs leading-relaxed text-muted">
+                      {option.hint}
+                    </span>
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

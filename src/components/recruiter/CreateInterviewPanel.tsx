@@ -46,7 +46,6 @@ function CreateInterviewPanelInner() {
       form.set("roleTitle", values.roleTitle);
       form.set("durationMinutes", String(values.durationMinutes));
       form.set("difficulty", values.difficulty);
-      form.set("voiceMode", values.voiceMode);
       if (values.jobDescriptionPdf) {
         form.set("jobDescriptionPdf", values.jobDescriptionPdf);
       } else if (values.jobDescriptionText) {

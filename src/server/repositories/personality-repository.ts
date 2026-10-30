@@ -28,9 +28,11 @@ CREATE TABLE IF NOT EXISTS agent_settings (
   conduct TEXT NOT NULL DEFAULT '',
   styles JSONB NOT NULL DEFAULT '{}'::jsonb,
   voice TEXT NOT NULL DEFAULT '',
+  voice_mode TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE agent_settings ADD COLUMN IF NOT EXISTS voice TEXT NOT NULL DEFAULT '';
+ALTER TABLE agent_settings ADD COLUMN IF NOT EXISTS voice_mode TEXT NOT NULL DEFAULT '';
 `;
 
 let memoryRow: AgentPersonality = {
@@ -38,6 +40,7 @@ let memoryRow: AgentPersonality = {
   conduct: "",
   styles: {},
   voice: "",
+  voiceMode: "",
   updatedAt: null,
 };
 
@@ -74,6 +77,7 @@ interface SettingsRow {
   conduct: string;
   styles: Record<string, string> | null;
   voice: string | null;
+  voice_mode: string | null;
   updated_at: Date;
 }
 
@@ -82,16 +86,19 @@ export async function readAgentPersonality(): Promise<AgentPersonality> {
 
   await ensureSchema();
   const result = await getPool().query<SettingsRow>(
-    "SELECT persona, conduct, styles, voice, updated_at FROM agent_settings WHERE id = $1",
+    "SELECT persona, conduct, styles, voice, voice_mode, updated_at FROM agent_settings WHERE id = $1",
     [ROW_ID],
   );
   const row = result.rows[0];
-  if (!row) return { persona: "", conduct: "", styles: {}, voice: "", updatedAt: null };
+  if (!row) {
+    return { persona: "", conduct: "", styles: {}, voice: "", voiceMode: "", updatedAt: null };
+  }
   return {
     persona: row.persona ?? "",
     conduct: row.conduct ?? "",
     styles: row.styles ?? {},
     voice: row.voice ?? "",
+    voiceMode: row.voice_mode === "rolling" ? "rolling" : row.voice_mode === "standard" ? "standard" : "",
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
   };
 }
@@ -101,6 +108,7 @@ export async function writePersonality(input: {
   conduct: string;
   styles: Record<string, string>;
   voice: string;
+  voiceMode: AgentPersonality["voiceMode"];
 }): Promise<AgentPersonality> {
   const updatedAt = new Date().toISOString();
 
@@ -110,6 +118,7 @@ export async function writePersonality(input: {
       conduct: input.conduct,
       styles: input.styles,
       voice: input.voice,
+      voiceMode: input.voiceMode,
       updatedAt,
     };
     return memoryRow;
@@ -117,15 +126,16 @@ export async function writePersonality(input: {
 
   await ensureSchema();
   await getPool().query(
-    `INSERT INTO agent_settings (id, persona, conduct, styles, voice, updated_at)
-     VALUES ($1, $2, $3, $4::jsonb, $5, now())
+    `INSERT INTO agent_settings (id, persona, conduct, styles, voice, voice_mode, updated_at)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, now())
      ON CONFLICT (id) DO UPDATE SET
        persona = EXCLUDED.persona,
        conduct = EXCLUDED.conduct,
        styles = EXCLUDED.styles,
        voice = EXCLUDED.voice,
+       voice_mode = EXCLUDED.voice_mode,
        updated_at = EXCLUDED.updated_at`,
-    [ROW_ID, input.persona, input.conduct, JSON.stringify(input.styles), input.voice],
+    [ROW_ID, input.persona, input.conduct, JSON.stringify(input.styles), input.voice, input.voiceMode],
   );
   return { ...input, updatedAt };
 }

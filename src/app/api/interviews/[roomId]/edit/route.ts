@@ -67,7 +67,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     roleTitle: text("roleTitle"),
     durationMinutes: text("durationMinutes"),
     difficulty: text("difficulty"),
-    voiceMode: text("voiceMode"),
     jobDescriptionText: text("jobDescriptionText"),
   });
   if (!parsed.success) return invalidInput(formatValidationIssues(parsed.error));
@@ -119,7 +118,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     roleTitle: parsed.data.roleTitle,
     durationMinutes: parsed.data.durationMinutes,
     difficulty: parsed.data.difficulty,
-    voiceMode: parsed.data.voiceMode,
     jobDescription,
     resume,
   });

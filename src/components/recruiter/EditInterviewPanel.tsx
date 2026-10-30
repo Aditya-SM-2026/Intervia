@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, Copy } from "lucide-react";
-import type { DifficultyLevel, VoiceMode } from "@/lib/interviews/interview.types";
+import type { DifficultyLevel } from "@/lib/interviews/interview.types";
 import { CreateInterviewForm, type CreateInterviewFormValues } from "./CreateInterviewForm";
 
 interface InviteEmailStatus {
@@ -25,7 +25,6 @@ export interface EditInterviewInitialValues {
   roleTitle: string;
   durationMinutes: number;
   difficulty: DifficultyLevel;
-  voiceMode: VoiceMode;
   jobDescriptionText: string;
   existingResumeName: string | null;
 }
@@ -67,7 +66,6 @@ export function EditInterviewPanel({ roomId, initial }: EditInterviewPanelProps)
       form.set("roleTitle", values.roleTitle);
       form.set("durationMinutes", String(values.durationMinutes));
       form.set("difficulty", values.difficulty);
-      form.set("voiceMode", values.voiceMode);
       if (values.jobDescriptionPdf) {
         form.set("jobDescriptionPdf", values.jobDescriptionPdf);
       } else if (values.jobDescriptionText) {
@@ -216,7 +214,6 @@ export function EditInterviewPanel({ roomId, initial }: EditInterviewPanelProps)
           roleTitle: initial.roleTitle,
           durationMinutes: initial.durationMinutes,
           difficulty: initial.difficulty,
-          voiceMode: initial.voiceMode,
           jobDescriptionText: initial.jobDescriptionText,
           existingResumeName: initial.existingResumeName,
         }}

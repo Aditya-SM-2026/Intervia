@@ -399,11 +399,6 @@ const DIFFICULTY_LABELS: Record<DifficultyLevel, string> = {
   "extra-hard": "Extra hard",
 };
 
-const VOICE_LABELS: Record<VoiceMode, string> = {
-  standard: "Standard voice",
-  rolling: "Lower-cost voice",
-};
-
 /** What the edit screen needs: the room and whether it may still be changed. */
 export interface InterviewEditState {
   room: InterviewRoom;
@@ -452,7 +447,6 @@ export interface InterviewEditInput {
   roleTitle: string;
   durationMinutes: number;
   difficulty: DifficultyLevel;
-  voiceMode: VoiceMode;
   jobDescription: JobDescription | null;
   /** A newly uploaded resume, or null to keep the one already stored. */
   resume: ResumeInfo | null;
@@ -511,11 +505,6 @@ export async function updateScheduledInterview(
     changes.push(`Interviewer style: ${DIFFICULTY_LABELS[room.difficulty]} to ${DIFFICULTY_LABELS[input.difficulty]}`);
     next.difficulty = input.difficulty;
   }
-  if (input.voiceMode !== room.voiceMode) {
-    changes.push(`Voice engine: ${VOICE_LABELS[room.voiceMode]} to ${VOICE_LABELS[input.voiceMode]}`);
-    next.voiceMode = input.voiceMode;
-  }
-
   const jdChanged = (input.jobDescription?.text ?? "") !== (room.jobDescription?.text ?? "");
   if (jdChanged) {
     changes.push("Job description: updated");
