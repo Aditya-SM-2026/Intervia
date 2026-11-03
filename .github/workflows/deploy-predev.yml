@@ -42,10 +42,13 @@ jobs:
               - 'Dockerfile.web'
               - 'package.json'
               - 'video-analysis/**'
+              - '.github/workflows/deploy-predev.yml'
             agent:
               - 'agent/**'
+              - '.github/workflows/deploy-predev.yml'
             worker:
               - 'worker/**'
+              - '.github/workflows/deploy-predev.yml'
 
   build-web:
     needs: changes
@@ -147,8 +150,8 @@ jobs:
       - name: Restart only the predev container on the shared VM
         run: |
           # Never `instances reset`: that would drop the production agent too.
-          gcloud compute scp scripts/predev-agent-vm.sh ${{ env.VM }}:/tmp/predev-agent-vm.sh \
+          gcloud compute scp scripts/predev-agent-vm.sh ${{ env.VM }}:predev-agent-vm.sh \
             --project ${{ env.PROJECT_ID }} --zone ${{ env.ZONE }} --quiet
           gcloud compute ssh ${{ env.VM }} \
             --project ${{ env.PROJECT_ID }} --zone ${{ env.ZONE }} --quiet \
-            --command "sudo bash /tmp/predev-agent-vm.sh"
+            --command "sudo bash ~/predev-agent-vm.sh"
