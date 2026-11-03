@@ -128,7 +128,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const candidateUrl = new URL(`/interview/${room.id}`, publicOrigin(request)).toString();
 
   try {
-    await ensureRoleForTitle(parsed.data.roleTitle);
+    await ensureRoleForTitle(parsed.data.roleTitle, jobDescription?.text);
   } catch (error) {
     console.error(`[interviews] role auto-create failed for edit: ${describeRoleError(error)}`);
   }

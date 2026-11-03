@@ -63,18 +63,30 @@ export async function listRoleOptions(): Promise<Role[]> {
 
 /**
  * Makes sure a role exists for an interview's role title, so every role a
- * recruiter works with shows up on the roles page. Roles created this way
- * start empty (no description or skills) and can be filled in via Edit role.
+ * recruiter works with shows up on the roles page. A role created this way
+ * keeps the interview's job description when one was supplied, and an older
+ * record with no description is filled in the next time it appears.
  * Case-insensitive: "AI engineer" and "AI Engineer" are the same role.
  */
-export async function ensureRoleForTitle(title: string | null | undefined): Promise<void> {
+export async function ensureRoleForTitle(
+  title: string | null | undefined,
+  description?: string | null,
+): Promise<void> {
   const trimmed = title?.trim();
   if (!trimmed || trimmed.length < 2) return;
+  const jd = description?.trim() ?? "";
+  const usableJd = jd.length >= 10 ? jd : "";
   const existing = await repository().listRoles({ q: trimmed });
-  if (existing.some((role) => role.title.toLowerCase() === trimmed.toLowerCase())) return;
+  const match = existing.find((role) => role.title.toLowerCase() === trimmed.toLowerCase());
+  if (match) {
+    if (usableJd && !match.description.trim()) {
+      await repository().updateRole(match.id, { description: usableJd });
+    }
+    return;
+  }
   await repository().createRole({
     title: trimmed,
-    description: "",
+    description: usableJd,
     skills: [],
     deadline: null,
   });

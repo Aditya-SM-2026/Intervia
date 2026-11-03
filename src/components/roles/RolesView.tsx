@@ -370,7 +370,17 @@ function RoleCard({
                 {STATUS_LABELS[role.status]}
               </span>
             </div>
-            <p className="mt-0.5 line-clamp-2 text-sm text-muted">{role.description}</p>
+            {role.description.trim() ? (
+              <p className="mt-0.5 line-clamp-2 text-sm text-muted">{role.description}</p>
+            ) : (
+              <button
+                type="button"
+                onClick={onEdit}
+                className="mt-0.5 text-left text-sm text-muted underline decoration-dotted underline-offset-2 transition hover:text-foreground"
+              >
+                No job description yet. Add one
+              </button>
+            )}
             <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
               <span className="inline-flex items-center gap-1.5">
                 <Users className="size-3.5" aria-hidden />
@@ -468,15 +478,7 @@ function RoleCard({
       {expanded && (
         <div className="border-t border-border p-4 sm:px-5">
           <CandidateTable roleId={role.id} candidates={candidates} loading={candidatesLoading} error={candidatesError} />
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-background px-3 py-2.5">
-            <Link
-              href={inviteUrl(role)}
-              className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium transition hover:bg-background"
-            >
-              <UserPlus className="size-4" aria-hidden />
-              Add candidate
-            </Link>
-            <p className="text-xs text-muted">Invite candidates via a shareable interview link or add manually.</p>
+          <div className="mt-3 flex justify-end">
             <Link
               href={`/dashboard/roles/${role.id}`}
               className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"

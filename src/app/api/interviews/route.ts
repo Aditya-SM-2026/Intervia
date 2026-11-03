@@ -200,7 +200,7 @@ export async function POST(request: NextRequest) {
   // this interview introduced a new role title, create the role record for
   // it. Best-effort — a failure here must not fail the interview creation.
   try {
-    await ensureRoleForTitle(parsed.data.roleTitle);
+    await ensureRoleForTitle(parsed.data.roleTitle, jobDescription?.text);
   } catch (error) {
     console.error(`[interviews] role auto-create failed: ${describeRoleError(error)}`);
   }
