@@ -214,7 +214,18 @@ export { hasRecording, listRecordings } from "./recording-refs";
  * more than one file; the longest is used.
  */
 export async function pickRecording(events: readonly InterviewEvent[]): Promise<RecordingRef | null> {
-  const all = listRecordings(events);
+  // The mixed copy (candidate video with the agent's audio folded in) is the
+  // preferred playback file whenever it exists.
+  const mixed = listRecordings(events).find((ref) => ref.mixed);
+  if (mixed) return mixed;
+  return pickCandidateRecording(events);
+}
+
+/** The candidate's own recording, ignoring any mixed copy built from it. */
+export async function pickCandidateRecording(
+  events: readonly InterviewEvent[],
+): Promise<RecordingRef | null> {
+  const all = listRecordings(events).filter((ref) => !ref.mixed);
   if (all.length <= 1) return all[0] ?? null;
   // A candidate who dropped and rejoined left several segments. When the
   // local pieces are all present, serve one merged video (black-padded over
