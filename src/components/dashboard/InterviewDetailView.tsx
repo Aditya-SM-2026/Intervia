@@ -1880,6 +1880,9 @@ function RecordingPanel({
   const [playing, setPlaying] = useState(false);
   const [filter, setFilter] = useState<"all" | "candidate" | "interviewer">("all");
   const [query, setQuery] = useState("");
+  const [pickedSeq, setPickedSeq] = useState<number | null>(null);
+  const [videoFailed, setVideoFailed] = useState(false);
+  const [attempt, setVideoAttempt] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
   const total = duration > 0 ? duration : (durationSeconds ?? 0);
@@ -1894,9 +1897,15 @@ function RecordingPanel({
   // order, so every entry is checked instead of stopping at the first gap.
   let active: { turn: InterviewTurn; at: number } | null = null;
   for (const entry of timed) {
-    if (entry.at <= currentTime + 0.05 && (active === null || entry.at > active.at)) {
+    if (entry.at <= currentTime + 0.05 && (active === null || entry.at >= active.at)) {
       active = entry;
     }
+  }
+  // A line the recruiter just clicked wins until the playhead moves on, so
+  // two fragments that start on the same second do not steal the highlight.
+  if (pickedSeq !== null) {
+    const picked = timed.find((entry) => entry.turn.seq === pickedSeq);
+    if (picked && Math.abs(picked.at - currentTime) <= 0.8) active = picked;
   }
   const activeSeq = active ? active.turn.seq : null;
 
@@ -1930,9 +1939,10 @@ function RecordingPanel({
   }
 
   function jumpTo(turn: InterviewTurn) {
-    if (!hasRecording) return;
+    if (!hasRecording || videoFailed) return;
     const at = offsetFor(turn);
     if (at === null) return;
+    setPickedSeq(turn.seq);
     seek(at);
     void videoRef.current?.play().catch(() => {});
   }
@@ -1961,7 +1971,7 @@ function RecordingPanel({
         right={
           <div className="flex items-center gap-2">
             <span className="hidden text-[11px] font-medium tabular-nums text-slate-400 sm:inline">
-              {hasRecording && total > 0 ? `${formatClock(currentTime)} / ${formatClock(total)}` : ""}
+              {hasRecording && !videoFailed && total > 0 ? `${formatClock(currentTime)} / ${formatClock(total)}` : ""}
             </span>
             <button
               type="button"
@@ -1984,19 +1994,22 @@ function RecordingPanel({
       >
         {/* Left: the recording, its controls and the shared timeline */}
         <div className="min-w-0">
-          {hasRecording ? (
+          {hasRecording && !videoFailed ? (
             <video
+              key={attempt}
               ref={videoRef}
               controls
               playsInline
               preload="metadata"
               src={`/api/dashboard/interviews/${roomId}/recording`}
               onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-              onLoadedMetadata={(event) =>
+              onLoadedMetadata={(event) => {
                 setDuration(
                   Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0,
-                )
-              }
+                );
+                setVideoFailed(false);
+              }}
+              onError={() => setVideoFailed(true)}
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
               onSeeked={(event) => setCurrentTime(event.currentTarget.currentTime)}
@@ -2005,12 +2018,34 @@ function RecordingPanel({
               }`}
             />
           ) : (
-            <div className="grid aspect-video place-items-center rounded-xl bg-slate-900 p-6 text-center text-xs text-slate-400">
-              This interview was not recorded.
+            <div className="grid aspect-video place-items-center rounded-xl bg-slate-900 p-6 text-center">
+              {hasRecording ? (
+                <div>
+                  <AlertTriangle className="mx-auto size-5 text-amber-400" />
+                  <p className="mt-2 text-xs font-semibold text-slate-200">
+                    This recording could not be loaded
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    The file may still be uploading, or it is missing from storage.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVideoFailed(false);
+                      setVideoAttempt((value) => value + 1);
+                    }}
+                    className="mt-3 rounded-lg border border-white/20 px-3 py-1 text-[11px] font-semibold text-slate-200 transition hover:border-white/40 hover:text-white"
+                  >
+                    Try again
+                  </button>
+                </div>
+              ) : (
+                <span className="text-xs text-slate-400">This interview was not recorded.</span>
+              )}
             </div>
           )}
 
-          {hasRecording && total > 0 && (
+          {hasRecording && !videoFailed && total > 0 && (
             <div className="mt-3">
               <div className="relative h-2.5">
                 <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-slate-200 dark:bg-slate-700" />
@@ -2130,7 +2165,7 @@ function RecordingPanel({
                     const candidate = turn.speaker === "candidate";
                     const at = offsetFor(turn);
                     const isActive = turn.seq === activeSeq;
-                    const canJump = hasRecording && at !== null;
+                    const canJump = hasRecording && !videoFailed && at !== null;
                     return (
                       <button
                         key={turn.seq}
@@ -2193,9 +2228,11 @@ function RecordingPanel({
           )}
 
           <p className="border-t border-slate-100 px-3.5 py-2 text-[10px] text-slate-400 dark:border-border">
-            {hasRecording
-              ? "Click any line to jump the recording to that moment."
-              : "Transcript only. No recording is available for this interview."}
+            {!hasRecording
+              ? "Transcript only. No recording is available for this interview."
+              : videoFailed
+                ? "Transcript only. The recording could not be loaded."
+                : "Click any line to jump the recording to that moment."}
           </p>
         </div>
       </div>
