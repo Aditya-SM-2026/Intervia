@@ -545,7 +545,6 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
             candidateName={session.candidateName || "Candidate"}
             offsetFor={recordingOffset}
             videoRef={videoRef}
-            answers={scorecard?.video?.answers ?? []}
             moments={scorecard?.video?.moments ?? []}
             durationSeconds={session.outcome?.elapsedSeconds ?? null}
           />
@@ -1860,7 +1859,6 @@ function RecordingPanel({
   candidateName,
   offsetFor,
   videoRef,
-  answers,
   moments,
   durationSeconds,
 }: {
@@ -1870,7 +1868,6 @@ function RecordingPanel({
   candidateName: string;
   offsetFor: (turn: InterviewTurn) => number | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  answers: AnswerGaze[];
   moments: { atSeconds: number; description: string }[];
   durationSeconds: number | null;
 }) {
@@ -2009,9 +2006,13 @@ function RecordingPanel({
                 );
                 setVideoFailed(false);
               }}
-              onError={() => setVideoFailed(true)}
+              onError={() => {
+                setVideoFailed(true);
+                setPlaying(false);
+              }}
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
+              onEnded={() => setPlaying(false)}
               onSeeked={(event) => setCurrentTime(event.currentTarget.currentTime)}
               className={`aspect-video w-full rounded-xl bg-slate-950 shadow-xs ${
                 expanded ? "max-h-[70vh]" : ""
@@ -2209,8 +2210,8 @@ function RecordingPanel({
                           </span>
                         </span>
                         <span
-                          className={`mt-1 block text-xs leading-relaxed ${
-                            isActive ? "" : "line-clamp-4"
+                          className={`mt-1 text-xs leading-relaxed ${
+                            isActive ? "block" : "line-clamp-4"
                           } ${
                             isActive
                               ? "text-slate-900 dark:text-foreground"
