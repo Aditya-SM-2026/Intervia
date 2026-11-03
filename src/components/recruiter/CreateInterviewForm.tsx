@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import type { DifficultyLevel } from "@/lib/interviews/interview.types";
+import type { InterviewRoleDefaults } from "@/lib/roles/interview-role-defaults";
 import {
   DEFAULT_DURATION_MINUTES,
   MAX_DURATION_MINUTES,
@@ -13,6 +14,8 @@ export interface CreateInterviewFormValues {
   candidateName: string;
   candidateEmail: string;
   roleTitle: string;
+  /** Existing role the interview belongs to; omitted for a brand-new role. */
+  roleId?: string;
   durationMinutes: number;
   difficulty: DifficultyLevel;
   jobDescriptionText?: string;
@@ -23,8 +26,15 @@ export interface CreateInterviewFormValues {
 interface CreateInterviewFormProps {
   onSubmit: (values: CreateInterviewFormValues) => void;
   isSubmitting: boolean;
-  /** Role title pre-filled from the roles page (share link / add candidate). */
+  /** Role title pre-filled from an older ?role= link. */
   initialRoleTitle?: string;
+  /**
+   * Role the interview is being created for, from the roles page. Its title is
+   * fixed to the role and the job description starts from the role's own.
+   */
+  initialRole?: InterviewRoleDefaults | null;
+  /** Roles HR already has, offered as choices instead of retyping them. */
+  roles?: InterviewRoleDefaults[];
   /**
    * Values to start from when editing an existing interview. The resume file
    * is never sent to the browser; its name is shown so the recruiter knows
@@ -144,6 +154,8 @@ export function CreateInterviewForm({
   onSubmit,
   isSubmitting,
   initialRoleTitle,
+  initialRole = null,
+  roles = [],
   initial,
   submitLabel = "Create interview",
   submittingLabel = "Building the interview plan…",
@@ -152,34 +164,75 @@ export function CreateInterviewForm({
   const [recruiterName, setRecruiterName] = useState(initial?.recruiterName ?? "");
   const [candidateName, setCandidateName] = useState(initial?.candidateName ?? "");
   const [candidateEmail, setCandidateEmail] = useState(initial?.candidateEmail ?? "");
-  const [roleTitle, setRoleTitle] = useState(initial?.roleTitle ?? initialRoleTitle ?? "");
+  const [roleTitle, setRoleTitle] = useState(
+    initial?.roleTitle ?? initialRole?.title ?? initialRoleTitle ?? "",
+  );
+  /** "new" means the visitor is typing a new role; otherwise this is a role id. */
+  const [roleChoice, setRoleChoice] = useState(
+    initial?.roleId ?? initialRole?.id ?? (roles.length > 0 ? "new" : ""),
+  );
   const [durationMinutes, setDurationMinutes] = useState(
     initial?.durationMinutes ?? DEFAULT_DURATION_MINUTES,
   );
   const [difficulty, setDifficulty] = useState<DifficultyLevel>(initial?.difficulty ?? "medium");
-  const [jobDescriptionText, setJobDescriptionText] = useState(initial?.jobDescriptionText ?? "");
+  const [jobDescriptionText, setJobDescriptionText] = useState(
+    initial?.jobDescriptionText ?? initialRole?.jobDescription ?? "",
+  );
   const [jobDescriptionPdf, setJobDescriptionPdf] = useState<File | null>(null);
   const [resume, setResume] = useState<File | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const style = DIFFICULTY_OPTIONS.find((option) => option.value === difficulty);
+  const selectedRole = roles.find((role) => role.id === roleChoice) ?? null;
+  // The title is only typed when there is no existing role to pick (or when
+  // the recruiter chose to create a new one).
+  const showRoleTitleInput = roles.length === 0 || selectedRole === null;
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  /**
+   * Picking an existing role replaces the title and job description with that
+   * role's, so the common case needs no retyping. Choosing "new" clears them
+   * for a fresh entry.
+   */
+  function handleRoleChange(next: string) {
+    setRoleChoice(next);
+    if (next === "new") {
+      setRoleTitle("");
+      setJobDescriptionText("");
+      return;
+    }
+    const role = roles.find((candidate) => candidate.id === next);
+    if (role) {
+      setRoleTitle(role.title);
+      setJobDescriptionText(role.jobDescription);
+    }
+  }
+
+  function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setLocalError(null);
 
+    // The role's own title wins when an existing role is selected.
+    const title = selectedRole ? selectedRole.title : roleTitle.trim();
+    if (!title) {
+      setLocalError("Choose a role or enter the role title.");
+      return;
+    }
     if (!jobDescriptionText.trim() && !jobDescriptionPdf) {
       setLocalError("Add the job description: paste the text or choose a PDF.");
       return;
     }
+
     onSubmit({
       recruiterName: recruiterName.trim(),
       candidateName: candidateName.trim(),
       candidateEmail: candidateEmail.trim(),
-      roleTitle: roleTitle.trim(),
+      roleTitle: title,
+      roleId: selectedRole?.id,
       durationMinutes,
       difficulty,
-      ...(jobDescriptionPdf ? { jobDescriptionPdf } : { jobDescriptionText: jobDescriptionText.trim() }),
+      ...(jobDescriptionPdf
+        ? { jobDescriptionPdf }
+        : { jobDescriptionText: jobDescriptionText.trim() }),
       ...(resume ? { resume } : {}),
     });
   }
@@ -191,6 +244,37 @@ export function CreateInterviewForm({
           <fieldset className="grid gap-4 rounded-2xl border border-border bg-surface p-5 sm:p-6">
             <legend className="sr-only">Candidate and role</legend>
             <h2 className="text-lg font-semibold">Candidate and role</h2>
+            {roles.length > 0 && (
+              <div>
+                <label htmlFor="role-choice" className={labelClasses}>
+                  Role
+                </label>
+                <select
+                  id="role-choice"
+                  value={roleChoice}
+                  onChange={(event) => handleRoleChange(event.target.value)}
+                  className={inputClasses}
+                >
+                  <option value="new">New role (type the title below)</option>
+                  {roles.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.title}
+                    </option>
+                  ))}
+                </select>
+                {selectedRole && (
+                  <p className="mt-1.5 text-xs text-muted">
+                    Title, job description and skills come from this role.{" "}
+                    <a
+                      href={`/dashboard/roles/${selectedRole.id}`}
+                      className="font-medium text-accent hover:underline"
+                    >
+                      View role
+                    </a>
+                  </p>
+                )}
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="candidate-name" className={labelClasses}>
@@ -228,21 +312,23 @@ export function CreateInterviewForm({
                   The link opens only for this address.
                 </p>
               </div>
-              <div>
-                <label htmlFor="role-title" className={labelClasses}>
-                  Role
-                </label>
-                <input
-                  id="role-title"
-                  type="text"
-                  required
-                  maxLength={200}
-                  placeholder="Backend Engineer"
-                  value={roleTitle}
-                  onChange={(event) => setRoleTitle(event.target.value)}
-                  className={inputClasses}
-                />
-              </div>
+              {showRoleTitleInput && (
+                <div>
+                  <label htmlFor="role-title" className={labelClasses}>
+                    {roles.length > 0 ? "New role title" : "Role"}
+                  </label>
+                  <input
+                    id="role-title"
+                    type="text"
+                    required
+                    maxLength={200}
+                    placeholder="Backend Engineer"
+                    value={roleTitle}
+                    onChange={(event) => setRoleTitle(event.target.value)}
+                    className={inputClasses}
+                  />
+                </div>
+              )}
               <div>
                 <label htmlFor="recruiter-name" className={labelClasses}>
                   Your name
@@ -389,6 +475,12 @@ export function CreateInterviewForm({
                   </div>
                 )}
               </>
+            )}
+            {selectedRole && (
+              <p className="mt-1.5 text-xs text-muted">
+                Pre-filled from the role. Edit it here if this candidate needs a different
+                brief, or upload a PDF to replace it.
+              </p>
             )}
           </div>
 

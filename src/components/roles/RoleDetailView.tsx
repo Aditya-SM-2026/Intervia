@@ -287,6 +287,12 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
             {STATUS_LABELS[role.status]}
           </span>
           <span className="grow" />
+          <Link
+            href={`/recruiter?roleId=${encodeURIComponent(role.id)}`}
+            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            Add candidate
+          </Link>
           {role.status === "open" && (
             <button
               type="button"
@@ -299,7 +305,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
           <button
             type="button"
             onClick={exportCsv}
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+            className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition hover:bg-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
           >
             Export CSV
           </button>
@@ -428,8 +434,11 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
             ? "No candidates have been invited to interview for this role yet."
             : "No candidates meet this cutoff yet."}{" "}
           {candidates.length === 0 && (
-            <Link href="/recruiter" className="font-medium text-accent hover:underline">
-              Create an interview link
+            <Link
+              href={`/recruiter?roleId=${encodeURIComponent(roleId)}`}
+              className="font-medium text-accent hover:underline"
+            >
+              Add the first candidate
             </Link>
           )}
         </div>

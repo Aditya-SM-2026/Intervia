@@ -10,7 +10,7 @@ import type { InterviewApiError } from "@/lib/interviews/interview.types";
 import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
 import { requireRecruiter } from "@/lib/auth/guards";
 import { getAgentPersonality } from "@/lib/agent/personality.service";
-import { ensureRoleForTitle } from "@/lib/roles/role.service";
+import { ensureRoleForTitle, getRoleForForm } from "@/lib/roles/role.service";
 import { describeRoleError } from "@/lib/roles/role-errors";
 import { storeResumeFile } from "@/lib/uploads/resume-storage";
 import { getInterviewRepository } from "@/server/repositories";
@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
     candidateName: text("candidateName"),
     candidateEmail: text("candidateEmail"),
     roleTitle: text("roleTitle"),
+    roleId: text("roleId"),
     scheduledDate: text("scheduledDate"),
     scheduledTime: text("scheduledTime"),
     durationMinutes: text("durationMinutes"),
@@ -143,9 +144,17 @@ export async function POST(request: NextRequest) {
 
   let room;
   try {
+    // Attach the interview to the role it was created for, when that role
+    // still exists. An unknown or malformed id is ignored rather than failing
+    // the interview; the title still links it on the roles page.
+    const requestedRole = parsed.data.roleId
+      ? await getRoleForForm(parsed.data.roleId)
+      : null;
     room = await createInterviewRoom({
       ...parsed.data,
       voiceMode,
+      roleTitle: requestedRole?.title ?? parsed.data.roleTitle,
+      roleId: requestedRole?.id,
       scheduledAt: scheduled.value,
       jobDescription,
       resume,

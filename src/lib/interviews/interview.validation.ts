@@ -8,7 +8,7 @@ const MAX_NAME_LENGTH = 200;
  */
 export const MIN_DURATION_MINUTES = 2;
 export const MAX_DURATION_MINUTES = 45;
-export const DEFAULT_DURATION_MINUTES = 20;
+export const DEFAULT_DURATION_MINUTES = 30;
 const MAX_JD_TEXT_LENGTH = 20_000;
 
 /** Room IDs are generated server-side and must match this pattern when received. */

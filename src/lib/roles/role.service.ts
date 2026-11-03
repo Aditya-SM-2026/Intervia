@@ -2,7 +2,7 @@ import "server-only";
 import type { HumanDecision } from "@/lib/interviews/interview.types";
 import { recordDecision } from "@/lib/interviews/interview.service";
 import { ROOM_ID_PATTERN } from "@/lib/interviews/interview.validation";
-import type { RoleCandidateSummary, RoleSummary } from "@/lib/roles/role.types";
+import type { Role, RoleCandidateSummary, RoleSummary } from "@/lib/roles/role.types";
 import { createRoleSchema, updateRoleSchema } from "@/lib/roles/role.validation";
 import {
   getRolesRepository,
@@ -44,6 +44,21 @@ export async function getRoleSummary(id: string): Promise<RoleSummary | null> {
   if (!role) return null;
   const stats = await repository().getRoleStats([role]);
   return { ...role, stats: stats.get(role.id) ?? emptyStats() };
+}
+
+/**
+ * One role without the stats aggregation, for screens that only need to
+ * prefill a form. Returns null for an unknown or malformed id so callers can
+ * fall back to the plain flow.
+ */
+export async function getRoleForForm(id: string): Promise<Role | null> {
+  if (!ROOM_ID_PATTERN.test(id)) return null;
+  return repository().getRole(id);
+}
+
+/** Every role, in the lightweight form used to pick one when scheduling. */
+export async function listRoleOptions(): Promise<Role[]> {
+  return repository().listRoles({});
 }
 
 /**

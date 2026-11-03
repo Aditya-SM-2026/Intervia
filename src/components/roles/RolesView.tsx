@@ -131,9 +131,13 @@ async function fetchCandidates(roleId: string): Promise<RoleCandidateSummary[]> 
   return data.candidates;
 }
 
-/** Invite deep-link: the existing recruiter flow with the role pre-filled. */
+/**
+ * Invite deep-link: the new-interview form opens with this role and its job
+ * description already filled in. The id is sent so the interview is attached
+ * to the role itself, not just matched on the title.
+ */
 function inviteUrl(role: RoleSummary): string {
-  return `/recruiter?role=${encodeURIComponent(role.title)}`;
+  return `/recruiter?roleId=${encodeURIComponent(role.id)}`;
 }
 
 interface SummaryCardData {

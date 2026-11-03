@@ -1,8 +1,10 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { InterviewRoom } from "@/lib/interviews/interview.types";
+import type { InterviewRoleDefaults } from "@/lib/roles/interview-role-defaults";
 import { CreateInterviewForm, type CreateInterviewFormValues } from "./CreateInterviewForm";
 import { InterviewLinkResult } from "./InterviewLinkResult";
 
@@ -19,17 +21,25 @@ interface CreateResult {
   inviteEmail?: InviteEmailStatus;
 }
 
-export function CreateInterviewPanel() {
-  return (
-    <Suspense fallback={null}>
-      <CreateInterviewPanelInner />
-    </Suspense>
-  );
+interface CreateInterviewPanelProps {
+  /**
+   * Role this interview is being created for, when the form was opened from a
+   * role's "Add candidate" action. Its title and job description start filled
+   * in and the created interview is attached to the role by id.
+   */
+  initialRole?: InterviewRoleDefaults | null;
+  /** Legacy prefill: only a role title, from an older ?role= link. */
+  initialRoleTitle?: string;
+  /** Roles HR already has, offered as choices instead of retyping them. */
+  roles?: InterviewRoleDefaults[];
 }
 
-function CreateInterviewPanelInner() {
+export function CreateInterviewPanel({
+  initialRole = null,
+  initialRoleTitle,
+  roles = [],
+}: CreateInterviewPanelProps) {
   const router = useRouter();
-  const roleParam = useSearchParams().get("role") ?? undefined;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CreateResult | null>(null);
@@ -44,6 +54,7 @@ function CreateInterviewPanelInner() {
       form.set("candidateName", values.candidateName);
       form.set("candidateEmail", values.candidateEmail);
       form.set("roleTitle", values.roleTitle);
+      if (values.roleId) form.set("roleId", values.roleId);
       form.set("durationMinutes", String(values.durationMinutes));
       form.set("difficulty", values.difficulty);
       if (values.jobDescriptionPdf) {
@@ -87,6 +98,8 @@ function CreateInterviewPanelInner() {
     }
   }
 
+  const roleHref = initialRole ? `/dashboard/roles/${initialRole.id}` : null;
+
   if (result) {
     return (
       <div className="rounded-2xl border border-border bg-surface p-5 sm:p-7">
@@ -97,12 +110,28 @@ function CreateInterviewPanelInner() {
           </p>
         )}
         <InterviewLinkResult result={result} onReset={() => setResult(null)} />
+        {roleHref && (
+          <Link
+            href={roleHref}
+            className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"
+          >
+            ← Back to {initialRole?.title}
+          </Link>
+        )}
       </div>
     );
   }
 
   return (
     <div className="grid gap-4">
+      {roleHref && (
+        <Link
+          href={roleHref}
+          className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-accent hover:underline"
+        >
+          ← Back to {initialRole?.title}
+        </Link>
+      )}
       {error && (
         <p
           role="alert"
@@ -111,7 +140,13 @@ function CreateInterviewPanelInner() {
           {error}
         </p>
       )}
-      <CreateInterviewForm onSubmit={handleSubmit} isSubmitting={isSubmitting} initialRoleTitle={roleParam} />
+      <CreateInterviewForm
+        onSubmit={handleSubmit}
+        isSubmitting={isSubmitting}
+        initialRole={initialRole}
+        initialRoleTitle={initialRoleTitle}
+        roles={roles}
+      />
     </div>
   );
 }
