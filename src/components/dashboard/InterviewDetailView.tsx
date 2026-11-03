@@ -523,7 +523,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
 
       {/* Main layout: sticky section rail plus the report itself */}
       <div
-        className={`grid gap-6 transition-all duration-300 lg:items-start ${
+        className={`grid grid-cols-1 gap-6 transition-all duration-300 lg:items-start ${
           navCollapsed
             ? "lg:grid-cols-[76px_minmax(0,1fr)]"
             : "lg:grid-cols-[232px_minmax(0,1fr)]"
@@ -536,7 +536,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
           onToggle={toggleNav}
         />
 
-        <div className="grid min-w-0 gap-6">
+        <div className="grid min-w-0 grid-cols-1 gap-6">
           {/* Recording and synchronised transcript */}
           <RecordingPanel
             roomId={roomId}
@@ -1985,7 +1985,7 @@ function RecordingPanel({
       />
 
       <div
-        className={`mt-5 grid gap-5 ${
+        className={`mt-5 grid grid-cols-1 gap-5 ${
           expanded ? "" : "lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]"
         }`}
       >
