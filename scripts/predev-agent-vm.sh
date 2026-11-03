@@ -27,16 +27,9 @@ fetch() {
 }
 
 AGENT_API_SECRET=$(fetch predev-agent-api-secret)
-# Shared with production on purpose: the predev app reads and writes the same
-# interviews. The secret is socket-form (for Cloud Run); the VM reaches Cloud
-# SQL over TCP from its allowlisted address, so rewrite it the way the
-# production startup script does.
-DATABASE_URL=$(fetch meetingbot-database-url)
-DB_HOST=34.93.73.47
-if [[ "$DATABASE_URL" == *"?host=/cloudsql/"* ]]; then
-  _base="${DATABASE_URL%%\?host=*}"
-  DATABASE_URL="${_base/@\//@${DB_HOST}:5432/}?sslmode=disable"
-fi
+# The predev database: its own copy of the production rows, on the same Cloud
+# SQL instance. The secret is already in TCP form for this VM.
+DATABASE_URL=$(fetch predev-database-url-tcp)
 GEMINI_API_KEY=$(fetch meetingbot-gemini-api-key)
 OMINIBOT_API_KEY=$(fetch meetingbot-ominibot-api-key)
 LIVEKIT_URL=$(fetch meetingbot-livekit-url)
