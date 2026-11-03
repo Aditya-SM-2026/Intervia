@@ -46,11 +46,15 @@ import {
   Globe,
   Info,
   Layers,
+  Maximize2,
   MessageSquare,
   MessagesSquare,
   Mic,
+  Minimize2,
   Minus,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   RotateCcw,
   ScrollText,
@@ -146,6 +150,7 @@ const cardClasses =
 
 /** Left sidebar sections in order */
 const REPORT_SECTIONS = [
+  { id: "recording", label: "Recording", icon: Play },
   { id: "overview", label: "Overview", icon: Gauge },
   { id: "summary", label: "Summary", icon: FileText },
   { id: "answers", label: "Answer quality", icon: MessagesSquare },
@@ -158,8 +163,18 @@ const REPORT_SECTIONS = [
   { id: "peers", label: "Other interviews", icon: Users },
 ] as const;
 
-/** Left rail: follows the section being read and scrolls to targets. */
-function ReportNav({ candidateName, score }: { candidateName: string; score: number | null }) {
+/** Left rail: follows the section being read, scrolls to targets, and can fold to icons. */
+function ReportNav({
+  candidateName,
+  score,
+  collapsed,
+  onToggle,
+}: {
+  candidateName: string;
+  score: number | null;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   const [activeId, setActiveId] = useState<string>(REPORT_SECTIONS[0].id);
 
   useEffect(() => {
@@ -182,32 +197,81 @@ function ReportNav({ candidateName, score }: { candidateName: string; score: num
 
   return (
     <nav aria-label="Report sections" className="sticky top-20 hidden lg:block">
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.03)] dark:border-border dark:bg-surface">
-        <div className="truncate px-3 pb-2 pt-1 text-[11px] font-semibold text-slate-400 dark:text-muted">
-          {candidateName}
-          {score !== null && <span className="ml-1 tabular-nums font-normal text-slate-500">· {score}/100</span>}
+      <div
+        className={`rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-all duration-300 dark:border-border dark:bg-surface ${
+          collapsed ? "p-1.5" : "p-2.5"
+        }`}
+      >
+        <div
+          className={`flex items-center pb-2 pt-1 ${
+            collapsed ? "justify-center" : "justify-between gap-2 px-1"
+          }`}
+        >
+          {!collapsed && (
+            <div className="min-w-0 truncate text-[11px] font-semibold text-slate-400 dark:text-muted">
+              {candidateName}
+              {score !== null && (
+                <span className="ml-1 font-normal tabular-nums text-slate-500">· {score}/100</span>
+              )}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={collapsed ? "Expand report navigation" : "Collapse report navigation"}
+            aria-expanded={!collapsed}
+            title={collapsed ? "Expand navigation" : "Collapse navigation"}
+            className="grid size-7 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:text-muted dark:hover:bg-accent/10 dark:hover:text-foreground"
+          >
+            {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+          </button>
         </div>
         <ul className="grid gap-1">
           {REPORT_SECTIONS.map(({ id, label, icon: Icon }) => {
             const active = id === activeId;
             return (
-              <li key={id}>
+              <li key={id} className="group relative">
                 <a
                   href={`#${id}`}
                   aria-current={active ? "true" : undefined}
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2 text-xs font-medium transition ${
+                  aria-label={collapsed ? label : undefined}
+                  className={`flex items-center rounded-xl text-xs font-medium transition ${
+                    collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2"
+                  } ${
                     active
-                      ? "bg-blue-50 text-blue-600 dark:bg-accent/15 dark:text-accent font-semibold"
+                      ? "bg-blue-50 font-semibold text-blue-600 dark:bg-accent/15 dark:text-accent"
                       : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-muted dark:hover:bg-accent/5 dark:hover:text-foreground"
                   }`}
                 >
-                  <Icon className={`size-4 shrink-0 ${active ? "text-blue-600 dark:text-accent" : "text-slate-400 dark:text-muted"}`} />
-                  <span className="truncate">{label}</span>
+                  <Icon
+                    className={`size-4 shrink-0 ${
+                      active ? "text-blue-600 dark:text-accent" : "text-slate-400 dark:text-muted"
+                    }`}
+                  />
+                  {!collapsed && <span className="truncate">{label}</span>}
                 </a>
+                {collapsed && (
+                  <span
+                    role="tooltip"
+                    className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 dark:bg-white dark:text-slate-900"
+                  >
+                    {label}
+                  </span>
+                )}
               </li>
             );
           })}
         </ul>
+        {collapsed && (
+          <div className="mt-2 flex justify-center border-t border-slate-100 pt-2 dark:border-border">
+            <span
+              title={`${candidateName}${score !== null ? ` · ${score}/100` : ""}`}
+              className="grid size-8 place-items-center rounded-full bg-blue-50 text-[11px] font-bold uppercase text-blue-600 dark:bg-accent/15 dark:text-accent"
+            >
+              {initials(candidateName)}
+            </span>
+          </div>
+        )}
       </div>
     </nav>
   );
@@ -234,8 +298,33 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
   const [isVideoRequesting, setIsVideoRequesting] = useState(false);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [navCollapsed, setNavCollapsed] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const router = useRouter();
+
+  // The report rail is expanded by default; a recruiter who folds it keeps it
+  // folded on the next report they open.
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("interview-report-nav") === "collapsed") {
+        setNavCollapsed(true);
+      }
+    } catch {
+      // A blocked localStorage must not stop the report from rendering.
+    }
+  }, []);
+
+  function toggleNav() {
+    setNavCollapsed((previous) => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem("interview-report-nav", next ? "collapsed" : "expanded");
+      } catch {
+        // Preference is best effort.
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -432,14 +521,35 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
         </p>
       )}
 
-      {/* Main Single-Column Layout with Sticky Left Rail */}
-      <div className="grid gap-6 lg:grid-cols-[200px_minmax(0,1fr)] lg:items-start">
+      {/* Main layout: sticky section rail plus the report itself */}
+      <div
+        className={`grid gap-6 transition-all duration-300 lg:items-start ${
+          navCollapsed
+            ? "lg:grid-cols-[76px_minmax(0,1fr)]"
+            : "lg:grid-cols-[232px_minmax(0,1fr)]"
+        }`}
+      >
         <ReportNav
           candidateName={session.candidateName || "Candidate"}
           score={scorecard?.overall?.score ?? null}
+          collapsed={navCollapsed}
+          onToggle={toggleNav}
         />
 
         <div className="grid min-w-0 gap-6">
+          {/* Recording and synchronised transcript */}
+          <RecordingPanel
+            roomId={roomId}
+            hasRecording={hasRecording}
+            turns={turns}
+            candidateName={session.candidateName || "Candidate"}
+            offsetFor={recordingOffset}
+            videoRef={videoRef}
+            answers={scorecard?.video?.answers ?? []}
+            moments={scorecard?.video?.moments ?? []}
+            durationSeconds={session.outcome?.elapsedSeconds ?? null}
+          />
+
           {scorecard ? (
             <>
               {/* 1. Overall Assessment */}
@@ -467,9 +577,6 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
               <VideoSection
                 scorecard={scorecard}
                 hasRecording={hasRecording}
-                roomId={roomId}
-                videoRef={videoRef}
-                durationSeconds={session.outcome?.elapsedSeconds ?? null}
                 onPlay={playFrom}
                 onAnalyseVideo={handleAnalyseVideo}
                 isAnalysing={isVideoRequesting}
@@ -484,15 +591,6 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
               {competencies.length > 0 && <PlanPreview competencies={competencies} />}
             </section>
           )}
-
-          {/* 7. Transcript */}
-          <Transcript
-            turns={turns}
-            competencies={competencies}
-            candidateName={session.candidateName || "Candidate"}
-            offsetFor={recordingOffset}
-            onPlay={playFrom}
-          />
 
           {/* 8. Voice Session */}
           <VoiceSection session={session} events={events} hasRecording={hasRecording} />
@@ -1514,22 +1612,16 @@ function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
   );
 }
 
-/** 6. On-camera Behaviour Section: Working implementation preserved exactly with unified card chrome */
+/** 6. On-camera Behaviour Section: analysis and per-answer gaze table. */
 function VideoSection({
   scorecard,
   hasRecording,
-  roomId,
-  videoRef,
-  durationSeconds,
   onPlay,
   onAnalyseVideo,
   isAnalysing,
 }: {
   scorecard: Scorecard;
   hasRecording: boolean;
-  roomId: string;
-  videoRef: React.RefObject<HTMLVideoElement | null>;
-  durationSeconds: number | null;
   onPlay: (seconds: number) => void;
   onAnalyseVideo: () => void;
   isAnalysing: boolean;
@@ -1539,8 +1631,6 @@ function VideoSection({
   const integrity = scorecard.integrity;
   const answers = video.answers ?? [];
   const pattern = video.pattern ?? null;
-  const length = video.durationSeconds ?? durationSeconds;
-  const total = length && length > 0 ? length : null;
   const chip = factorChip("video", video.score ?? null);
 
   const onSpot = (answer: AnswerGaze) =>
@@ -1574,97 +1664,33 @@ function VideoSection({
         }
       />
 
-      <div className="mt-5 grid gap-6 lg:grid-cols-[1fr_1.1fr]">
-        {/* Left: Video Player and Timeline */}
-        <div>
-          {hasRecording ? (
-            <video
-              ref={videoRef}
-              controls
-              preload="metadata"
-              src={`/api/dashboard/interviews/${roomId}/recording`}
-              className="aspect-video w-full rounded-xl bg-slate-900 shadow-xs"
-            />
-          ) : (
-            <div className="grid aspect-video place-items-center rounded-xl bg-slate-900 p-6 text-center text-xs text-slate-400">
-              This interview was not recorded.
-            </div>
-          )}
-
-          {total !== null && (answerRows.length > 0 || video.moments.length > 0) && (
-            <>
-              <div className="relative mt-4 h-3 rounded-full bg-slate-100 dark:bg-slate-800">
-                {answerRows.map((answer) => (
-                  <button
-                    key={answer.turnSeq}
-                    type="button"
-                    title={`${formatClock(answer.atSeconds)} answer, looking ${GAZE_LABEL[answer.whileAnswering].toLowerCase()}`}
-                    aria-label={`Play the answer at ${formatClock(answer.atSeconds)}`}
-                    onClick={() => onPlay(answer.atSeconds - 2)}
-                    className={`absolute inset-y-0 rounded-full ${onSpot(answer) ? "bg-amber-500" : "bg-blue-400/50"}`}
-                    style={{
-                      left: `${Math.min(100, (answer.atSeconds / total) * 100)}%`,
-                      width: `${Math.max(0.8, Math.min(100, (answer.durationSeconds / total) * 100))}%`,
-                    }}
-                  />
-                ))}
-                {video.moments.map((moment, index) => (
-                  <button
-                    key={`moment-${index}`}
-                    type="button"
-                    title={`${formatClock(moment.atSeconds)} ${moment.description}`}
-                    aria-label={`Play from ${formatClock(moment.atSeconds)}: ${moment.description}`}
-                    onClick={() => onPlay(moment.atSeconds - 2)}
-                    className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-rose-500 dark:border-surface"
-                    style={{ left: `${Math.min(100, (moment.atSeconds / total) * 100)}%` }}
-                  />
-                ))}
-              </div>
-              <div className="mt-1.5 flex justify-between text-[11px] tabular-nums text-slate-400">
-                <span>0:00</span>
-                <span className="flex flex-wrap justify-center gap-x-4">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-2 w-3 rounded-full bg-blue-400/50" /> Answer
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-2 w-3 rounded-full bg-amber-500" /> Same spot
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="size-2 rounded-full bg-rose-500" /> Moment
-                  </span>
-                </span>
-                <span>{formatClock(total)}</span>
-              </div>
-            </>
-          )}
+      <div className="mt-5 grid gap-6">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
+            <span className="text-[11px] text-slate-400">Same-spot answers</span>
+            <p className="mt-0.5 text-base font-bold tabular-nums text-slate-900 dark:text-foreground">
+              {pattern && pattern.answersObserved > 0
+                ? `${pattern.sameSpotAnswers >= 2 ? pattern.sameSpotAnswers : 0} of ${pattern.answersObserved}`
+                : "Not measured"}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
+            <span className="text-[11px] text-slate-400">Left interview tab</span>
+            <p className="mt-0.5 text-base font-bold tabular-nums text-slate-900 dark:text-foreground">
+              {integrity.tabHiddenCount === 0
+                ? "Never"
+                : `${integrity.tabHiddenCount}× (${integrity.tabHiddenSeconds}s)`}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
+            <span className="text-[11px] text-slate-400">Connection drops</span>
+            <p className="mt-0.5 text-base font-bold tabular-nums text-slate-900 dark:text-foreground">
+              {integrity.candidateDisconnects}
+            </p>
+          </div>
         </div>
 
-        {/* Right: Metrics and Observations */}
         <div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-              <span className="text-[11px] text-slate-400">Same-spot answers</span>
-              <p className="mt-0.5 text-base font-bold tabular-nums text-slate-900 dark:text-foreground">
-                {pattern && pattern.answersObserved > 0
-                  ? `${pattern.sameSpotAnswers >= 2 ? pattern.sameSpotAnswers : 0} of ${pattern.answersObserved}`
-                  : "Not measured"}
-              </p>
-            </div>
-            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-              <span className="text-[11px] text-slate-400">Left interview tab</span>
-              <p className="mt-0.5 text-base font-bold tabular-nums text-slate-900 dark:text-foreground">
-                {integrity.tabHiddenCount === 0
-                  ? "Never"
-                  : `${integrity.tabHiddenCount}× (${integrity.tabHiddenSeconds}s)`}
-              </p>
-            </div>
-            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-              <span className="text-[11px] text-slate-400">Connection drops</span>
-              <p className="mt-0.5 text-base font-bold tabular-nums text-slate-900 dark:text-foreground">
-                {integrity.candidateDisconnects}
-              </p>
-            </div>
-          </div>
 
           {video.status === "analysed" ? (
             <>
@@ -1826,143 +1852,344 @@ function GazeCell({ direction, strong = false }: { direction: GazeDirection; str
   );
 }
 
-/** 7. Transcript Section: Clean timestamped timeline with interviewer/candidate avatars, filtering, and search */
-function Transcript({
+/** Recording and transcript, side by side and locked to the same clock. */
+function RecordingPanel({
+  roomId,
+  hasRecording,
   turns,
-  competencies,
   candidateName,
   offsetFor,
-  onPlay,
+  videoRef,
+  answers,
+  moments,
+  durationSeconds,
 }: {
+  roomId: string;
+  hasRecording: boolean;
   turns: InterviewTurn[];
-  competencies: PlanCompetency[];
   candidateName: string;
   offsetFor: (turn: InterviewTurn) => number | null;
-  onPlay: (seconds: number) => void;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  answers: AnswerGaze[];
+  moments: { atSeconds: number; description: string }[];
+  durationSeconds: number | null;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(durationSeconds ?? 0);
+  const [playing, setPlaying] = useState(false);
   const [filter, setFilter] = useState<"all" | "candidate" | "interviewer">("all");
   const [query, setQuery] = useState("");
-  const [showAll, setShowAll] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  const names = new Map(competencies.map((item) => [item.id, item.name]));
+  const total = duration > 0 ? duration : (durationSeconds ?? 0);
+
+  // Every turn that has a real recording timestamp, in speaking order.
+  const timed = turns
+    .map((turn) => ({ turn, at: offsetFor(turn) }))
+    .filter((entry): entry is { turn: InterviewTurn; at: number } => entry.at !== null);
+
+  // The segment being spoken is the last one that started at or before the
+  // playhead. Nothing is highlighted before the first speaker starts.
+  let active: { turn: InterviewTurn; at: number } | null = null;
+  for (const entry of timed) {
+    if (entry.at <= currentTime + 0.05) active = entry;
+    else break;
+  }
+  const activeSeq = active ? active.turn.seq : null;
+
+  useEffect(() => {
+    if (activeSeq === null) return;
+    const container = listRef.current;
+    const row = container?.querySelector<HTMLElement>(`[data-seq="${activeSeq}"]`);
+    if (!container || !row) return;
+    const top = row.offsetTop - container.clientHeight / 2 + row.offsetHeight / 2;
+    container.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }, [activeSeq]);
+
   const needle = query.trim().toLowerCase();
   const visible = turns.filter(
     (turn) =>
       (filter === "all" || turn.speaker === filter) &&
       (needle === "" || turn.text.toLowerCase().includes(needle)),
   );
-  const shown = showAll ? visible : visible.slice(0, 8);
+
+  function seek(seconds: number) {
+    const video = videoRef.current;
+    setCurrentTime(seconds);
+    if (video) video.currentTime = seconds;
+  }
+
+  function jumpTo(turn: InterviewTurn) {
+    if (!hasRecording) return;
+    const at = offsetFor(turn);
+    if (at === null) return;
+    seek(at);
+    void videoRef.current?.play().catch(() => {});
+  }
+
+  const progress = total > 0 ? Math.min(100, (currentTime / total) * 100) : 0;
+  const markers = [
+    ...timed.map((entry) => ({
+      at: entry.at,
+      kind: "answer" as const,
+      label: `${entry.turn.speaker === "candidate" ? candidateName : "Interviewer"} at ${formatClock(entry.at)}`,
+    })),
+    ...moments.map((moment) => ({
+      at: moment.atSeconds,
+      kind: "moment" as const,
+      label: `${formatClock(moment.atSeconds)} ${moment.description}`,
+    })),
+  ].filter((marker) => marker.at >= 0 && (total === 0 || marker.at <= total));
 
   return (
-    <section id="transcript" className={`${cardClasses} scroll-mt-24`}>
+    <section id="recording" className={`${cardClasses} scroll-mt-24`}>
       <CardHeading
-        icon={ScrollText}
-        iconColor="blue"
-        title="Transcript"
-        subtitle="Full interview conversation with timestamps."
+        icon={Video}
+        iconColor="rose"
+        title="Recording & transcript"
+        subtitle="Watch the interview and follow every answer in step."
         right={
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value as typeof filter)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 outline-none transition focus:border-accent dark:border-border dark:bg-surface dark:text-slate-200"
+          <div className="flex items-center gap-2">
+            <span className="hidden text-[11px] font-medium tabular-nums text-slate-400 sm:inline">
+              {hasRecording && total > 0 ? `${formatClock(currentTime)} / ${formatClock(total)}` : ""}
+            </span>
+            <button
+              type="button"
+              onClick={() => setExpanded((previous) => !previous)}
+              aria-pressed={expanded}
+              aria-label={expanded ? "Collapse video" : "Expand video"}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
             >
-              <option value="all">All messages</option>
-              <option value="candidate">Candidate</option>
-              <option value="interviewer">Interviewer</option>
-            </select>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search transcript…"
-                className="w-44 rounded-xl border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs outline-none transition focus:border-accent dark:border-border dark:bg-surface dark:text-slate-200"
-              />
-            </div>
+              {expanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+              <span>{expanded ? "Collapse" : "Expand"}</span>
+            </button>
           </div>
         }
       />
 
-      {turns.length === 0 ? (
-        <p className="mt-4 text-xs text-slate-500">Nothing has been said in this interview yet.</p>
-      ) : (
-        <div className="mt-5">
-          <div className="relative pl-6 before:absolute before:bottom-3 before:left-2.5 before:top-3 before:w-px before:bg-slate-200 dark:before:bg-border">
-            <div className="grid gap-4">
-              {shown.map((turn) => {
-                const candidate = turn.speaker === "candidate";
-                const offset = offsetFor(turn);
-                const topic = turn.competencyId ? names.get(turn.competencyId) : null;
+      <div
+        className={`mt-5 grid gap-5 ${
+          expanded ? "" : "lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]"
+        }`}
+      >
+        {/* Left: the recording, its controls and the shared timeline */}
+        <div className="min-w-0">
+          {hasRecording ? (
+            <video
+              ref={videoRef}
+              controls
+              playsInline
+              preload="metadata"
+              src={`/api/dashboard/interviews/${roomId}/recording`}
+              onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+              onLoadedMetadata={(event) =>
+                setDuration(
+                  Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0,
+                )
+              }
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onSeeked={(event) => setCurrentTime(event.currentTarget.currentTime)}
+              className={`aspect-video w-full rounded-xl bg-slate-950 shadow-xs ${
+                expanded ? "max-h-[70vh]" : ""
+              }`}
+            />
+          ) : (
+            <div className="grid aspect-video place-items-center rounded-xl bg-slate-900 p-6 text-center text-xs text-slate-400">
+              This interview was not recorded.
+            </div>
+          )}
 
-                return (
-                  <div key={turn.seq} className="relative flex items-start gap-3">
-                    {/* Timeline Dot */}
-                    <span
-                      className={`absolute -left-6 top-2.5 size-2 rounded-full ring-4 ring-white dark:ring-surface ${
-                        candidate ? "bg-purple-600" : "bg-blue-600"
-                      }`}
-                    />
-
-                    {/* Speaker Avatar Initial */}
-                    <span
-                      className={`grid size-7 shrink-0 place-items-center rounded-full text-xs font-bold uppercase ${
-                        candidate
-                          ? "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300"
-                          : "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
-                      }`}
-                    >
-                      {candidate ? initials(candidateName) : "I"}
+          {hasRecording && total > 0 && (
+            <div className="mt-3">
+              <div className="relative h-2.5">
+                <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-slate-200 dark:bg-slate-700" />
+                <div
+                  className="absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-blue-600"
+                  style={{ width: `${progress}%` }}
+                />
+                {markers.map((marker, index) => (
+                  <span
+                    key={index}
+                    title={marker.label}
+                    className={`pointer-events-none absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white dark:ring-surface ${
+                      marker.kind === "moment" ? "bg-rose-500" : "bg-blue-500"
+                    }`}
+                    style={{ left: `${Math.min(100, (marker.at / total) * 100)}%` }}
+                  />
+                ))}
+                <input
+                  type="range"
+                  min={0}
+                  max={total}
+                  step={0.1}
+                  value={Math.min(currentTime, total)}
+                  onChange={(event) => seek(Number(event.target.value))}
+                  aria-label="Seek recording"
+                  className="absolute inset-0 w-full cursor-pointer opacity-0"
+                />
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px] tabular-nums text-slate-400">
+                <span>{formatClock(currentTime)}</span>
+                <span className="flex items-center gap-3">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="size-1.5 rounded-full bg-blue-500" /> Turn
+                  </span>
+                  {moments.length > 0 && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="size-1.5 rounded-full bg-rose-500" /> Moment
                     </span>
+                  )}
+                  <span>{formatClock(total)}</span>
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
 
-                    {/* Message Bubble */}
-                    <div className="min-w-0 flex-1 rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 dark:border-border dark:bg-background/40">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-900 dark:text-foreground">
-                            {candidate ? candidateName : "Interviewer"}
-                          </span>
-                          {offset !== null && offset >= 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => onPlay(offset)}
-                              className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] font-semibold tabular-nums text-blue-600 shadow-2xs hover:underline dark:bg-surface dark:text-accent"
-                            >
-                              <Play className="size-2.5 fill-current" />
-                              <span>{formatClock(offset)}</span>
-                            </button>
-                          ) : (
-                            <span className="text-[11px] text-slate-400">turn {turn.seq}</span>
-                          )}
-                        </div>
-                        {topic && (
-                          <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-500 shadow-2xs dark:bg-surface">
-                            {topic}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-2 text-xs leading-relaxed text-slate-700 dark:text-slate-300">
-                        {turn.text}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
+        {/* Right: transcript that follows the playhead */}
+        <div
+          id="transcript"
+          className="flex min-w-0 scroll-mt-24 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white dark:border-border dark:bg-surface"
+        >
+          <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3.5 py-2.5 dark:border-border">
+            <div className="flex min-w-0 items-center gap-2">
+              <ScrollText className="size-3.5 shrink-0 text-slate-400" />
+              <span className="text-xs font-semibold text-slate-900 dark:text-foreground">Transcript</span>
+              {playing && active ? (
+                <span className="inline-flex min-w-0 items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                  <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" />
+                  <span className="truncate">
+                    Following · {formatClock(active.at)}
+                  </span>
+                </span>
+              ) : active ? (
+                <span className="text-[10px] font-medium tabular-nums text-slate-400">
+                  {formatClock(active.at)}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-1">
+              {(["all", "candidate", "interviewer"] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setFilter(value)}
+                  aria-pressed={filter === value}
+                  className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold capitalize transition ${
+                    filter === value
+                      ? "bg-blue-50 text-blue-600 dark:bg-accent/15 dark:text-accent"
+                      : "text-slate-400 hover:text-slate-700 dark:hover:text-foreground"
+                  }`}
+                >
+                  {value === "all" ? "All" : value === "candidate" ? "Candidate" : "Interviewer"}
+                </button>
+              ))}
             </div>
           </div>
 
-          {visible.length > 8 && (
-            <button
-              type="button"
-              onClick={() => setShowAll(!showAll)}
-              className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200/80 bg-white py-2 text-xs font-semibold text-slate-700 shadow-2xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
+          <div className="border-b border-slate-100 px-3 py-2 dark:border-border">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search this conversation…"
+                className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs outline-none transition focus:border-accent dark:border-border dark:bg-background dark:text-slate-200"
+              />
+            </div>
+          </div>
+
+          {turns.length === 0 ? (
+            <p className="px-3.5 py-6 text-xs text-slate-500">
+              Nothing has been said in this interview yet.
+            </p>
+          ) : (
+            <div
+              ref={listRef}
+              className="relative min-h-[220px] flex-1 overflow-y-auto p-2"
+              style={{ maxHeight: expanded ? 300 : 420 }}
             >
-              <span>{showAll ? "Show less" : `Show more transcript (${visible.length} turns)`}</span>
-              <ChevronDown className={`size-3.5 transition-transform ${showAll ? "rotate-180" : ""}`} />
-            </button>
+              {visible.length === 0 ? (
+                <p className="px-2 py-6 text-center text-xs text-slate-500">
+                  No lines match that filter.
+                </p>
+              ) : (
+                <div className="grid gap-1">
+                  {visible.map((turn) => {
+                    const candidate = turn.speaker === "candidate";
+                    const at = offsetFor(turn);
+                    const isActive = turn.seq === activeSeq;
+                    const canJump = hasRecording && at !== null;
+                    return (
+                      <button
+                        key={turn.seq}
+                        type="button"
+                        data-seq={turn.seq}
+                        onClick={() => jumpTo(turn)}
+                        disabled={!canJump}
+                        aria-current={isActive ? "true" : undefined}
+                        className={`relative w-full rounded-lg border px-2.5 py-2 text-left transition ${
+                          isActive
+                            ? "border-blue-200 bg-blue-50/80 dark:border-accent/30 dark:bg-accent/10"
+                            : "border-transparent hover:border-slate-200 hover:bg-slate-50 dark:hover:border-border dark:hover:bg-background/40"
+                        } ${canJump ? "cursor-pointer" : "cursor-default"}`}
+                      >
+                        {isActive && (
+                          <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-blue-600 dark:bg-accent" />
+                        )}
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span
+                              className={`grid size-5 shrink-0 place-items-center rounded-full text-[9px] font-bold uppercase ${
+                                candidate
+                                  ? "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300"
+                                  : "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                              }`}
+                            >
+                              {candidate ? initials(candidateName) : "I"}
+                            </span>
+                            <span className="truncate text-[11px] font-semibold text-slate-900 dark:text-foreground">
+                              {candidate ? candidateName : "Interviewer"}
+                            </span>
+                          </span>
+                          <span
+                            className={`shrink-0 text-[10px] tabular-nums ${
+                              isActive
+                                ? "font-semibold text-blue-600 dark:text-accent"
+                                : "text-slate-400"
+                            }`}
+                          >
+                            {at !== null ? formatClock(at) : `#${turn.seq}`}
+                          </span>
+                        </span>
+                        <span
+                          className={`mt-1 block text-xs leading-relaxed ${
+                            isActive ? "" : "line-clamp-4"
+                          } ${
+                            isActive
+                              ? "text-slate-900 dark:text-foreground"
+                              : "text-slate-600 dark:text-slate-300"
+                          }`}
+                        >
+                          {turn.text}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
+
+          <p className="border-t border-slate-100 px-3.5 py-2 text-[10px] text-slate-400 dark:border-border">
+            {hasRecording
+              ? "Click any line to jump the recording to that moment."
+              : "Transcript only. No recording is available for this interview."}
+          </p>
         </div>
-      )}
+      </div>
     </section>
   );
 }
