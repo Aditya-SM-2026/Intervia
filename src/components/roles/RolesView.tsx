@@ -10,7 +10,6 @@ import {
   Clock3,
   ClipboardList,
   Code2,
-  Copy,
   Database,
   ExternalLink,
   FileBarChart,
@@ -438,14 +437,13 @@ function RoleCard({
               />
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={copyInvite}
+              <Link
+                href={inviteUrl(role)}
                 className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-3.5 py-2 text-sm font-medium transition hover:bg-background"
               >
-                <Copy className="size-4" aria-hidden />
-                Share link
-              </button>
+                <UserPlus className="size-4" aria-hidden />
+                Add candidate
+              </Link>
               <Link
                 href={`/dashboard/roles/${role.id}`}
                 className="inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90"

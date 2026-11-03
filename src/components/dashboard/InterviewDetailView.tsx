@@ -150,14 +150,14 @@ const cardClasses =
 
 /** Left sidebar sections in order */
 const REPORT_SECTIONS = [
-  { id: "recording", label: "Recording", icon: Play },
   { id: "overview", label: "Overview", icon: Gauge },
   { id: "summary", label: "Summary", icon: FileText },
   { id: "answers", label: "Answer quality", icon: MessagesSquare },
   { id: "resume", label: "Resume match", icon: FileSearch },
   { id: "authenticity", label: "Own answers", icon: Fingerprint },
-  { id: "video", label: "On-camera", icon: Video },
+  { id: "recording", label: "Recording", icon: Play },
   { id: "transcript", label: "Transcript", icon: ScrollText },
+  { id: "video", label: "On-camera", icon: Video },
   { id: "voice", label: "Voice session", icon: Mic },
   { id: "comments", label: "Comments", icon: MessageSquare },
   { id: "peers", label: "Other interviews", icon: Users },
@@ -477,6 +477,20 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       ? Math.max(0, (Date.parse(turn.startedAt) - Date.parse(timelineStart)) / 1000)
       : null;
 
+  // Sits between the originality section and the on-camera analysis.
+  const recordingSection = (
+    <RecordingPanel
+      roomId={roomId}
+      hasRecording={hasRecording}
+      turns={turns}
+      candidateName={session.candidateName || "Candidate"}
+      offsetFor={recordingOffset}
+      videoRef={videoRef}
+      moments={scorecard?.video?.moments ?? []}
+      durationSeconds={session.outcome?.elapsedSeconds ?? null}
+    />
+  );
+
   return (
     <div className="mx-auto max-w-7xl grid gap-6">
       {/* Toast Notification */}
@@ -537,18 +551,6 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
         />
 
         <div className="grid min-w-0 grid-cols-1 gap-6">
-          {/* Recording and synchronised transcript */}
-          <RecordingPanel
-            roomId={roomId}
-            hasRecording={hasRecording}
-            turns={turns}
-            candidateName={session.candidateName || "Candidate"}
-            offsetFor={recordingOffset}
-            videoRef={videoRef}
-            moments={scorecard?.video?.moments ?? []}
-            durationSeconds={session.outcome?.elapsedSeconds ?? null}
-          />
-
           {scorecard ? (
             <>
               {/* 1. Overall Assessment */}
@@ -572,6 +574,9 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
               {/* 5. Own Answers (Originality) */}
               <OwnAnswersSection scorecard={scorecard} />
 
+              {/* Recording sits after originality and before on-camera analysis */}
+              {recordingSection}
+
               {/* 6. On-camera Behaviour (preserved working component) */}
               <VideoSection
                 scorecard={scorecard}
@@ -582,13 +587,16 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
               />
             </>
           ) : (
-            <section className={cardClasses}>
-              <CardHeading icon={Gauge} iconColor="amber" title="Scorecard" />
-              <p className="mt-2 text-sm text-slate-600 dark:text-muted">
-                {reason ?? "No scorecard is available for this interview yet."}
-              </p>
-              {competencies.length > 0 && <PlanPreview competencies={competencies} />}
-            </section>
+            <>
+              <section className={cardClasses}>
+                <CardHeading icon={Gauge} iconColor="amber" title="Scorecard" />
+                <p className="mt-2 text-sm text-slate-600 dark:text-muted">
+                  {reason ?? "No scorecard is available for this interview yet."}
+                </p>
+                {competencies.length > 0 && <PlanPreview competencies={competencies} />}
+              </section>
+              {recordingSection}
+            </>
           )}
 
           {/* 8. Voice Session */}
