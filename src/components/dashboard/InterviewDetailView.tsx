@@ -1889,12 +1889,14 @@ function RecordingPanel({
     .map((turn) => ({ turn, at: offsetFor(turn) }))
     .filter((entry): entry is { turn: InterviewTurn; at: number } => entry.at !== null);
 
-  // The segment being spoken is the last one that started at or before the
-  // playhead. Nothing is highlighted before the first speaker starts.
+  // The segment being spoken is the most recently started turn at or before
+  // the playhead. Real-time transcription can start turns slightly out of
+  // order, so every entry is checked instead of stopping at the first gap.
   let active: { turn: InterviewTurn; at: number } | null = null;
   for (const entry of timed) {
-    if (entry.at <= currentTime + 0.05) active = entry;
-    else break;
+    if (entry.at <= currentTime + 0.05 && (active === null || entry.at > active.at)) {
+      active = entry;
+    }
   }
   const activeSeq = active ? active.turn.seq : null;
 
@@ -1903,7 +1905,14 @@ function RecordingPanel({
     const container = listRef.current;
     const row = container?.querySelector<HTMLElement>(`[data-seq="${activeSeq}"]`);
     if (!container || !row) return;
-    const top = row.offsetTop - container.clientHeight / 2 + row.offsetHeight / 2;
+    const rowTop = row.offsetTop;
+    const rowBottom = rowTop + row.offsetHeight;
+    const visibleTop = container.scrollTop;
+    const visibleBottom = visibleTop + container.clientHeight;
+    // Follow only when the segment leaves the panel, so a reader is not
+    // yanked around by every overlapping fragment.
+    if (rowTop >= visibleTop + 8 && rowBottom <= visibleBottom - 8) return;
+    const top = rowTop - container.clientHeight / 2 + row.offsetHeight / 2;
     container.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   }, [activeSeq]);
 
