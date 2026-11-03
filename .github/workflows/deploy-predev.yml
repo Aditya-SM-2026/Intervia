@@ -45,6 +45,7 @@ jobs:
               - '.github/workflows/deploy-predev.yml'
             agent:
               - 'agent/**'
+              - 'scripts/predev-agent-vm.sh'
               - '.github/workflows/deploy-predev.yml'
             worker:
               - 'worker/**'
