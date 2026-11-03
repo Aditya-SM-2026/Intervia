@@ -34,12 +34,13 @@ from livekit.agents import (
 from livekit.agents.voice import io
 from livekit.plugins import google, silero
 
+from .audio_track import InterviewAudio
 from .backend import Backend, iso_from_epoch, iso_now
 from .config import AGENT_NAME, CLIENT_EVENT_TOPIC, AgentConfig, load_env
 from .controller import (
-    EVIDENCE_LEVELS,
     CLOSING_LEAD_SECONDS,
     CLOSING_OVERRUN_SECONDS,
+    EVIDENCE_LEVELS,
     Directive,
     InterviewController,
 )
@@ -229,6 +230,10 @@ class InterviewRuntime:
         # Set once the system closing has begun (the last CLOSING_LEAD_SECONDS).
         self.closing = False
 
+        # Two-sided audio recording fields (set when the session starts).
+        self._audio: InterviewAudio | None = None
+        self._audio_started_at: float | None = None
+
     # --- lifecycle -------------------------------------------------------
 
     async def run(self) -> None:
@@ -293,6 +298,13 @@ class InterviewRuntime:
         self.instruct(self.controller.opening_instructions())
         self._spawn(self._watchdog())
         self._spawn(self._closing_timer())
+
+        # Records both sides of the conversation to one stereo file: the
+        # candidate on the left channel, the interviewer's played voice on the
+        # right. The web app mixes it into the candidate's video afterwards.
+        self._audio = InterviewAudio(self.session)
+        if await self._audio.start():
+            self._audio_started_at = self._audio.started_at
 
     def instruct(self, text: str, allow_interruptions: bool = True) -> Any:
         """Has the interviewer act on a system instruction now.
@@ -461,6 +473,7 @@ class InterviewRuntime:
         self.controller.end()
         self.backend.add_event("interview_ended", {"reason": reason, "elapsedSeconds": round(elapsed, 1)})
         logger.info("interview %s finished: %s after %.0fs", self.interview_id, reason, elapsed)
+        await self._upload_audio()
         await self.backend.complete(
             {
                 "reason": reason,
@@ -475,6 +488,23 @@ class InterviewRuntime:
             }
         )
         await self.backend.aclose()
+
+    async def _upload_audio(self) -> None:
+        """Sends the two-sided audio file to the web app, before the outcome.
+
+        The web app mixes it into the candidate's video when it scores the
+        interview, so the report plays both voices. A failed upload only costs
+        the interviewer's voice in the recording.
+        """
+        if self._audio is None:
+            return
+        started = self._audio_started_at
+        path = await self._audio.stop()
+        try:
+            if path is not None and started is not None:
+                await self.backend.upload_audio(path, iso_from_epoch(started))
+        finally:
+            self._audio.discard()
 
     async def on_job_shutdown(self, reason: str = "") -> None:
         """Runs when the job stops for any reason, including the room closing

@@ -12,8 +12,19 @@ export interface LocalRecordingRef {
 }
 
 export type RecordingRef =
-  | { kind: "local"; recording: LocalRecordingRef; startedAt: string }
-  | { kind: "gcs"; object: { bucket: string; path: string }; startedAt: string };
+  | {
+      kind: "local";
+      recording: LocalRecordingRef;
+      startedAt: string;
+      /** True for the mixed recording (candidate video + the agent's audio). */
+      mixed?: boolean;
+    }
+  | {
+      kind: "gcs";
+      object: { bucket: string; path: string };
+      startedAt: string;
+      mixed?: boolean;
+    };
 
 export interface RecordingEvent {
   roomId: string;
@@ -35,8 +46,42 @@ export function listRecordings(events: readonly RecordingEvent[]): RecordingRef[
     if (typeof id === "string") starts.set(id, event.at);
   }
   for (const event of events) {
-    if (event.type !== "recording_started" && event.type !== "recording_uploaded") continue;
+    if (event.type !== "recording_started" && event.type !== "recording_uploaded" && event.type !== "recording_mixed")
+      continue;
     const { bucket, path: objectPath, storage, recordingId, mimeType } = event.data;
+    const isMixed = event.type === "recording_mixed";
+    if (
+      isMixed &&
+      typeof bucket === "string" &&
+      typeof objectPath === "string"
+    ) {
+      // The candidate video with the agent's two-sided audio folded in; the
+      // preferred playback copy when it exists.
+      const startedAt =
+        (typeof recordingId === "string" ? starts.get(recordingId) : undefined) ??
+        (typeof event.data.startedAt === "string" ? event.data.startedAt : event.at);
+      found.push({
+        kind: "gcs",
+        object: { bucket, path: objectPath },
+        startedAt,
+        mixed: true,
+      });
+      continue;
+    }
+    if (isMixed && storage === "local" && typeof recordingId === "string") {
+      found.push({
+        kind: "local",
+        recording: {
+          roomId: event.roomId,
+          recordingId,
+          format: formatFromMime(typeof mimeType === "string" ? mimeType : null),
+        },
+        startedAt:
+          typeof event.data.startedAt === "string" ? event.data.startedAt : event.at,
+        mixed: true,
+      });
+      continue;
+    }
     if (event.type === "recording_uploaded" && typeof bucket === "string" && typeof objectPath === "string") {
       // The copy of a locally-stored recording that was pushed to GCS once it
       // finished; playable from any deployment, so it is always listed.

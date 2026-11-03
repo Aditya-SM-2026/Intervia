@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -18,6 +19,8 @@ logger = logging.getLogger("intervia.backend")
 
 FLUSH_INTERVAL_SECONDS = 3.0
 REQUEST_TIMEOUT_SECONDS = 15.0
+# A half-hour interview is a few tens of megabytes.
+AUDIO_TIMEOUT_SECONDS = 180.0
 
 
 def iso_now() -> str:
@@ -84,6 +87,35 @@ class Backend:
                 # Keep them for the next attempt, ahead of anything newer.
                 self._turns = turns + self._turns
                 self._events = events + self._events
+
+    async def upload_audio(self, path: Path, started_at: str) -> bool:
+        """Sends the interview's two-sided audio file to the web app.
+
+        Called once, before the completion record: the web app mixes it into
+        the candidate's video when the interview ends. A failed upload costs
+        the interviewer's voice in the recording, never the interview record.
+        """
+        try:
+            body = await asyncio.to_thread(path.read_bytes)
+        except OSError as error:
+            logger.error("could not read interview audio: %s", error)
+            return False
+        try:
+            response = await self._client.post(
+                f"{self._base}/audio",
+                content=body,
+                headers={
+                    "Content-Type": "audio/ogg",
+                    "X-Audio-Started-At": started_at,
+                },
+                timeout=AUDIO_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            logger.info("uploaded %.1f MB of interview audio", len(body) / 1024 / 1024)
+            return True
+        except Exception as error:  # noqa: BLE001
+            logger.error("could not upload interview audio: %s", error)
+            return False
 
     async def complete(self, payload: dict[str, Any]) -> None:
         if self._flush_task is not None:

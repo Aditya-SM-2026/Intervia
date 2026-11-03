@@ -8,6 +8,7 @@ import {
   roomIdSchema,
 } from "@/lib/interviews/interview.validation";
 import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
+import { buildMixedRecording } from "@/lib/recordings/mix";
 import { scoreInterview } from "@/lib/interviews/scorecard.service";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
@@ -43,7 +44,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   if (room.status === "completed") {
     after(async () => {
-      await scoreInterview(roomId);
+      // Build the mixed recording (candidate video + the agent's audio) in
+      // parallel with scoring; a mix failure never blocks the scorecard.
+      const mixing = buildMixedRecording(roomId).catch((error) => {        console.error(
+          `[recording] mix step failed for ${roomId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+      await Promise.allSettled([mixing, scoreInterview(roomId)]);
     });
   }
   return NextResponse.json({ ok: true, status: room.status });
