@@ -1,0 +1,47 @@
+# Builds the three predev images from this branch into the shared registry.
+# Used for the first bootstrap and safe to run by hand:
+#   gcloud builds submit --config cloudbuild-predev.yaml .
+# Tags are predev-only; nothing here touches :latest, so the production VM
+# (which pulls agent:latest) is never affected.
+steps:
+  - id: web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - asia-south1-docker.pkg.dev/siva-nikhil/meetingbot/web:predev
+      - -f
+      - Dockerfile.web
+      - --build-arg
+      - NEXT_PUBLIC_VOICE_PROVIDER=cascade
+      - .
+
+  - id: agent
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - asia-south1-docker.pkg.dev/siva-nikhil/meetingbot/agent:predev
+      - -f
+      - agent/Dockerfile
+      - agent
+
+  - id: worker
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - asia-south1-docker.pkg.dev/siva-nikhil/meetingbot/worker:predev
+      - -f
+      - worker/Dockerfile
+      - .
+
+images:
+  - asia-south1-docker.pkg.dev/siva-nikhil/meetingbot/web:predev
+  - asia-south1-docker.pkg.dev/siva-nikhil/meetingbot/agent:predev
+  - asia-south1-docker.pkg.dev/siva-nikhil/meetingbot/worker:predev
+
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+timeout: 2400s

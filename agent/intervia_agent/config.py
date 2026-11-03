@@ -15,8 +15,14 @@ from dotenv import load_dotenv
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Name the web app dispatches to (token room configuration). Must match
-# AGENT_NAME in src/lib/livekit/token.ts.
-AGENT_NAME = "intervia-interviewer"
+# AGENT_NAME in src/lib/livekit/token.ts. Overridable so a second environment
+# (for example a predev stack sharing the same LiveKit project) can run its own
+# worker without the two dispatching each other's rooms.
+DEFAULT_AGENT_NAME = "intervia-interviewer"
+
+
+def agent_name() -> str:
+    return (os.environ.get("AGENT_NAME") or "").strip() or DEFAULT_AGENT_NAME
 
 # Text-stream topic the candidate page uses for browser events (tab focus).
 CLIENT_EVENT_TOPIC = "intervia.client"

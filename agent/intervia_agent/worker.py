@@ -35,7 +35,7 @@ from livekit.agents.voice import io
 from livekit.plugins import google, silero
 
 from .backend import Backend, iso_from_epoch, iso_now
-from .config import AGENT_NAME, CLIENT_EVENT_TOPIC, AgentConfig, load_env
+from .config import CLIENT_EVENT_TOPIC, AgentConfig, agent_name, load_env
 from .controller import (
     EVIDENCE_LEVELS,
     CLOSING_LEAD_SECONDS,
@@ -899,7 +899,7 @@ load_env()
 server = AgentServer(setup_fnc=prewarm)
 
 
-@server.rtc_session(agent_name=AGENT_NAME)
+@server.rtc_session(agent_name=agent_name())
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
     runtime = InterviewRuntime(ctx, AgentConfig.from_env(), interview_id_for(ctx))

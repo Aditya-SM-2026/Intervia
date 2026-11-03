@@ -13,8 +13,12 @@ export interface LiveKitTokenParams {
   dispatchInterviewId?: string;
 }
 
-/** Must match AGENT_NAME in agent/intervia_agent/config.py. */
-export const AGENT_NAME = "intervia-interviewer";
+/**
+ * Must match the agent worker's AGENT_NAME (agent/intervia_agent/config.py).
+ * Read from the environment so a second stack in the same LiveKit project
+ * dispatches only its own worker.
+ */
+export const AGENT_NAME = process.env.AGENT_NAME?.trim() || "intervia-interviewer";
 
 /** Matches the agent's CANDIDATE_REJOIN_GRACE_SECONDS (5 minutes). */
 const CANDIDATE_REJOIN_WINDOW_SECONDS = 300;

@@ -1,0 +1,151 @@
+name: Build & Deploy (predev)
+
+# The predev stack: same code as feature/roles-candidates, its own Cloud Run
+# services, database, bucket, queue and LiveKit agent name. Nothing here touches
+# production tags (:latest) or restarts the production agent container.
+
+on:
+  push:
+    branches: [features/predev]
+  workflow_dispatch:
+
+concurrency:
+  group: predev-deploy
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: siva-nikhil
+  REGION: asia-south1
+  ZONE: asia-south1-a
+  AR_REPO: asia-south1-docker.pkg.dev/siva-nikhil/meetingbot
+  WIF_PROVIDER: projects/199504026920/locations/global/workloadIdentityPools/github-intervia/providers/github
+  SA: 199504026920-compute@developer.gserviceaccount.com
+  VM: meetingbot-agent-vm
+  WEB_SERVICE: intervia-predev-web
+  WORKER_SERVICE: intervia-predev-video-worker
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.f.outputs.web }}
+      agent: ${{ steps.f.outputs.agent }}
+      worker: ${{ steps.f.outputs.worker }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: f
+        with:
+          filters: |
+            web:
+              - 'src/**'
+              - 'Dockerfile.web'
+              - 'package.json'
+              - 'video-analysis/**'
+            agent:
+              - 'agent/**'
+            worker:
+              - 'worker/**'
+
+  build-web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.SA }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: docker/login-action@v3
+        with:
+          registry: asia-south1-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+      - name: Build & push predev web image
+        run: |
+          IMAGE=${{ env.AR_REPO }}/web:predev
+          docker build -t "$IMAGE" -f Dockerfile.web --build-arg=NEXT_PUBLIC_VOICE_PROVIDER=cascade .
+          docker push "$IMAGE"
+      - name: Deploy predev web
+        run: |
+          gcloud run deploy ${{ env.WEB_SERVICE }} \
+            --project ${{ env.PROJECT_ID }} \
+            --image ${{ env.AR_REPO }}/web:predev \
+            --region ${{ env.REGION }} \
+            --quiet
+
+  build-worker:
+    needs: changes
+    if: needs.changes.outputs.worker == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.SA }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: docker/login-action@v3
+        with:
+          registry: asia-south1-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+      - name: Build & push predev worker image
+        run: |
+          IMAGE=${{ env.AR_REPO }}/worker:predev
+          docker build -t "$IMAGE" -f worker/Dockerfile .
+          docker push "$IMAGE"
+      - name: Deploy predev video worker
+        run: |
+          gcloud run deploy ${{ env.WORKER_SERVICE }} \
+            --project ${{ env.PROJECT_ID }} \
+            --image ${{ env.AR_REPO }}/worker:predev \
+            --region ${{ env.REGION }} \
+            --quiet
+
+  build-agent:
+    needs: changes
+    if: needs.changes.outputs.agent == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.SA }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: docker/login-action@v3
+        with:
+          registry: asia-south1-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+      - name: Build & push predev agent image
+        run: |
+          IMAGE=${{ env.AR_REPO }}/agent:predev
+          docker build -t "$IMAGE" -f agent/Dockerfile agent
+          docker push "$IMAGE"
+      - name: Restart only the predev container on the shared VM
+        run: |
+          # Never `instances reset`: that would drop the production agent too.
+          gcloud compute scp scripts/predev-agent-vm.sh ${{ env.VM }}:/tmp/predev-agent-vm.sh \
+            --project ${{ env.PROJECT_ID }} --zone ${{ env.ZONE }} --quiet
+          gcloud compute ssh ${{ env.VM }} \
+            --project ${{ env.PROJECT_ID }} --zone ${{ env.ZONE }} --quiet \
+            --command "sudo bash /tmp/predev-agent-vm.sh"
