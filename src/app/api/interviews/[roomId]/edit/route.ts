@@ -4,6 +4,8 @@ import { requireRecruiter } from "@/lib/auth/guards";
 import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
 import {
   getInterviewEditState,
+  resolveScheduledAt,
+  scheduledParts,
   updateScheduledInterview,
 } from "@/lib/interviews/interview.service";
 import {
@@ -65,6 +67,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     candidateName: text("candidateName"),
     candidateEmail: text("candidateEmail"),
     roleTitle: text("roleTitle"),
+    scheduledDate: text("scheduledDate"),
+    scheduledTime: text("scheduledTime"),
     durationMinutes: text("durationMinutes"),
     difficulty: text("difficulty"),
     jobDescriptionText: text("jobDescriptionText"),
@@ -112,6 +116,27 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
   }
 
+  // Keep the stored moment when the recruiter did not touch the date and time.
+  // That matters for a room scheduled in the past but still inside its window:
+  // the future-time rule must not reject an unchanged value.
+  const currentSchedule = scheduledParts(state.room.scheduledAt);
+  const submittedDate = parsed.data.scheduledDate ?? "";
+  const submittedTime = parsed.data.scheduledTime ?? "";
+  let scheduledAt: string | null;
+  if (!submittedDate && !submittedTime) {
+    scheduledAt = null;
+  } else if (
+    state.room.scheduledAt &&
+    submittedDate === currentSchedule.date &&
+    (submittedTime || "09:00") === currentSchedule.time
+  ) {
+    scheduledAt = state.room.scheduledAt;
+  } else {
+    const resolved = resolveScheduledAt(parsed.data.scheduledDate, parsed.data.scheduledTime);
+    if (resolved.error) return invalidInput(resolved.error);
+    scheduledAt = resolved.value;
+  }
+
   const result = await updateScheduledInterview(roomId, {
     recruiterName: parsed.data.recruiterName,
     candidateName: parsed.data.candidateName,
@@ -122,6 +147,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     jobDescription,
     resume,
     skillFocus: parsed.data.skillFocus,
+    scheduledAt,
   });
 
   if (!result.ok) return interviewErrorResponse(result.code, result.message);

@@ -5,7 +5,11 @@ import { ArrowLeft } from "lucide-react";
 import { TopNav } from "@/components/dashboard/TopNav";
 import { ThemeProvider } from "@/components/dashboard/theme";
 import { EditInterviewPanel } from "@/components/recruiter/EditInterviewPanel";
-import { getInterviewEditState } from "@/lib/interviews/interview.service";
+import {
+  getInterviewEditState,
+  scheduledParts,
+  schedulingTimezone,
+} from "@/lib/interviews/interview.service";
 
 export const metadata: Metadata = {
   title: "Edit interview",
@@ -24,6 +28,7 @@ export default async function EditInterviewPage({
   if (!state) notFound();
 
   const { room } = state;
+  const schedule = scheduledParts(room.scheduledAt);
 
   return (
     <ThemeProvider>
@@ -39,15 +44,24 @@ export default async function EditInterviewPage({
           </Link>
 
           <div className="mb-5">
-            <h1 className="text-2xl font-semibold">Edit interview</h1>
+            <h1 className="text-2xl font-semibold">
+              {state.expired ? "Reschedule interview" : "Edit interview"}
+            </h1>
             <p className="mt-1 text-sm text-muted">
               {room.candidateName ?? "This candidate"} · {room.roleTitle ?? room.title}
             </p>
+            {state.expired && (
+              <p className="mt-1 text-sm text-muted">
+                The link expired before the candidate joined. Saving reopens it for another 24 hours.
+              </p>
+            )}
           </div>
 
           {state.editable ? (
             <EditInterviewPanel
               roomId={room.id}
+              expired={state.expired}
+              timezone={schedulingTimezone()}
               initial={{
                 recruiterName: room.recruiterName ?? "",
                 candidateName: room.candidateName ?? "",
@@ -58,6 +72,8 @@ export default async function EditInterviewPage({
                 jobDescriptionText: room.jobDescription?.text ?? "",
                 existingResumeName: room.resume?.fileName ?? null,
                 skillFocus: room.plan?.skillFocus ?? [],
+                scheduledDate: schedule.date,
+                scheduledTime: schedule.time,
               }}
             />
           ) : (

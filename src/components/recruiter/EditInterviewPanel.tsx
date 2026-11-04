@@ -30,11 +30,18 @@ export interface EditInterviewInitialValues {
   existingResumeName: string | null;
   /** The custom scoring set when the interview was created, if any. */
   skillFocus?: SkillFocus[];
+  /** Stored date and time, in the recruiter's scheduling timezone. */
+  scheduledDate: string;
+  scheduledTime: string;
 }
 
 interface EditInterviewPanelProps {
   roomId: string;
   initial: EditInterviewInitialValues;
+  /** The link's window has run out; saving reopens it. */
+  expired?: boolean;
+  /** IANA zone the date and time fields are read in. */
+  timezone: string;
 }
 
 const EMAIL_STATUS_TEXT: Record<InviteEmailStatus["status"], string> = {
@@ -48,13 +55,20 @@ const EMAIL_STATUS_TEXT: Record<InviteEmailStatus["status"], string> = {
  * the same fields to the edit endpoint, and then shows what changed, the
  * refreshed link, and whether the update email went out.
  */
-export function EditInterviewPanel({ roomId, initial }: EditInterviewPanelProps) {
+export function EditInterviewPanel({
+  roomId,
+  initial,
+  expired = false,
+  timezone,
+}: EditInterviewPanelProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [result, setResult] = useState<EditResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState(initial.scheduledDate);
+  const [scheduledTime, setScheduledTime] = useState(initial.scheduledTime);
 
   async function handleSubmit(values: CreateInterviewFormValues) {
     setIsSubmitting(true);
@@ -67,6 +81,8 @@ export function EditInterviewPanel({ roomId, initial }: EditInterviewPanelProps)
       form.set("candidateName", values.candidateName);
       form.set("candidateEmail", values.candidateEmail);
       form.set("roleTitle", values.roleTitle);
+      form.set("scheduledDate", scheduledDate);
+      form.set("scheduledTime", scheduledTime);
       form.set("durationMinutes", String(values.durationMinutes));
       form.set("difficulty", values.difficulty);
       if (values.jobDescriptionPdf) {
@@ -210,6 +226,49 @@ export function EditInterviewPanel({ roomId, initial }: EditInterviewPanelProps)
           {notice}
         </p>
       )}
+      <div className="rounded-2xl border border-border bg-surface p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">Interview date and time</h2>
+            <p className="mt-1 text-xs text-muted">
+              Times are in {timezone}. The link stays valid for 24 hours after this time.
+            </p>
+          </div>
+          {expired && (
+            <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">
+              Link expired
+            </span>
+          )}
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+            Date
+            <input
+              type="date"
+              value={scheduledDate}
+              onChange={(event) => setScheduledDate(event.target.value)}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition focus:border-accent"
+            />
+          </label>
+          <label className="grid gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+            Time
+            <input
+              type="time"
+              value={scheduledTime}
+              onChange={(event) => setScheduledTime(event.target.value)}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition focus:border-accent"
+            />
+          </label>
+        </div>
+
+        <p className="mt-2 text-xs text-muted">
+          {expired
+            ? "Saving reopens the link. Leave both empty to reopen it for 24 hours from now, or pick a new time to send the candidate."
+            : "Leave both empty to let the candidate join any time in the next 24 hours."}
+        </p>
+      </div>
+
       <CreateInterviewForm
         onSubmit={handleSubmit}
         isSubmitting={isSubmitting}

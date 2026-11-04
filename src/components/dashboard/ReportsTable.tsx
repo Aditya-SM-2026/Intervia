@@ -257,12 +257,13 @@ export function ReportsTable({
                                 onSelect: () => onAction("download", room.id),
                               }]
                             : []),
-                          // Editing is open only while the interview is still
-                          // scheduled and the candidate has not started it.
-                          ...(room.status === "scheduled" && !scorecard
+                          // Editing is open while the interview has not started,
+                          // and an expired link the candidate never used can be
+                          // rescheduled from the same screen.
+                          ...((room.status === "scheduled" || room.status === "expired") && !scorecard
                             ? [{
                                 id: "edit",
-                                label: "Edit interview",
+                                label: room.status === "expired" ? "Reschedule interview" : "Edit interview",
                                 icon: <Pencil className="size-4" aria-hidden />,
                                 onSelect: () => onAction("edit", room.id),
                               }]

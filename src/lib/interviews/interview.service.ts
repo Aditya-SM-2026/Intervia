@@ -72,8 +72,39 @@ export function resolveScheduledAt(
 }
 
 /** The timezone recruiter-entered times are interpreted in. */
-function schedulingTimezone(): string {
+export function schedulingTimezone(): string {
   return process.env.EMAIL_TIMEZONE?.trim() || "Asia/Kolkata";
+}
+
+/** Splits a stored ISO instant into the date and time a recruiter entered. */
+export function scheduledParts(iso: string | null): { date: string; time: string } {
+  if (!iso) return { date: "", time: "" };
+  const moment = new Date(iso);
+  if (Number.isNaN(moment.getTime())) return { date: "", time: "" };
+  const date = new Intl.DateTimeFormat("en-CA", {
+    timeZone: schedulingTimezone(),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(moment);
+  const time = new Intl.DateTimeFormat("en-GB", {
+    timeZone: schedulingTimezone(),
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(moment);
+  return { date, time };
+}
+
+/** A scheduled moment in the recruiter's timezone, for change summaries. */
+function formatScheduledLabel(iso: string): string {
+  const moment = new Date(iso);
+  if (Number.isNaN(moment.getTime())) return iso;
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: schedulingTimezone(),
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(moment);
 }
 
 /**
@@ -412,12 +443,17 @@ export interface InterviewEditState {
   editable: boolean;
   /** Why editing is closed, when it is. Shown on the edit screen. */
   reason: string | null;
+  /** The link's window has run out (stored or by time), so saving reopens it. */
+  expired: boolean;
 }
 
 /**
- * An interview stays editable only while nobody has started it: still
- * scheduled, no transcript, no scorecard. Once the candidate has joined, the
- * plan is what they were interviewed against, so it is frozen.
+ * An interview stays editable while nobody has started it: still scheduled or
+ * expired without a transcript or scorecard. Once the candidate has joined,
+ * the plan is what they were interviewed against, so it is frozen.
+ *
+ * An expired room whose candidate never joined can be rescheduled: the same
+ * record and link are reused with a fresh window.
  */
 export async function getInterviewEditState(roomId: string): Promise<InterviewEditState | null> {
   const repository = getInterviewRepository();
@@ -429,21 +465,36 @@ export async function getInterviewEditState(roomId: string): Promise<InterviewEd
     repository.getTurns(roomId),
   ]);
 
+  const expired = room.status === "expired" || isExpired(room);
+
+  if (room.status === "expired") {
+    if (scorecard || turns.length > 0) {
+      return {
+        room,
+        editable: false,
+        reason:
+          "The candidate already opened this interview before the link expired, so it cannot be reopened. Create a new interview for another attempt.",
+        expired,
+      };
+    }
+    return { room, editable: true, reason: null, expired };
+  }
   if (room.status !== "scheduled") {
     const reason =
       room.status === "completed"
         ? "This interview is already complete, so it can no longer be edited."
         : `This interview is ${room.status}, so it can no longer be edited.`;
-    return { room, editable: false, reason };
+    return { room, editable: false, reason, expired };
   }
   if (scorecard || turns.length > 0) {
     return {
       room,
       editable: false,
       reason: "The candidate has already opened this interview, so it can no longer be edited.",
+      expired,
     };
   }
-  return { room, editable: true, reason: null };
+  return { room, editable: true, reason: null, expired };
 }
 
 /** Every field the create form collects, as the edit form sends it back. */
@@ -459,6 +510,11 @@ export interface InterviewEditInput {
   resume: ResumeInfo | null;
   /** Custom scoring parameters; an empty list clears them. */
   skillFocus?: SkillFocus[];
+  /**
+   * New scheduled moment (ISO 8601) for a reschedule, null to clear it, or
+   * undefined to keep the stored one.
+   */
+  scheduledAt?: string | null;
 }
 
 export type InterviewEditResult =
@@ -514,6 +570,34 @@ export async function updateScheduledInterview(
     changes.push(`Interviewer style: ${DIFFICULTY_LABELS[room.difficulty]} to ${DIFFICULTY_LABELS[input.difficulty]}`);
     next.difficulty = input.difficulty;
   }
+
+  const scheduledChanged =
+    input.scheduledAt !== undefined &&
+    (input.scheduledAt ? Date.parse(input.scheduledAt) : null) !==
+      (room.scheduledAt ? Date.parse(room.scheduledAt) : null);
+  if (scheduledChanged) {
+    next.scheduledAt = input.scheduledAt ?? null;
+    changes.push(
+      input.scheduledAt
+        ? `Interview time: ${
+            room.scheduledAt ? formatScheduledLabel(room.scheduledAt) : "any time"
+          } to ${formatScheduledLabel(input.scheduledAt)}`
+        : "Interview time: cleared, so the link can be used any time",
+    );
+  }
+
+  // A room whose window ran out is reopened by saving, even when the recruiter
+  // changed nothing else, because the point of opening it was a fresh link.
+  const reopening = room.status === "expired" || isExpired(room);
+  if (reopening) {
+    if (room.status === "expired") {
+      next.status = "scheduled";
+      next.completedAt = null;
+    }
+    if (!scheduledChanged) {
+      changes.push("Interview link reopened: valid for another 24 hours");
+    }
+  }
   const jdChanged = (input.jobDescription?.text ?? "") !== (room.jobDescription?.text ?? "");
   if (jdChanged) {
     changes.push("Job description: updated");
@@ -557,8 +641,12 @@ export async function updateScheduledInterview(
   }
 
   // A fresh window, so the link in the update email works even when the
-  // original had already expired.
-  next.expiresAt = new Date(Date.now() + LINK_VALIDITY_HOURS * 60 * MS_PER_MINUTE).toISOString();
+  // original had already expired. When a time is set, the window runs from
+  // that time (or from now if it is already in the past), so scheduling more
+  // than a day ahead no longer expires the link first.
+  const scheduledMoment = next.scheduledAt ? Date.parse(next.scheduledAt) : Number.NaN;
+  const anchor = Number.isNaN(scheduledMoment) ? Date.now() : Math.max(Date.now(), scheduledMoment);
+  next.expiresAt = new Date(anchor + LINK_VALIDITY_HOURS * 60 * MS_PER_MINUTE).toISOString();
   next.reminderSentAt = null;
 
   await getInterviewRepository().save(next);
