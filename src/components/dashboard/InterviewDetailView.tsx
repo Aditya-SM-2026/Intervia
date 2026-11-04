@@ -1377,7 +1377,6 @@ function AnswerQualityTable({
   offsetFor: (turn: InterviewTurn) => number | null;
   onPlay: (seconds: number) => void;
 }) {
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const bySeq = new Map(turns.map((turn) => [turn.seq, turn]));
   const score = scorecard.answerQuality ?? (scorecard.overallScore ? Math.round((scorecard.overallScore / 5) * 100) : null);
   const chip = factorChip("answers", score);
@@ -1417,7 +1416,6 @@ function AnswerQualityTable({
               {scorecard.competencies.map((item, index) => {
                 const plan = competencies.find((c) => c.id === item.competencyId);
                 const window = evidenceWindow(item.evidence, bySeq, offsetFor);
-                const isExpanded = expandedRow === item.competencyId;
                 const scoreOut10 = item.score !== null ? item.score * 2 : null;
                 const scoreTone =
                   scoreOut10 !== null && scoreOut10 >= 7
@@ -1450,7 +1448,7 @@ function AnswerQualityTable({
                       </span>
                     </td>
                     <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">
-                      <p className="line-clamp-2">{firstSentence(item.rationale)}</p>
+                      <p className="leading-relaxed">{item.rationale}</p>
                     </td>
                     <td className="px-4 py-3.5 text-right">
                       <div className="flex items-center justify-end gap-1.5">
@@ -1468,13 +1466,6 @@ function AnswerQualityTable({
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => setExpandedRow(isExpanded ? null : item.competencyId)}
-                          className="grid size-6 place-items-center rounded-md text-slate-400 hover:text-slate-700"
-                        >
-                          <ChevronDown className={`size-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
-                        </button>
                       </div>
                     </td>
                   </tr>
