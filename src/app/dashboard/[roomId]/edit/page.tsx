@@ -28,7 +28,9 @@ export default async function EditInterviewPage({
   if (!state) notFound();
 
   const { room } = state;
-  const schedule = scheduledParts(room.scheduledAt);
+  // An expired room defaults to "reopen now": leave the old, elapsed time out
+  // of the fields so saving without a choice reopens the link immediately.
+  const schedule = state.expired ? { date: "", time: "" } : scheduledParts(room.scheduledAt);
 
   return (
     <ThemeProvider>
