@@ -112,7 +112,10 @@ const SIGNAL_PENALTY = { 1: 6, 2: 14, 3: 26 } as const;
  * answer was read out or prompted. No signals means 100, not "proven honest".
  */
 export function authenticityScore(signals: readonly AuthenticitySignal[]): number {
-  const lost = signals.reduce((sum, signal) => sum + SIGNAL_PENALTY[signal.severity], 0);
+  const lost = signals.reduce(
+    (sum, signal) => sum + (signal.penalty ?? SIGNAL_PENALTY[signal.severity]),
+    0,
+  );
   return clampScore(100 - lost);
 }
 

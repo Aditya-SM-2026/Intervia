@@ -121,6 +121,11 @@ export interface AuthenticitySignal {
   /** 1 = worth a glance, 2 = notable, 3 = strong. */
   severity: 1 | 2 | 3;
   source: "measured" | "grader";
+  /**
+   * Points this signal takes off, when the count matters more than a category
+   * (answers that never took up the question). Defaults to the severity cost.
+   */
+  penalty?: number;
 }
 
 export interface Authenticity {
