@@ -44,15 +44,14 @@ export default async function EditInterviewPage({
           </Link>
 
           <div className="mb-5">
-            <h1 className="text-2xl font-semibold">
-              {state.expired ? "Reschedule interview" : "Edit interview"}
-            </h1>
+            <h1 className="text-2xl font-semibold">Edit interview</h1>
             <p className="mt-1 text-sm text-muted">
               {room.candidateName ?? "This candidate"} · {room.roleTitle ?? room.title}
             </p>
             {state.expired && (
               <p className="mt-1 text-sm text-muted">
-                The link expired before the candidate joined. Saving reopens it for another 24 hours.
+                The link expired before the candidate joined. Saving reopens it now for 24 hours, or
+                at the date and time you choose below.
               </p>
             )}
           </div>

@@ -30,7 +30,6 @@ import {
   AlertTriangle,
   Briefcase,
   Calendar,
-  CalendarClock,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -54,6 +53,7 @@ import {
   Minimize2,
   Minus,
   MoreHorizontal,
+  Pencil,
   PanelLeftClose,
   PanelLeftOpen,
   Play,
@@ -939,8 +939,8 @@ function CandidateHeader({
                 href={`/dashboard/${roomId}/edit`}
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
               >
-                <CalendarClock className="size-3.5 text-slate-400" />
-                <span>Reschedule</span>
+                <Pencil className="size-3.5 text-slate-400" />
+                <span>Edit interview</span>
               </Link>
             )}
 

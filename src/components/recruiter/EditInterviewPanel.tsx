@@ -264,8 +264,8 @@ export function EditInterviewPanel({
 
         <p className="mt-2 text-xs text-muted">
           {expired
-            ? "Saving reopens the link. Leave both empty to reopen it for 24 hours from now, or pick a new time to send the candidate."
-            : "Leave both empty to let the candidate join any time in the next 24 hours."}
+            ? "Leave both empty and save to reopen the link right now for 24 hours, or set a date and time to reopen it then."
+            : "Leave both empty and save to let the candidate join any time in the next 24 hours."}
         </p>
       </div>
 
