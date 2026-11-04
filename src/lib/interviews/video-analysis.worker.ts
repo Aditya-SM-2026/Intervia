@@ -151,7 +151,9 @@ export async function enqueueVideoAnalysis(job: VideoJob): Promise<boolean> {
 
 /** A queued video section, shown until the worker calls back. */
 export function queuedVideo(): VideoBehaviour {
-  return result("queued", "Video analysis is running. The result will appear here shortly.");
+  return result("queued", "Video analysis is running. The result will appear here shortly.", {
+    queuedAt: new Date().toISOString(),
+  });
 }
 
 const DIRECTIONS: GazeDirection[] = [

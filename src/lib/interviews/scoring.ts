@@ -219,6 +219,8 @@ export function measuredAuthenticitySignals(answers: readonly TimedAnswer[]): Au
   if (latencies.length < 4) return [];
   const usual = latencies[Math.floor(latencies.length / 2)];
 
+  const signals: AuthenticitySignal[] = [];
+
   const instant = answers.filter(
     (answer) =>
       answer.responseLatencyMs !== null &&
@@ -226,10 +228,8 @@ export function measuredAuthenticitySignals(answers: readonly TimedAnswer[]): Au
       answer.responseLatencyMs < usual / 3 &&
       answer.wordCount >= 90,
   );
-  if (instant.length === 0) return [];
-
-  return [
-    {
+  if (instant.length > 0) {
+    signals.push({
       title:
         instant.length === 1
           ? "A long answer started almost instantly"
@@ -240,6 +240,36 @@ export function measuredAuthenticitySignals(answers: readonly TimedAnswer[]): Au
       turnSeqs: instant.map((answer) => answer.seq),
       severity: instant.length >= 3 ? 3 : instant.length === 2 ? 2 : 1,
       source: "measured",
-    },
-  ];
+    });
+  }
+
+  // Reading aloud runs faster and more evenly than thinking aloud. A long
+  // answer that starts at once and keeps a reading pace is worth a look; the
+  // threshold is high enough that a fast talker alone does not trip it.
+  const readingPace = answers.filter((answer) => {
+    if (answer.wordCount < 90 || !answer.durationMs || answer.durationMs <= 0) return false;
+    const wordsPerSecond = answer.wordCount / (answer.durationMs / 1000);
+    const startedAtOnce =
+      answer.responseLatencyMs === null || answer.responseLatencyMs < 800;
+    return wordsPerSecond >= 3.6 && startedAtOnce;
+  });
+  if (readingPace.length > 0) {
+    const fastest = Math.max(
+      ...readingPace.map((answer) => answer.wordCount / ((answer.durationMs as number) / 1000)),
+    );
+    signals.push({
+      title:
+        readingPace.length === 1
+          ? "A long answer was delivered at reading pace"
+          : `${readingPace.length} long answers were delivered at reading pace`,
+      detail: `${
+        readingPace.length === 1 ? "This answer" : "These answers"
+      } of 90 words or more ran at up to ${fastest.toFixed(1)} words per second and started within a second, which is faster and steadier than thinking aloud usually sounds.`,
+      turnSeqs: readingPace.map((answer) => answer.seq),
+      severity: readingPace.length >= 3 ? 3 : 2,
+      source: "measured",
+    });
+  }
+
+  return signals;
 }

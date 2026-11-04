@@ -206,6 +206,8 @@ export interface VideoBehaviour {
   pattern?: GazePattern | null;
   /** Length of the analysed recording. */
   durationSeconds?: number | null;
+  /** When the analysis was handed to the worker (ISO), used to spot a lost job. */
+  queuedAt?: string | null;
 }
 
 export type FactorId = "answers" | "resume" | "authenticity" | "video";

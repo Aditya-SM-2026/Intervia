@@ -296,6 +296,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isVideoRequesting, setIsVideoRequesting] = useState(false);
+  const [isResumeRequesting, setIsResumeRequesting] = useState(false);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [navCollapsed, setNavCollapsed] = useState(false);
@@ -307,6 +308,9 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
   useEffect(() => {
     try {
       if (window.localStorage.getItem("interview-report-nav") === "collapsed") {
+        // Reading a stored preference once on mount is exactly what this
+        // effect is for; the rule cannot tell it apart from a render loop.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setNavCollapsed(true);
       }
     } catch {
@@ -409,6 +413,36 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       showToast(cause instanceof Error ? cause.message : "Could not start the video analysis.");
     } finally {
       setIsVideoRequesting(false);
+    }
+  }
+
+  /** Reruns the resume check against this candidate's answers. */
+  async function handleAnalyseResume() {
+    setIsResumeRequesting(true);
+    try {
+      const response = await fetch(`/api/dashboard/interviews/${roomId}/resume-analysis`, {
+        method: "POST",
+      });
+      if (response.status === 401) {
+        router.replace(`/login?next=/dashboard/${roomId}`);
+        return;
+      }
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        showToast(body?.error?.message ?? "Could not analyse the resume.");
+        return;
+      }
+      showToast(
+        typeof body?.score === "number"
+          ? `Resume match updated: ${body.score}/100`
+          : "Resume analysis finished. There was too little to score.",
+      );
+      const result = await fetchDetail(`/api/dashboard/interviews/${roomId}`, "GET");
+      if (result !== "unauthorized") setDetail(result);
+    } catch (cause) {
+      showToast(cause instanceof Error ? cause.message : "Could not analyse the resume.");
+    } finally {
+      setIsResumeRequesting(false);
     }
   }
 
@@ -569,7 +603,13 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
               />
 
               {/* 4. Resume Match */}
-              <ResumeTable scorecard={scorecard} turns={turns} competencies={competencies} />
+              <ResumeTable
+                scorecard={scorecard}
+                turns={turns}
+                competencies={competencies}
+                onAnalyseResume={handleAnalyseResume}
+                isAnalysing={isResumeRequesting}
+              />
 
               {/* 5. Own Answers (Originality) */}
               <OwnAnswersSection scorecard={scorecard} />
@@ -982,7 +1022,6 @@ function OverallAssessment({
 
   const score = overall.score;
   const band = scoreBand(score);
-  const explanation = getConciseExplanation(scorecard, score);
 
   const FACTOR_ICONS: Record<FactorId, LucideIcon> = {
     answers: MessagesSquare,
@@ -1022,9 +1061,6 @@ function OverallAssessment({
               {band.label}
             </span>
           </div>
-          <p className="mt-3 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-            {explanation}
-          </p>
         </div>
 
         {/* Right Side: Expandable score factor rows with progress bars */}
@@ -1416,10 +1452,14 @@ function ResumeTable({
   scorecard,
   turns,
   competencies,
+  onAnalyseResume,
+  isAnalysing,
 }: {
   scorecard: Scorecard;
   turns: InterviewTurn[];
   competencies: PlanCompetency[];
+  onAnalyseResume: () => void;
+  isAnalysing: boolean;
 }) {
   const resume = scorecard.resumeMatch;
   if (!resume) return null;
@@ -1506,6 +1546,31 @@ function ResumeTable({
           </table>
         </div>
       )}
+
+      {resume.score === null && resume.reason && resume.claims.length > 0 && (
+        <p className="mt-4 rounded-xl border border-slate-100 bg-slate-50/80 p-3 text-[11px] text-slate-500 dark:border-border dark:bg-background/40">
+          {resume.reason}
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={onAnalyseResume}
+          disabled={isAnalysing}
+          className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RotateCcw className={`size-3.5 ${isAnalysing ? "animate-spin" : ""}`} />
+          {isAnalysing
+            ? "Analysing resume"
+            : resume.score === null
+              ? "Analyse resume"
+              : "Regenerate resume analysis"}
+        </button>
+        <span className="text-[11px] text-slate-500">
+          Checks the resume against what the candidate actually said. Takes a few seconds.
+        </span>
+      </div>
     </section>
   );
 }
@@ -2641,19 +2706,6 @@ function firstSentence(text: string): string {
   const clean = plain(text);
   const match = clean.match(/^(.{20,240}?[.!?])(?:\s|$)/);
   return match ? match[1] : clean.slice(0, 240);
-}
-
-function getConciseExplanation(scorecard: Scorecard, score: number | null): string {
-  const clean = plain(scorecard.summary);
-  if (clean && clean.length > 20) {
-    const sentences = clean.split(/(?<=[.!?])\s+/);
-    if (sentences.length >= 2) return `${sentences[0]} ${sentences[1]}`;
-    return sentences[0];
-  }
-  if (score === null) return "Interview evaluation in progress.";
-  if (score >= 65) return "Strong grasp of required concepts with clear, relevant evidence demonstrated throughout.";
-  if (score >= 50) return "Fair understanding of core concepts with practical awareness, showing solid potential.";
-  return "Basic understanding demonstrated, but lacks depth in key required areas. Practical experience recommended.";
 }
 
 function evidenceWindow(

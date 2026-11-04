@@ -84,6 +84,7 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --image ${{ env.AR_REPO }}/web:predev \
             --region ${{ env.REGION }} \
+            --update-secrets INTERNAL_SECRET=predev-internal-secret:latest \
             --quiet
 
   build-worker:
@@ -119,6 +120,8 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --image ${{ env.AR_REPO }}/worker:predev \
             --region ${{ env.REGION }} \
+            --update-env-vars INTERVIA_WEB_URL=https://${{ env.WEB_SERVICE }}-199504026920.${{ env.REGION }}.run.app \
+            --update-secrets INTERNAL_SECRET=predev-internal-secret:latest \
             --quiet
 
   build-agent:
