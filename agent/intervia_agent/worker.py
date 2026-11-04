@@ -328,9 +328,12 @@ class InterviewRuntime:
             input_audio_transcription=genai_types.AudioTranscriptionConfig(
                 language_codes=list(self.config.transcription_languages) or None
             ),
+            # Only sent when a positive budget is configured. Zero means "let
+            # the model decide", and some live models reject the field outright
+            # with a 1007 that ends the interview after one second.
             **(
                 {"thinking_config": genai_types.ThinkingConfig(thinking_budget=self.config.thinking_budget)}
-                if self.config.thinking_budget is not None
+                if self.config.thinking_budget is not None and self.config.thinking_budget > 0
                 else {}
             ),
             # Gemini decides when the candidate's turn is over. Low sensitivity

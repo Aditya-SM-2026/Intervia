@@ -71,10 +71,11 @@ class AgentConfig:
             # Silence that ends the candidate's turn. Lower feels snappier but
             # cuts in on thinking pauses.
             turn_silence_ms=int(os.environ.get("GEMINI_TURN_SILENCE_MS", "500")),
-            # Tokens the live model may spend reasoning before it speaks. 0 gives
-            # the fastest replies; unset the variable's value ("default") to let
-            # the model decide.
-            thinking_budget=_optional_int(os.environ.get("GEMINI_THINKING_BUDGET", "0")),
+            # Tokens the live model may spend reasoning before it speaks. Left
+            # unset by default: the current Gemini Live model rejects an explicit
+            # budget ("Thinking budget is not supported for this model") and
+            # closes the session, so the model decides for itself.
+            thinking_budget=_optional_int(os.environ.get("GEMINI_THINKING_BUDGET", "")),
             # Cost controls. Gemini Live bills the whole remembered conversation
             # again on every reply. The recruiter picks the voice mode per
             # interview: "rolling" starts a fresh session at each topic change
