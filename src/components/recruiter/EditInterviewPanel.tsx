@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, Copy } from "lucide-react";
 import type { DifficultyLevel } from "@/lib/interviews/interview.types";
+import type { SkillFocus } from "@/lib/interviews/skill-focus";
 import { CreateInterviewForm, type CreateInterviewFormValues } from "./CreateInterviewForm";
 
 interface InviteEmailStatus {
@@ -27,6 +28,8 @@ export interface EditInterviewInitialValues {
   difficulty: DifficultyLevel;
   jobDescriptionText: string;
   existingResumeName: string | null;
+  /** The custom scoring set when the interview was created, if any. */
+  skillFocus?: SkillFocus[];
 }
 
 interface EditInterviewPanelProps {
@@ -72,6 +75,9 @@ export function EditInterviewPanel({ roomId, initial }: EditInterviewPanelProps)
         form.set("jobDescriptionText", values.jobDescriptionText);
       }
       if (values.resume) form.set("resume", values.resume);
+      // Always send the list, including an empty one: clearing custom scoring
+      // on the edit screen is a real change, not an omission.
+      form.set("skillFocus", JSON.stringify(values.skillFocus ?? []));
 
       const response = await fetch(`/api/interviews/${roomId}/edit`, {
         method: "PATCH",
@@ -216,6 +222,7 @@ export function EditInterviewPanel({ roomId, initial }: EditInterviewPanelProps)
           difficulty: initial.difficulty,
           jobDescriptionText: initial.jobDescriptionText,
           existingResumeName: initial.existingResumeName,
+          skillFocus: initial.skillFocus ?? [],
         }}
         submitLabel="Save changes"
         submittingLabel="Saving and rebuilding the interview plan…"

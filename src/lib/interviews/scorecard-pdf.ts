@@ -517,6 +517,36 @@ export async function renderScorecardPdf(
     { empty: "No competencies were assessed." },
   );
 
+  if (scorecard.customParameters && scorecard.customParameters.length > 0) {
+    sectionTitle(ctx, "Custom parameters");
+    paragraph(
+      ctx,
+      scorecard.customScore === null
+        ? "The recruiter's parameters could not be scored from this interview."
+        : `Weighted score ${scorecard.customScore}/100 across the parameters the recruiter set.`,
+      { size: 9.5, color: MUTED, gap: 4 },
+    );
+    table(
+      ctx,
+      [
+        { header: "Parameter", width: 120 },
+        { header: "Weight", width: 48 },
+        { header: "Score", width: 56 },
+        { header: "Assessment", width: CONTENT_WIDTH - 224 },
+      ],
+      scorecard.customParameters.map((item) => [
+        item.skill,
+        String(item.weight),
+        item.status === "scored" && item.score !== null
+          ? `${item.score}/100`
+          : item.status === "not_assessed"
+            ? "Not assessed"
+            : "Thin evidence",
+        item.rationale,
+      ]),
+    );
+  }
+
   if (scorecard.resumeMatch) {
     sectionTitle(ctx, "Resume match");
     paragraph(

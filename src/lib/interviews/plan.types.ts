@@ -6,6 +6,8 @@
  * scorecard is graded against afterwards.
  */
 
+import type { SkillFocus } from "./skill-focus";
+
 /** Behavioural anchors for the 1-5 rating scale of one competency. */
 export interface RatingAnchors {
   /** What a 1-2 answer looks like. */
@@ -33,6 +35,12 @@ export interface PlanCompetency {
   anchors: RatingAnchors;
   /** Relative share of the interview time. */
   minutes: number;
+  /**
+   * The custom-scoring parameter this topic assesses, matched by name against
+   * InterviewPlan.skillFocus. Null when it is not one of the recruiter's
+   * parameters. Lets the scorecard score the same parameter from the answers.
+   */
+  skill?: string | null;
 }
 
 export interface InterviewPlan {
@@ -47,6 +55,12 @@ export interface InterviewPlan {
   candidateSummary: string;
   /** Ordered by priority: the last ones are dropped first when time is short. */
   competencies: PlanCompetency[];
+  /**
+   * The recruiter's custom scoring parameters and their relative question
+   * weights. Empty/absent when the recruiter left custom scoring alone, in
+   * which case the plan and the scorecard behave exactly as before.
+   */
+  skillFocus?: SkillFocus[];
 }
 
 /** How many competencies an interview of a given length can cover properly. */

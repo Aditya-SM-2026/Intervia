@@ -68,6 +68,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     durationMinutes: text("durationMinutes"),
     difficulty: text("difficulty"),
     jobDescriptionText: text("jobDescriptionText"),
+    skillFocus: text("skillFocus"),
   });
   if (!parsed.success) return invalidInput(formatValidationIssues(parsed.error));
 
@@ -120,6 +121,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     difficulty: parsed.data.difficulty,
     jobDescription,
     resume,
+    skillFocus: parsed.data.skillFocus,
   });
 
   if (!result.ok) return interviewErrorResponse(result.code, result.message);

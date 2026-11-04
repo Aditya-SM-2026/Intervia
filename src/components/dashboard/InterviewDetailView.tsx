@@ -60,6 +60,7 @@ import {
   ScrollText,
   Search,
   Share2,
+  SlidersHorizontal,
   User,
   Users,
   Video,
@@ -601,6 +602,9 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
                 offsetFor={recordingOffset}
                 onPlay={playFrom}
               />
+
+              {/* 3b. Custom parameters the recruiter asked for */}
+              <CustomParametersSection scorecard={scorecard} />
 
               {/* 4. Resume Match */}
               <ResumeTable
@@ -1443,6 +1447,123 @@ function AnswerQualityTable({
           </table>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * 3b. Custom parameters: the skills the recruiter weighted when creating the
+ * interview, scored from the resume and the candidate's own answers.
+ */
+function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
+  const parameters = scorecard.customParameters ?? [];
+  if (parameters.length === 0) return null;
+
+  const total = scorecard.customScore ?? null;
+  const tone: Tone = total === null ? "muted" : total >= 75 ? "good" : total >= 50 ? "warn" : "bad";
+  const barTone = total === null ? "bg-slate-300" : total >= 75 ? "bg-emerald-500" : total >= 50 ? "bg-amber-500" : "bg-rose-500";
+
+  return (
+    <section id="custom-parameters" className={`${cardClasses} scroll-mt-24`}>
+      <CardHeading
+        icon={SlidersHorizontal}
+        iconColor="indigo"
+        title="Custom parameters"
+        subtitle="The skills you weighted for this role, assessed from the resume and the candidate's answers."
+        right={
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold tabular-nums text-slate-900 dark:text-foreground">
+              {total === null ? "–" : `${total}/100`}
+            </span>
+            <Chip tone={tone}>{total === null ? "Not scored" : "Custom score"}</Chip>
+          </div>
+        }
+      />
+
+      <div className="mt-4 flex items-center gap-3">
+        <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+          <div className={`h-full rounded-full ${barTone}`} style={{ width: `${total ?? 0}%` }} />
+        </div>
+        <span className="text-xs text-muted">weighted by the emphasis you set</span>
+      </div>
+
+      <div className="mt-5 overflow-hidden rounded-xl border border-slate-200/80 dark:border-border">
+        <table className="w-full text-left text-xs">
+          <thead>
+            <tr className="border-b border-slate-200/80 bg-slate-50/80 font-semibold text-slate-500 dark:border-border dark:bg-background/60 dark:text-muted">
+              <th className="px-4 py-3">Parameter</th>
+              <th className="w-24 px-4 py-3 text-center">Emphasis</th>
+              <th className="w-24 px-4 py-3 text-center">Score</th>
+              <th className="px-4 py-3">Assessment</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-border/60">
+            {parameters.map((item) => {
+              const scoreTone =
+                item.status !== "scored" || item.score === null
+                  ? "bg-slate-100 text-slate-500 border border-slate-200/60 dark:bg-slate-800 dark:text-slate-400 dark:border-border"
+                  : item.score >= 75
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
+                  : item.score >= 50
+                    ? "bg-amber-50 text-amber-700 border border-amber-200/60"
+                    : "bg-rose-50 text-rose-700 border border-rose-200/60";
+              return (
+                <tr key={item.skill} className="align-top hover:bg-slate-50/50 dark:hover:bg-accent/5">
+                  <td className="px-4 py-3.5">
+                    <p className="font-semibold text-slate-900 dark:text-foreground">{item.skill}</p>
+                    {item.gaps.length > 0 && (
+                      <p className="mt-0.5 text-[11px] text-slate-500 line-clamp-1">
+                        Gap: {item.gaps[0]}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3.5 text-center">
+                    <span className="text-xs font-medium tabular-nums text-slate-600 dark:text-slate-300">
+                      {item.weight}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 text-center">
+                    <span className={`inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-bold tabular-nums ${scoreTone}`}>
+                      {item.status === "scored" && item.score !== null
+                        ? `${item.score}/100`
+                        : item.status === "not_assessed"
+                          ? "Not assessed"
+                          : "Thin evidence"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">
+                    <p className="line-clamp-3">{firstSentence(item.rationale)}</p>
+                    {item.resumeEvidence && (
+                      <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
+                        Resume: {item.resumeEvidence}
+                      </p>
+                    )}
+                    {item.evidence.length > 0 && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-[11px] font-medium text-accent">
+                          {item.evidence.length} quote{item.evidence.length === 1 ? "" : "s"}
+                        </summary>
+                        <ul className="mt-1 space-y-1">
+                          {item.evidence.map((quote) => (
+                            <li key={`${quote.turnSeq}-${quote.quote.slice(0, 12)}`} className="text-[11px] italic text-slate-500">
+                              “{quote.quote}”
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="mt-3 text-[11px] text-muted">
+        Emphasis is the weight set when the interview was created, not a pass mark. Scores use the
+        resume for what the candidate claims and their answers for what they demonstrated.
+      </p>
     </section>
   );
 }

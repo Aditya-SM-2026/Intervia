@@ -2,7 +2,9 @@
 
 import { useId, useRef, useState } from "react";
 import type { DifficultyLevel } from "@/lib/interviews/interview.types";
+import { normalizeSkillFocus, type SkillFocus } from "@/lib/interviews/skill-focus";
 import type { InterviewRoleDefaults } from "@/lib/roles/interview-role-defaults";
+import { CustomScoringDialog } from "./CustomScoringDialog";
 import {
   DEFAULT_DURATION_MINUTES,
   MAX_DURATION_MINUTES,
@@ -21,6 +23,8 @@ export interface CreateInterviewFormValues {
   jobDescriptionText?: string;
   jobDescriptionPdf?: File;
   resume?: File;
+  /** Optional per-skill question weights (custom scoring). */
+  skillFocus?: SkillFocus[];
 }
 
 interface CreateInterviewFormProps {
@@ -181,12 +185,49 @@ export function CreateInterviewForm({
   const [jobDescriptionPdf, setJobDescriptionPdf] = useState<File | null>(null);
   const [resume, setResume] = useState<File | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [skillFocus, setSkillFocus] = useState<SkillFocus[]>(
+    () => initial?.skillFocus ?? initialRole?.skills.map((skill) => ({ skill, weight: 50 })) ?? [],
+  );
+  const [scoringOpen, setScoringOpen] = useState(false);
 
   const style = DIFFICULTY_OPTIONS.find((option) => option.value === difficulty);
   const selectedRole = roles.find((role) => role.id === roleChoice) ?? null;
+  const roleSkills = selectedRole?.skills ?? initialRole?.skills ?? [];
   // The title is only typed when there is no existing role to pick (or when
   // the recruiter chose to create a new one).
   const showRoleTitleInput = roles.length === 0 || selectedRole === null;
+
+  /** Compact summary shown on the custom-scoring row. */
+  const customScoringSummary =
+    skillFocus.length === 0
+      ? "Optional: weight the skills so the interviewer spends more time on what matters."
+      : skillFocus
+          .slice(0, 4)
+          .map((item) => `${item.skill} ${item.weight}`)
+          .join(" · ") + (skillFocus.length > 4 ? ` · +${skillFocus.length - 4} more` : "");
+
+  const customScoringControl = (
+    <div>
+      <span className={labelClasses}>Custom scoring (optional)</span>
+      <button
+        type="button"
+        onClick={() => setScoringOpen(true)}
+        className="flex w-full items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2.5 text-left transition hover:border-accent hover:bg-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">
+            {skillFocus.length === 0
+              ? "Set how much each skill matters"
+              : `${skillFocus.length} parameter${skillFocus.length === 1 ? "" : "s"} set`}
+          </span>
+          <span className="block truncate text-xs text-muted">{customScoringSummary}</span>
+        </span>
+        <span className="shrink-0 rounded-md border border-border px-2 py-1 text-xs font-semibold text-accent">
+          {skillFocus.length === 0 ? "Set up" : "Edit"}
+        </span>
+      </button>
+    </div>
+  );
 
   /**
    * Picking an existing role replaces the title and job description with that
@@ -195,6 +236,9 @@ export function CreateInterviewForm({
    */
   function handleRoleChange(next: string) {
     setRoleChoice(next);
+    // A different role has different skills, so an old weighting no longer
+    // applies. The next open of the box starts from the new role's skills.
+    setSkillFocus([]);
     if (next === "new") {
       setRoleTitle("");
       setJobDescriptionText("");
@@ -234,6 +278,7 @@ export function CreateInterviewForm({
         ? { jobDescriptionPdf }
         : { jobDescriptionText: jobDescriptionText.trim() }),
       ...(resume ? { resume } : {}),
+      ...(skillFocus.length > 0 ? { skillFocus: normalizeSkillFocus(skillFocus) } : {}),
     });
   }
 
@@ -275,6 +320,7 @@ export function CreateInterviewForm({
                 )}
               </div>
             )}
+            {roles.length > 0 && customScoringControl}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="candidate-name" className={labelClasses}>
@@ -328,6 +374,9 @@ export function CreateInterviewForm({
                     className={inputClasses}
                   />
                 </div>
+              )}
+              {roles.length === 0 && (
+                <div className="sm:col-span-2">{customScoringControl}</div>
               )}
               <div>
                 <label htmlFor="recruiter-name" className={labelClasses}>
@@ -522,6 +571,19 @@ export function CreateInterviewForm({
           {isSubmitting ? submittingLabel : submitLabel}
         </button>
       </div>
+
+      {scoringOpen && (
+        <CustomScoringDialog
+          roleTitle={selectedRole?.title ?? roleTitle}
+          roleSkills={roleSkills}
+          focus={skillFocus}
+          onSave={(focus) => {
+            setSkillFocus(focus);
+            setScoringOpen(false);
+          }}
+          onClose={() => setScoringOpen(false)}
+        />
+      )}
     </form>
   );
 }

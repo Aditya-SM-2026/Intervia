@@ -43,18 +43,18 @@ function events(startedAt: number, opts: { disconnectAt?: number; reconnectAt?: 
 function room(durationMinutes = 10) {
   // Only the fields reconnectStateFor reads matter here.
   return { id: "r", durationMinutes } as unknown as Parameters<
-    typeof import("./reconnect.logic").reconnectStateFor
+    typeof import("./reconnect.logic.ts").reconnectStateFor
   >[0];
 }
 
 test("fresh interview has no reconnect state", async () => {
-  const { reconnectStateFor } = await import("./reconnect.logic");
+  const { reconnectStateFor } = await import("./reconnect.logic.ts");
   const state = reconnectStateFor(room(), [], Date.now());
   assert.equal(state.kind, "fresh");
 });
 
 test("active interview reports remaining time", async () => {
-  const { reconnectStateFor } = await import("./reconnect.logic");
+  const { reconnectStateFor } = await import("./reconnect.logic.ts");
   const start = Date.now() - 2 * MIN;
   const state = reconnectStateFor(room(), events(start), Date.now());
   assert.equal(state.kind, "active");
@@ -62,7 +62,7 @@ test("active interview reports remaining time", async () => {
 });
 
 test("candidate away under 5 minutes may resume", async () => {
-  const { reconnectStateFor } = await import("./reconnect.logic");
+  const { reconnectStateFor } = await import("./reconnect.logic.ts");
   const start = Date.now() - 3 * MIN;
   const state = reconnectStateFor(
     room(),
@@ -73,7 +73,7 @@ test("candidate away under 5 minutes may resume", async () => {
 });
 
 test("candidate away more than 5 minutes is expired", async () => {
-  const { reconnectStateFor } = await import("./reconnect.logic");
+  const { reconnectStateFor } = await import("./reconnect.logic.ts");
   const start = Date.now() - 8 * MIN;
   const state = reconnectStateFor(
     room(),
@@ -85,7 +85,7 @@ test("candidate away more than 5 minutes is expired", async () => {
 });
 
 test("a reconnected candidate resets the away clock", async () => {
-  const { reconnectStateFor } = await import("./reconnect.logic");
+  const { reconnectStateFor } = await import("./reconnect.logic.ts");
   const now = Date.now();
   const state = reconnectStateFor(
     room(),
@@ -99,7 +99,7 @@ test("a reconnected candidate resets the away clock", async () => {
 });
 
 test("expired duration still expires even when connected", async () => {
-  const { reconnectStateFor } = await import("./reconnect.logic");
+  const { reconnectStateFor } = await import("./reconnect.logic.ts");
   const start = Date.now() - 11 * MIN;
   const state = reconnectStateFor(room(), events(start), Date.now());
   assert.equal(state.kind, "expired");

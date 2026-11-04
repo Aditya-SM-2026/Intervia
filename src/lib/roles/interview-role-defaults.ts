@@ -10,6 +10,8 @@ export interface InterviewRoleDefaults {
   title: string;
   /** Role description plus its skills, as one editable job-description draft. */
   jobDescription: string;
+  /** The role's skills, offered as custom-scoring parameters in the form. */
+  skills: string[];
 }
 
 /**
@@ -27,5 +29,6 @@ export function roleToInterviewDefaults(role: Role): InterviewRoleDefaults {
     id: role.id,
     title: role.title,
     jobDescription: parts.join("\n\n"),
+    skills,
   };
 }

@@ -2,6 +2,7 @@ import type {
   AnswerGaze,
   AuthenticitySignal,
   CompetencyScore,
+  CustomParameterScore,
   FactorId,
   GazePattern,
   OverallScore,
@@ -59,6 +60,29 @@ export function answerQualityScore(
     weight += share;
   }
   return weight === 0 ? null : clampScore((total / weight / 5) * 100);
+}
+
+/**
+ * Custom parameter total, 0-100: the weighted mean of the parameters that
+ * could be scored. A parameter weighted 0 does not drag the total down; when
+ * every weight is 0 the scored parameters count equally. Parameters with no
+ * evidence are left out rather than counted as zero.
+ */
+export function customScore(parameters: readonly CustomParameterScore[]): number | null {
+  const scored = parameters.filter(
+    (item) => item.status === "scored" && item.score !== null,
+  );
+  if (scored.length === 0) return null;
+  const totalWeight = scored.reduce((sum, item) => sum + Math.max(0, item.weight), 0);
+  if (totalWeight === 0) {
+    const mean = scored.reduce((sum, item) => sum + (item.score as number), 0) / scored.length;
+    return clampScore(mean);
+  }
+  const total = scored.reduce(
+    (sum, item) => sum + (item.score as number) * Math.max(0, item.weight),
+    0,
+  );
+  return clampScore(total / totalWeight);
 }
 
 const CLAIM_CREDIT = { confirmed: 1, partly_supported: 0.5, not_supported: 0 } as const;

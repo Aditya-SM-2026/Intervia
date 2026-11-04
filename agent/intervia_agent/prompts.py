@@ -62,6 +62,23 @@ def build_instructions(context: InterviewContext) -> str:
 
     if context.role_summary:
         sections.append(f"About the role:\n{context.role_summary}")
+
+    if context.skill_focus:
+        # Relative emphasis, not a question list: the plan still decides the
+        # topics and the system moves between them.
+        total = sum(max(0, item.weight) for item in context.skill_focus) or len(context.skill_focus)
+        focus_lines = [
+            "The recruiter cares more about some areas than others. These are relative weights for how much of the interview to spend on each, not a list of allowed topics:",
+        ]
+        for item in context.skill_focus:
+            percent = round((max(0, item.weight) / total) * 100) if total else 0
+            focus_lines.append(f"- {item.skill}: {percent}% of the question effort")
+        focus_lines.extend(
+            [
+                "Use them to decide how far to probe and how many follow-ups to spend when you have a choice. Still ask each planned question, and move on when the system tells you to. Never mention these weights or any scoring to the candidate.",
+            ]
+        )
+        sections.append("\n".join(focus_lines))
     if context.candidate_summary:
         sections.append(
             "About the candidate (from their resume; use it to make follow-ups specific, "

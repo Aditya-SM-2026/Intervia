@@ -45,6 +45,27 @@ export interface CompetencyScore {
   judgesAgree: boolean | null;
 }
 
+/**
+ * One recruiter-set custom parameter (a skill such as AWS, Kubernetes or
+ * Communication) scored from the resume and the interview transcript.
+ * Scores are 0-100 because different parameters have no shared 1-5 anchors.
+ */
+export interface CustomParameterScore {
+  skill: string;
+  /** The recruiter's emphasis for this parameter in this interview, 0-100. */
+  weight: number;
+  status: CompetencyStatus;
+  /** 0-100; null unless status is "scored". */
+  score: number | null;
+  rationale: string;
+  /** Candidate quotes, verified against the stored transcript. */
+  evidence: ScoreEvidence[];
+  /** What the resume says about this parameter, or null when it says nothing. */
+  resumeEvidence: string | null;
+  /** What would have made the evidence stronger. */
+  gaps: string[];
+}
+
 /** An observation about answer authenticity, tied to transcript turns. */
 export interface IntegrityNote {
   description: string;
@@ -259,6 +280,14 @@ export interface Scorecard {
   authenticity?: Authenticity;
   video?: VideoBehaviour;
   overall?: OverallScore;
+  /**
+   * Recruiter-set custom parameters scored from the resume and answers.
+   * Absent when the interview had no custom scoring, so older scorecards and
+   * untouched interviews look exactly as before.
+   */
+  customParameters?: CustomParameterScore[];
+  /** Weighted 0-100 mean of the custom parameters that could be scored. */
+  customScore?: number | null;
   /**
    * Cost guard: set when the transcript was too thin for the paid analyses,
    * listing what was skipped and the roughly estimated saving in US dollars.

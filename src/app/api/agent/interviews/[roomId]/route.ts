@@ -67,6 +67,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       ? {
           roleSummary: room.plan.roleSummary,
           candidateSummary: room.plan.candidateSummary,
+          // The recruiter's custom scoring weights: how much of the interview
+          // each skill should get. The live interviewer sees them so it can
+          // spend its probing time accordingly.
+          skillFocus: room.plan.skillFocus ?? [],
           competencies: room.plan.competencies.map((competency) => ({
             id: competency.id,
             name: competency.name,
@@ -76,6 +80,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             lookFor: competency.lookFor,
             resumeProbe: competency.resumeProbe,
             minutes: competency.minutes,
+            skill: competency.skill ?? null,
           })),
         }
       : null,

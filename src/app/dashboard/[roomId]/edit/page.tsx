@@ -57,6 +57,7 @@ export default async function EditInterviewPage({
                 difficulty: room.difficulty,
                 jobDescriptionText: room.jobDescription?.text ?? "",
                 existingResumeName: room.resume?.fileName ?? null,
+                skillFocus: room.plan?.skillFocus ?? [],
               }}
             />
           ) : (

@@ -17,6 +17,7 @@ import type {
 import { DuplicateInterviewError } from "./interview-errors";
 import { generateUploadToken } from "@/lib/uploads/resume-upload";
 import { generateInterviewPlan } from "./plan.service";
+import type { SkillFocus } from "./skill-focus";
 import type { DashboardInterviewSummary } from "./scorecard.types";
 import { getInterviewRepository } from "@/server/repositories";
 
@@ -144,6 +145,7 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     difficulty: input.difficulty,
     jobDescription: input.jobDescription,
     resume: input.resume,
+    skillFocus: input.skillFocus ?? [],
   });
 
   const room: InterviewRoom = {
@@ -178,6 +180,11 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
   const outcome = await repository.insertRoomAtomically(room, duplicateKeyFor(room));
   if (!outcome.created) throw new DuplicateInterviewError(outcome.existing);
   return room;
+}
+
+/** Stable comparison key for custom scoring parameters (order-aware). */
+function focusKey(focus: readonly SkillFocus[]): string {
+  return focus.map((item) => `${item.skill.trim().toLowerCase()}:${item.weight}`).join("|");
 }
 
 /** Identity of an interview slot: candidate + role + scheduled moment. */
@@ -450,6 +457,8 @@ export interface InterviewEditInput {
   jobDescription: JobDescription | null;
   /** A newly uploaded resume, or null to keep the one already stored. */
   resume: ResumeInfo | null;
+  /** Custom scoring parameters; an empty list clears them. */
+  skillFocus?: SkillFocus[];
 }
 
 export type InterviewEditResult =
@@ -517,15 +526,33 @@ export async function updateScheduledInterview(
     next.resume = input.resume;
   }
 
+  const previousFocus = room.plan?.skillFocus ?? [];
+  const focus = input.skillFocus ?? previousFocus;
+  const skillFocusChanged = focusKey(focus) !== focusKey(previousFocus);
+  if (skillFocusChanged) {
+    changes.push(
+      focus.length > 0
+        ? `Custom scoring: ${focus.map((item) => `${item.skill} ${item.weight}`).join(", ")}`
+        : "Custom scoring: removed",
+    );
+  }
+
   if (changes.length === 0) return { ok: true, room, changes };
 
-  if (roleChanged || jdChanged || resumeChanged || input.durationMinutes !== room.durationMinutes) {
+  if (
+    roleChanged ||
+    jdChanged ||
+    resumeChanged ||
+    skillFocusChanged ||
+    input.durationMinutes !== room.durationMinutes
+  ) {
     next.plan = await generateInterviewPlan({
       roleTitle: next.roleTitle ?? next.title,
       durationMinutes: next.durationMinutes,
       difficulty: next.difficulty,
       jobDescription: next.jobDescription,
       resume: next.resume,
+      skillFocus: focus,
     });
   }
 

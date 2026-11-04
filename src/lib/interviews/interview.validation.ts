@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  DEFAULT_SKILL_WEIGHT,
+  MAX_SKILL_FOCUS,
+  MAX_SKILL_NAME_LENGTH,
+  // Explicit extension so `node --test` can resolve this module chain.
+} from "./skill-focus.ts";
 
 const MAX_TITLE_LENGTH = 200;
 const MAX_NAME_LENGTH = 200;
@@ -21,6 +27,46 @@ function emptyToUndefined(value: unknown): unknown {
   if (typeof value === "string" && value.trim() === "") return undefined;
   return value;
 }
+
+/**
+ * Custom scoring parameters. The form sends them as a JSON string in the
+ * multipart body; a plain array from a JSON request is accepted too.
+ */
+const skillFocusSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    if (trimmed === "") return [];
+    try {
+      return JSON.parse(trimmed) as unknown;
+    } catch {
+      return value;
+    }
+  },
+  z
+    .array(
+      z.object({
+        skill: z
+          .string()
+          .trim()
+          .min(1, "Custom scoring parameters cannot be blank.")
+          .max(
+            MAX_SKILL_NAME_LENGTH,
+            `A custom scoring parameter must be at most ${MAX_SKILL_NAME_LENGTH} characters.`,
+          ),
+        weight: z.coerce
+          .number()
+          .int("A custom scoring weight must be a whole number")
+          .min(0, "A custom scoring weight must be between 0 and 100.")
+          .max(100, "A custom scoring weight must be between 0 and 100.")
+          .default(DEFAULT_SKILL_WEIGHT),
+      }),
+    )
+    .max(MAX_SKILL_FOCUS, `At most ${MAX_SKILL_FOCUS} custom scoring parameters.`)
+    // Left out means "no custom scoring" on create, and "keep the current
+    // setting" on edit; an empty array/string clears it.
+    .optional(),
+);
 
 export const createInterviewSchema = z.object({
   title: z.preprocess(
@@ -105,6 +151,8 @@ export const createInterviewSchema = z.object({
       .max(MAX_JD_TEXT_LENGTH, `Job description text must be at most ${MAX_JD_TEXT_LENGTH} characters`)
       .optional(),
   ),
+  /** Optional custom scoring parameters and their question weights. */
+  skillFocus: skillFocusSchema,
 });
 
 export type CreateInterviewPayload = z.infer<typeof createInterviewSchema>;

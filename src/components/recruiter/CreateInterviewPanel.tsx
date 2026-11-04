@@ -57,6 +57,9 @@ export function CreateInterviewPanel({
       if (values.roleId) form.set("roleId", values.roleId);
       form.set("durationMinutes", String(values.durationMinutes));
       form.set("difficulty", values.difficulty);
+      if (values.skillFocus && values.skillFocus.length > 0) {
+        form.set("skillFocus", JSON.stringify(values.skillFocus));
+      }
       if (values.jobDescriptionPdf) {
         form.set("jobDescriptionPdf", values.jobDescriptionPdf);
       } else if (values.jobDescriptionText) {

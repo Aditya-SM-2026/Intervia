@@ -5,6 +5,7 @@ import {
   DEFAULT_WEIGHTS,
   answerQualityScore,
   authenticityScore,
+  customScore,
   measuredAuthenticitySignals,
   overallScore,
   parseWeights,
@@ -15,6 +16,7 @@ import {
 import type {
   AnswerGaze,
   CompetencyScore,
+  CustomParameterScore,
   GazeDirection,
   ResumeClaim,
   VideoMoment,
@@ -97,6 +99,42 @@ test("on-camera behaviour: one glance costs little, a pattern adds up", () => {
   assert.ok(videoBehaviourScore(Array(6).fill(moment("reading", 30)), quiet) < 30);
   // Tab switches are capped so they cannot zero the score alone.
   assert.equal(videoBehaviourScore([], { hiddenCount: 20, hiddenSeconds: 600 }), 70);
+});
+
+function parameter(
+  skill: string,
+  weight: number,
+  score: number | null,
+): CustomParameterScore {
+  return {
+    skill,
+    weight,
+    status: score === null ? "not_assessed" : "scored",
+    score,
+    rationale: "",
+    evidence: [],
+    resumeEvidence: null,
+    gaps: [],
+  };
+}
+
+test("custom parameters: weighted by the recruiter's emphasis", () => {
+  assert.equal(
+    customScore([parameter("AWS", 80, 90), parameter("English", 40, 60)]),
+    80,
+  );
+  assert.equal(
+    customScore([parameter("AWS", 50, 40), parameter("English", 50, 80)]),
+    60,
+  );
+  // Unscored parameters are left out, not counted as zero.
+  assert.equal(customScore([parameter("AWS", 80, 90), parameter("English", 40, null)]), 90);
+  // Weight 0 parameters do not drag the total down.
+  assert.equal(customScore([parameter("AWS", 80, 90), parameter("Extra", 0, 10)]), 90);
+  // All weights zero: the scored ones count equally.
+  assert.equal(customScore([parameter("AWS", 0, 40), parameter("English", 0, 80)]), 60);
+  assert.equal(customScore([parameter("AWS", 50, null)]), null);
+  assert.equal(customScore([]), null);
 });
 
 test("overall: weighted average of the factors that have a score", () => {

@@ -1,5 +1,6 @@
 import type { InterviewPlan } from "./plan.types";
 import type { Scorecard, ScorecardSummary } from "./scorecard.types";
+import type { SkillFocus } from "./skill-focus";
 
 /** Lifecycle states for an interview room (status transitions land in Phase 2). */
 export type InterviewStatus =
@@ -168,6 +169,12 @@ export interface CreateInterviewInput {
   scheduledAt?: string | null;
   jobDescription: JobDescription | null;
   resume: ResumeInfo | null;
+  /**
+   * Optional custom scoring parameters. They shape the plan (how much of the
+   * interview goes to each skill) and the post-interview scorecard; absent
+   * means the recruiter left custom scoring alone.
+   */
+  skillFocus?: SkillFocus[];
 }
 
 export type TranscriptSpeaker = "interviewer" | "candidate";

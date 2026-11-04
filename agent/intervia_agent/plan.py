@@ -24,6 +24,16 @@ class Competency:
     look_for: tuple[str, ...] = ()
     resume_probe: str | None = None
     minutes: float = 4.0
+    # The recruiter's custom-scoring parameter this topic assesses, if any.
+    skill: str | None = None
+
+
+@dataclass(frozen=True)
+class SkillFocus:
+    """One recruiter-set custom scoring parameter and its question weight."""
+
+    skill: str
+    weight: int = 50
 
 
 @dataclass(frozen=True)
@@ -52,6 +62,8 @@ class InterviewContext:
     role_summary: str
     candidate_summary: str
     competencies: tuple[Competency, ...] = field(default_factory=tuple)
+    # Recruiter-set custom scoring parameters (empty when none were set).
+    skill_focus: tuple[SkillFocus, ...] = field(default_factory=tuple)
     # "standard": one model session per interview. "rolling": a fresh session
     # at each topic change and every minute or two (see worker.py).
     voice_mode: str = "standard"
@@ -119,7 +131,32 @@ def _competency(raw: Any, index: int) -> Competency | None:
         look_for=_strings(raw.get("lookFor")),
         resume_probe=_text(raw.get("resumeProbe")) or None,
         minutes=float(minutes) if isinstance(minutes, (int, float)) and minutes > 0 else 4.0,
+        skill=_text(raw.get("skill")) or None,
     )
+
+
+def _skill_focus(raw: Any) -> tuple[SkillFocus, ...]:
+    if not isinstance(raw, list):
+        return ()
+    parsed: list[SkillFocus] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        skill = _text(item.get("skill"))
+        if not skill or skill.lower() in seen:
+            continue
+        weight = item.get("weight")
+        seen.add(skill.lower())
+        parsed.append(
+            SkillFocus(
+                skill=skill,
+                weight=max(0, min(100, int(weight))) if isinstance(weight, (int, float)) else 50,
+            )
+        )
+        if len(parsed) >= 30:
+            break
+    return tuple(parsed)
 
 
 def parse_context(interview_id: str, payload: Any) -> InterviewContext:
@@ -133,6 +170,7 @@ def parse_context(interview_id: str, payload: Any) -> InterviewContext:
         for index, raw in enumerate(plan.get("competencies") or [])
         if (parsed := _competency(raw, index)) is not None
     )
+    skill_focus = _skill_focus(plan.get("skillFocus"))
 
     duration = interview.get("durationMinutes")
     difficulty = _text(interview.get("difficulty"), "medium")
@@ -163,6 +201,7 @@ def parse_context(interview_id: str, payload: Any) -> InterviewContext:
         role_summary=_text(plan.get("roleSummary")),
         candidate_summary=_text(plan.get("candidateSummary")),
         competencies=competencies or FALLBACK_COMPETENCIES,
+        skill_focus=skill_focus,
         voice_mode=voice_mode if voice_mode in VOICE_MODES else "standard",
         personality=personality,
     )
