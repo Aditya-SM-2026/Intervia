@@ -165,18 +165,8 @@ const REPORT_SECTIONS = [
   { id: "peers", label: "Other interviews", icon: Users },
 ] as const;
 
-/** Left rail: follows the section being read, scrolls to targets, and can fold to icons. */
-function ReportNav({
-  candidateName,
-  score,
-  collapsed,
-  onToggle,
-}: {
-  candidateName: string;
-  score: number | null;
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
+/** Tracks which report section is currently in view. */
+function useActiveReportSection() {
   const [activeId, setActiveId] = useState<string>(REPORT_SECTIONS[0].id);
 
   useEffect(() => {
@@ -197,25 +187,39 @@ function ReportNav({
     return () => observer.disconnect();
   }, []);
 
+  return activeId;
+}
+
+/**
+ * Full-height report sidebar. It stays in place while the report scrolls, folds
+ * to a narrow icon rail, and contains navigation only (no candidate profile).
+ */
+function ReportNav({
+  collapsed,
+  onToggle,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  const activeId = useActiveReportSection();
+
   return (
-    <nav aria-label="Report sections" className="sticky top-20 hidden lg:block">
-      <div
-        className={`rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-all duration-300 dark:border-border dark:bg-surface ${
-          collapsed ? "p-1.5" : "p-2.5"
-        }`}
-      >
+    <aside
+      aria-label="Report sections"
+      className={`sticky top-20 hidden h-[calc(100vh-6rem)] shrink-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-[width] duration-300 ease-out lg:flex dark:border-border dark:bg-surface ${
+        collapsed ? "w-[76px]" : "w-[248px]"
+      }`}
+    >
+      <div className="flex h-full w-full flex-col">
         <div
-          className={`flex items-center pb-2 pt-1 ${
-            collapsed ? "justify-center" : "justify-between gap-2 px-1"
+          className={`flex shrink-0 items-center border-b border-slate-100 dark:border-border ${
+            collapsed ? "justify-center p-2" : "justify-between px-4 py-3"
           }`}
         >
           {!collapsed && (
-            <div className="min-w-0 truncate text-[11px] font-semibold text-slate-400 dark:text-muted">
-              {candidateName}
-              {score !== null && (
-                <span className="ml-1 font-normal tabular-nums text-slate-500">· {score}/100</span>
-              )}
-            </div>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-muted">
+              Report
+            </span>
           )}
           <button
             type="button"
@@ -228,56 +232,82 @@ function ReportNav({
             {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
           </button>
         </div>
-        <ul className="grid gap-1">
-          {REPORT_SECTIONS.map(({ id, label, icon: Icon }) => {
-            const active = id === activeId;
-            return (
-              <li key={id} className="group relative">
-                <a
-                  href={`#${id}`}
-                  aria-current={active ? "true" : undefined}
-                  aria-label={collapsed ? label : undefined}
-                  className={`flex items-center rounded-xl text-xs font-medium transition ${
-                    collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2"
-                  } ${
-                    active
-                      ? "bg-blue-50 font-semibold text-blue-600 dark:bg-accent/15 dark:text-accent"
-                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-muted dark:hover:bg-accent/5 dark:hover:text-foreground"
-                  }`}
-                >
-                  <Icon
-                    className={`size-4 shrink-0 ${
-                      active ? "text-blue-600 dark:text-accent" : "text-slate-400 dark:text-muted"
+
+        <nav aria-label="Report sections" className="min-h-0 flex-1 overflow-y-auto p-2">
+          <ul className="grid gap-1">
+            {REPORT_SECTIONS.map(({ id, label, icon: Icon }) => {
+              const active = id === activeId;
+              return (
+                <li key={id} className="group relative">
+                  <a
+                    href={`#${id}`}
+                    aria-current={active ? "true" : undefined}
+                    aria-label={collapsed ? label : undefined}
+                    title={collapsed ? label : undefined}
+                    className={`flex items-center rounded-xl text-xs font-medium transition ${
+                      collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                    } ${
+                      active
+                        ? "bg-blue-50 font-semibold text-blue-600 dark:bg-accent/15 dark:text-accent"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-muted dark:hover:bg-accent/5 dark:hover:text-foreground"
                     }`}
-                  />
-                  {!collapsed && <span className="truncate">{label}</span>}
-                </a>
-                {collapsed && (
-                  <span
-                    role="tooltip"
-                    className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 dark:bg-white dark:text-slate-900"
                   >
-                    {label}
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-        {collapsed && (
-          <div className="mt-2 flex justify-center border-t border-slate-100 pt-2 dark:border-border">
-            <span
-              title={`${candidateName}${score !== null ? ` · ${score}/100` : ""}`}
-              className="grid size-8 place-items-center rounded-full bg-blue-50 text-[11px] font-bold uppercase text-blue-600 dark:bg-accent/15 dark:text-accent"
-            >
-              {initials(candidateName)}
-            </span>
-          </div>
-        )}
+                    <Icon
+                      className={`size-4 shrink-0 ${
+                        active ? "text-blue-600 dark:text-accent" : "text-slate-400 dark:text-muted"
+                      }`}
+                    />
+                    <span
+                      className={`truncate transition-all duration-200 ${
+                        collapsed ? "w-0 opacity-0" : "w-auto opacity-100"
+                      }`}
+                    >
+                      {label}
+                    </span>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
       </div>
-    </nav>
+    </aside>
   );
 }
+
+/** Mobile replacement for the sidebar: a sticky, horizontally scrollable strip. */
+function MobileReportNav() {
+  const activeId = useActiveReportSection();
+
+  return (
+    <div className="sticky top-16 z-20 -mx-4 border-y border-slate-200/80 bg-[#f8fafc]/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 lg:hidden dark:border-border dark:bg-background/95">
+      <nav
+        aria-label="Report sections"
+        className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {REPORT_SECTIONS.map(({ id, label, icon: Icon }) => {
+          const active = id === activeId;
+          return (
+            <a
+              key={id}
+              href={`#${id}`}
+              aria-current={active ? "true" : undefined}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition ${
+                active
+                  ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-accent/30 dark:bg-accent/15 dark:text-accent"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900 dark:border-border dark:bg-surface dark:text-muted dark:hover:text-foreground"
+              }`}
+            >
+              <Icon className="size-3.5" aria-hidden />
+              {label}
+            </a>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
 
 const alertClasses =
   "rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-400";
@@ -484,9 +514,14 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       <div className="mx-auto max-w-7xl grid gap-4" aria-busy="true">
         <div className="h-6 w-32 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
         <div className="h-32 animate-pulse rounded-2xl border border-slate-200/80 bg-white dark:border-border dark:bg-surface" />
-        <div className="grid gap-6 lg:grid-cols-[200px_minmax(0,1fr)]">
-          <div className="hidden h-64 animate-pulse rounded-2xl border border-slate-200/80 bg-white lg:block dark:border-border dark:bg-surface" />
-          <div className="grid gap-6">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+          <div
+            className={`hidden animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800 lg:block ${
+              navCollapsed ? "w-[76px]" : "w-[248px]"
+            } h-[calc(100vh-14rem)]`}
+          />
+          <div className="grid flex-1 grid-cols-1 gap-6">
+            <div className="h-20 animate-pulse rounded-2xl border border-slate-200/80 bg-white dark:border-border dark:bg-surface" />
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
@@ -571,22 +606,13 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
         </p>
       )}
 
-      {/* Main layout: sticky section rail plus the report itself */}
-      <div
-        className={`grid grid-cols-1 gap-6 transition-all duration-300 lg:items-start ${
-          navCollapsed
-            ? "lg:grid-cols-[76px_minmax(0,1fr)]"
-            : "lg:grid-cols-[232px_minmax(0,1fr)]"
-        }`}
-      >
-        <ReportNav
-          candidateName={session.candidateName || "Candidate"}
-          score={scorecard?.overall?.score ?? null}
-          collapsed={navCollapsed}
-          onToggle={toggleNav}
-        />
+      <MobileReportNav />
 
-        <div className="grid min-w-0 grid-cols-1 gap-6">
+      {/* Main layout: full-height section sidebar plus the report itself */}
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        <ReportNav collapsed={navCollapsed} onToggle={toggleNav} />
+
+        <div className="grid min-w-0 flex-1 grid-cols-1 gap-6">
           {scorecard ? (
             <>
               {/* 1. Overall Assessment */}
@@ -1021,7 +1047,7 @@ function OverallAssessment({
 
   if (!overall) {
     return (
-      <section id="overview" className={`${cardClasses} scroll-mt-24`}>
+      <section id="overview" className={`${cardClasses} scroll-mt-32`}>
         <CardHeading icon={Gauge} iconColor="amber" title="Overall assessment" />
         <p className="mt-4 font-display text-5xl font-semibold leading-none tabular-nums">
           {scorecard.overallScore === null ? "–" : scorecard.overallScore.toFixed(1)}
@@ -1053,7 +1079,7 @@ function OverallAssessment({
   };
 
   return (
-    <section id="overview" className={`${cardClasses} scroll-mt-24`}>
+    <section id="overview" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
         icon={Gauge}
         iconColor="amber"
@@ -1225,7 +1251,7 @@ function SummarySection({
   insights: ReportInsights | null;
 }) {
   return (
-    <section id="summary" className={`${cardClasses} scroll-mt-24`}>
+    <section id="summary" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading icon={FileText} iconColor="blue" title="Summary" />
       <p className="mt-3.5 text-sm leading-relaxed text-slate-700 dark:text-slate-300">
         {plain(scorecard.summary)}
@@ -1357,7 +1383,7 @@ function AnswerQualityTable({
   const chip = factorChip("answers", score);
 
   return (
-    <section id="answers" className={`${cardClasses} scroll-mt-24`}>
+    <section id="answers" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
         icon={MessagesSquare}
         iconColor="purple"
@@ -1475,7 +1501,7 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
   const barTone = total === null ? "bg-slate-300" : total >= 75 ? "bg-emerald-500" : total >= 50 ? "bg-amber-500" : "bg-rose-500";
 
   return (
-    <section id="custom-parameters" className={`${cardClasses} scroll-mt-24`}>
+    <section id="custom-parameters" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
         icon={SlidersHorizontal}
         iconColor="indigo"
@@ -1607,7 +1633,7 @@ function ResumeTable({
   const chip = factorChip("resume", resume.score);
 
   return (
-    <section id="resume" className={`${cardClasses} scroll-mt-24`}>
+    <section id="resume" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
         icon={FileSearch}
         iconColor="violet"
@@ -1715,7 +1741,7 @@ function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
   const signals = authenticity.signals ?? [];
 
   return (
-    <section id="authenticity" className={`${cardClasses} scroll-mt-24`}>
+    <section id="authenticity" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
         icon={Fingerprint}
         iconColor="emerald"
@@ -1852,7 +1878,7 @@ function VideoSection({
   ).length;
 
   return (
-    <section id="video" className={`${cardClasses} scroll-mt-24`} data-video-model={video.model ?? undefined}>
+    <section id="video" className={`${cardClasses} scroll-mt-32`} data-video-model={video.model ?? undefined}>
       <CardHeading
         icon={Video}
         iconColor="rose"
@@ -2164,7 +2190,7 @@ function RecordingPanel({
   ].filter((marker) => marker.at >= 0 && (total === 0 || marker.at <= total));
 
   return (
-    <section id="recording" className={`${cardClasses} scroll-mt-24`}>
+    <section id="recording" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
         icon={Video}
         iconColor="rose"
@@ -2301,7 +2327,7 @@ function RecordingPanel({
         {/* Right: transcript that follows the playhead */}
         <div
           id="transcript"
-          className="flex min-w-0 scroll-mt-24 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white dark:border-border dark:bg-surface"
+          className="flex min-w-0 scroll-mt-32 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white dark:border-border dark:bg-surface"
         >
           <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3.5 py-2.5 dark:border-border">
             <div className="flex min-w-0 items-center gap-2">
@@ -2460,7 +2486,7 @@ function VoiceSection({
   const bytes = recordingBytes(events);
 
   return (
-    <section id="voice" className={`${cardClasses} scroll-mt-24`}>
+    <section id="voice" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
         icon={Mic}
         iconColor="indigo"
@@ -2556,7 +2582,7 @@ function CommentsDecisionSection({
   const unchanged = decision !== null && decision.outcome === outcome && decision.note === note;
 
   return (
-    <section id="comments" className={`${cardClasses} scroll-mt-24`}>
+    <section id="comments" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
         icon={MessageSquare}
         iconColor="sky"
@@ -2640,7 +2666,7 @@ function CommentsDecisionSection({
 /** 10. Other Interviews Section: Peer interviews for the same role */
 function PeersSection({ peers, currentId }: { peers: PeerSummary[]; currentId: string }) {
   return (
-    <section id="peers" className={`${cardClasses} scroll-mt-24`}>
+    <section id="peers" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
         icon={Users}
         iconColor="slate"
