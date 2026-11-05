@@ -11,6 +11,7 @@ import {
 } from "@/lib/roles/application.service";
 import { ZodError } from "zod";
 import { formatRoleValidationIssues } from "@/lib/roles/role.validation";
+import { resolveAppOrigin } from "@/lib/http/app-origin";
 
 type RouteParams = { params: Promise<{ roleId: string }> };
 
@@ -49,7 +50,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 
   const body = (await request.json().catch(() => null)) as { fields?: unknown } | null;
-  const origin = request.nextUrl.origin;
+  // Behind Cloud Run the request's own origin is 0.0.0.0:8080, which is not a
+  // link anyone can open. Resolve the public base URL instead.
+  const origin = resolveAppOrigin({
+    configured: process.env.APP_BASE_URL,
+    host: request.headers.get("x-forwarded-host") ?? request.headers.get("host"),
+    proto: request.headers.get("x-forwarded-proto"),
+    fallback: request.nextUrl.origin,
+  });
 
   try {
     const link =
