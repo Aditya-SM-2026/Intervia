@@ -620,6 +620,8 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
         />
       )}
 
+      <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
+        <div className="grid min-w-0 flex-1 gap-6">
       {/* Candidate Header with Breadcrumb & Quick Actions */}
       <CandidateHeader
         session={session}
@@ -743,14 +745,16 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
             )}
           </footer>
         </div>
+      </div>
+      </div>
 
-        <CandidateAssistant
-          roomId={roomId}
-          candidateName={session.candidateName || "Candidate"}
-          open={assistantOpen}
-          onClose={closeAssistant}
-          onJumpToTurn={jumpToCitedTurn}
-        />
+      <CandidateAssistant
+        roomId={roomId}
+        candidateName={session.candidateName || "Candidate"}
+        open={assistantOpen}
+        onClose={closeAssistant}
+        onJumpToTurn={jumpToCitedTurn}
+      />
       </div>
 
       {scorecard && !assistantOpen && (
