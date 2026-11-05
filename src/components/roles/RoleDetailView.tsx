@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { HumanDecision } from "@/lib/interviews/interview.types";
@@ -8,11 +8,14 @@ import type { RoleStatus, RoleSummary } from "@/lib/roles/role.types";
 import type { RoleCandidateSummary, RoleCandidatesResponse, RoleResponse } from "@/lib/roles/role.types";
 import {
   compareByHirePriority,
+  deriveApplicationStage,
   deriveHireStage,
   HIRE_STAGE_LABELS,
   HIRE_STAGE_STYLES,
   type HireStage,
 } from "@/lib/roles/hire-stage";
+import { ApplicationFormSettings } from "@/components/roles/ApplicationFormSettings";
+import type { ApplicationField } from "@/lib/roles/application.types";
 
 /**
  * HR leaderboard for one role: candidates ranked the way a recruiter reads a
@@ -102,6 +105,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const [cutoffApplied, setCutoffApplied] = useState<number | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [confirmingDecision, setConfirmingDecision] = useState<HumanDecision["outcome"] | null>(null);
+  const [formFields, setFormFields] = useState<ApplicationField[]>([]);
+  const [openApplication, setOpenApplication] = useState<string | null>(null);
 
   function loadRole() {
     fetch(`/api/roles/${roleId}`)
@@ -143,18 +148,60 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roleId]);
 
+  /** Labels for the role's extra questions, so answers read as sentences. */
+  useEffect(() => {
+    fetch(`/api/roles/${roleId}/form-link`)
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as { fields?: ApplicationField[] };
+      })
+      .then((body) => setFormFields(body?.fields ?? []))
+      .catch(() => setFormFields([]));
+  }, [roleId]);
+
+  /** Rejects or restores an application from the form. */
+  async function setApplicationStage(applicationId: string, action: "reject" | "restore") {
+    if (actionBusy) return;
+    setActionBusy(true);
+    try {
+      const response = await fetch(
+        `/api/roles/${roleId}/applications/${encodeURIComponent(applicationId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        },
+      );
+      const body = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok) throw new Error(body.error?.message ?? "Could not update the application.");
+      setNotice(
+        action === "reject"
+          ? "Application rejected. The applicant moves to the Rejected stage."
+          : "Application moved back to Waiting.",
+      );
+      loadCandidates();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Something went wrong.");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   /** Ranked rows: recruiter-set decisions first, then ready-to-advance, then by score. */
   const rows = useMemo<LeaderRow[]>(() => {
     if (candidates === null) return [];
     const ranked = candidates
       .map((candidate) => ({
         candidate,
-        stage: deriveHireStage({
-          status: candidate.latestStatus,
-          overallScore: candidate.overallScore,
-          decision: candidate.decision?.outcome ?? null,
-          cutoff: cutoffApplied,
-        }),
+        stage:
+          candidate.applicationStatus && candidate.interviews === 0
+            ? deriveApplicationStage(candidate.applicationStatus)
+            : deriveHireStage({
+                status: candidate.latestStatus,
+                overallScore: candidate.overallScore,
+                decision: candidate.decision?.outcome ?? null,
+                cutoff: cutoffApplied,
+              }),
       }))
       .sort((a, b) =>
         compareByHirePriority(
@@ -235,7 +282,13 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     });
   }
 
-  const allSelected = rows.length > 0 && rows.every((row) => selected.has(row.candidate.candidateId));
+  /** Applications are rejected individually, so bulk select skips them. */
+  const selectableRows = rows.filter(
+    (row) => !(row.candidate.interviews === 0 && row.candidate.applicationId),
+  );
+  const allSelected =
+    selectableRows.length > 0 &&
+    selectableRows.every((row) => selected.has(row.candidate.candidateId));
 
   function exportCsv() {
     const link = document.createElement("a");
@@ -339,6 +392,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
           )}
         </div>
       </div>
+
+      <ApplicationFormSettings roleId={roleId} roleTitle={role.title} />
 
       {notice && (
         <p role="status" className="mt-4 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">
@@ -523,7 +578,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                       aria-label="Select all candidates"
                       checked={allSelected}
                       onChange={() => {
-                        setSelected(allSelected ? new Set() : new Set(rows.map((row) => row.candidate.candidateId)));
+                        setSelected(allSelected ? new Set() : new Set(selectableRows.map((row) => row.candidate.candidateId)));
                       }}
                     />
                   </th>
@@ -537,63 +592,180 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ candidate, stage }) => (
-                  <tr
-                    key={candidate.candidateId}
-                    className={`rounded-lg bg-surface [&>td]:first:rounded-l-lg [&>td]:last:rounded-r-lg ${
-                      selected.has(candidate.candidateId) ? "ring-1 ring-accent/40" : ""
-                    }`}
-                  >
-                    <td className="px-3 py-2.5">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${candidate.candidateName ?? candidate.candidateEmail}`}
-                        checked={selected.has(candidate.candidateId)}
-                        onChange={() => toggle(candidate.candidateId)}
-                      />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-2.5">
-                        <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
-                          {initials(candidate.candidateName ?? candidate.candidateEmail)}
-                        </span>
-                        <span>
-                          <span className="font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
-                          <span className="block text-xs text-muted">{candidate.candidateEmail}</span>
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {candidate.overallScore === null ? (
-                        <span className="text-muted">—</span>
-                      ) : (
-                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${scoreBadgeClass(candidate.overallScore)}`}>
-                          {candidate.overallScore}/100
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${HIRE_STAGE_STYLES[stage]}`}>
-                        {HIRE_STAGE_LABELS[stage]}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5 text-xs">
-                      {candidate.suggestion ? SUGGESTION_LABELS[candidate.suggestion] : <span className="text-muted">Not scored</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-xs">
-                      {candidate.decision ? DECISION_LABELS[candidate.decision.outcome] : <span className="text-muted">—</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-xs text-muted">{formatDate(candidate.latestInterviewAt)}</td>
-                    <td className="px-3 py-2.5 text-right">
-                      <Link
-                        href={`/dashboard/${candidate.latestInterviewId}`}
-                        className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                {rows.map(({ candidate, stage }) => {
+                  const isApplication =
+                    candidate.interviews === 0 && Boolean(candidate.applicationId);
+                  const expanded = isApplication && openApplication === candidate.applicationId;
+                  return (
+                    <Fragment key={candidate.candidateId}>
+                      <tr
+                        className={`rounded-lg bg-surface [&>td]:first:rounded-l-lg [&>td]:last:rounded-r-lg ${
+                          selected.has(candidate.candidateId) ? "ring-1 ring-accent/40" : ""
+                        }`}
                       >
-                        View report
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                        <td className="px-3 py-2.5">
+                          <input
+                            type="checkbox"
+                            disabled={isApplication}
+                            title={
+                              isApplication
+                                ? "Applications are rejected individually, after review"
+                                : undefined
+                            }
+                            aria-label={`Select ${candidate.candidateName ?? candidate.candidateEmail}`}
+                            checked={selected.has(candidate.candidateId)}
+                            onChange={() => toggle(candidate.candidateId)}
+                          />
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
+                              {initials(candidate.candidateName ?? candidate.candidateEmail)}
+                            </span>
+                            <span>
+                              <span className="font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
+                              <span className="block text-xs text-muted">{candidate.candidateEmail}</span>
+                              {isApplication && candidate.candidatePhone && (
+                                <span className="block text-xs text-muted">{candidate.candidatePhone}</span>
+                              )}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {candidate.overallScore === null ? (
+                            <span className="text-muted">—</span>
+                          ) : (
+                            <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${scoreBadgeClass(candidate.overallScore)}`}>
+                              {candidate.overallScore}/100
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${HIRE_STAGE_STYLES[stage]}`}>
+                            {HIRE_STAGE_LABELS[stage]}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-xs">
+                          {isApplication ? (
+                            <span className="text-muted">Application</span>
+                          ) : candidate.suggestion ? (
+                            SUGGESTION_LABELS[candidate.suggestion]
+                          ) : (
+                            <span className="text-muted">Not scored</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs">
+                          {candidate.decision ? (
+                            DECISION_LABELS[candidate.decision.outcome]
+                          ) : isApplication && candidate.applicationStatus === "rejected" ? (
+                            "Rejected"
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-muted">
+                          {isApplication && candidate.appliedAt
+                            ? `Applied ${formatDate(candidate.appliedAt)}`
+                            : formatDate(candidate.latestInterviewAt)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          {isApplication ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOpenApplication(expanded ? null : candidate.applicationId ?? null)
+                              }
+                              aria-expanded={expanded}
+                              className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                            >
+                              {expanded ? "Close" : "Review application"}
+                            </button>
+                          ) : (
+                            <Link
+                              href={`/dashboard/${candidate.latestInterviewId}`}
+                              className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                            >
+                              View report
+                            </Link>
+                          )}
+                        </td>
+                      </tr>
+                      {expanded && candidate.applicationId && (
+                        <tr id={`application-${candidate.applicationId}`}>
+                          <td colSpan={8} className="rounded-lg bg-background px-4 py-4">
+                            <div className="grid gap-4 sm:grid-cols-2">
+                              <div>
+                                <p className="text-xs uppercase tracking-wide text-muted">Applicant details</p>
+                                <dl className="mt-2 space-y-1 text-sm">
+                                  <div className="flex gap-2">
+                                    <dt className="w-28 shrink-0 text-muted">Phone</dt>
+                                    <dd>{candidate.candidatePhone ?? "—"}</dd>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <dt className="w-28 shrink-0 text-muted">College roll no.</dt>
+                                    <dd>{candidate.candidateCollegeId ?? "—"}</dd>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <dt className="w-28 shrink-0 text-muted">Applied</dt>
+                                    <dd>
+                                      {candidate.appliedAt ? formatDate(candidate.appliedAt) : "—"}
+                                    </dd>
+                                  </div>
+                                  {Object.entries(candidate.answers ?? {}).map(([fieldId, value]) => (
+                                    <div key={fieldId} className="flex gap-2">
+                                      <dt className="w-28 shrink-0 text-muted">
+                                        {formFields.find((field) => field.id === fieldId)?.label ?? fieldId}
+                                      </dt>
+                                      <dd className="whitespace-pre-line">{value || "—"}</dd>
+                                    </div>
+                                  ))}
+                                </dl>
+                              </div>
+                              <div className="flex flex-col gap-2 sm:items-end">
+                                <a
+                                  href={`/api/roles/${roleId}/applications/${encodeURIComponent(candidate.applicationId)}/resume`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-accent transition hover:border-accent/50"
+                                >
+                                  Open resume
+                                </a>
+                                <Link
+                                  href={`/recruiter?roleId=${encodeURIComponent(roleId)}&candidateName=${encodeURIComponent(candidate.candidateName ?? "")}&candidateEmail=${encodeURIComponent(candidate.candidateEmail)}`}
+                                  className="rounded-md bg-accent px-3 py-1.5 text-center text-sm font-medium text-white transition hover:bg-accent/90"
+                                >
+                                  Schedule interview
+                                </Link>
+                                {candidate.applicationStatus === "rejected" ? (
+                                  <button
+                                    type="button"
+                                    disabled={actionBusy}
+                                    onClick={() => setApplicationStage(candidate.applicationId!, "restore")}
+                                    className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition hover:border-accent/50 disabled:opacity-60"
+                                  >
+                                    Move back to Waiting
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={actionBusy}
+                                    onClick={() => setApplicationStage(candidate.applicationId!, "reject")}
+                                    className="rounded-md border border-red-500/50 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-500/10 disabled:opacity-60 dark:text-red-400"
+                                  >
+                                    Reject application
+                                  </button>
+                                )}
+                                <p className="text-xs text-muted sm:text-right">
+                                  Reject when the resume does not match the role&apos;s requirements.
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

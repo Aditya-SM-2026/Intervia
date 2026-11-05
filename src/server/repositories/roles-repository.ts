@@ -12,6 +12,12 @@ import type {
   RoleStats,
   RoleStatus,
 } from "@/lib/roles/role.types";
+import type {
+  ApplicationField,
+  ApplicationStatus,
+  RoleApplication,
+  RoleFormLink,
+} from "@/lib/roles/application.types";
 import {
   aggregateCandidates,
   computeRoleStats,
@@ -52,6 +58,20 @@ export interface RoleListFilter {
 /** One candidate row as stored/read by the repository. */
 export type CandidateRow = AggregatedCandidate;
 
+/** Input for creating an application from the public form. */
+export interface CreateApplicationRow {
+  id: string;
+  roleId: string;
+  name: string;
+  phone: string;
+  email: string;
+  collegeId: string | null;
+  answers: Record<string, string>;
+  resumeFileName: string | null;
+  resumeText: string;
+  resumeObjectPath: string | null;
+}
+
 /** Roles are linked to interviews two ways: by id (new) or legacy title match. */
 function roleAssociationSql(roleIdsParam: string, roleTitlesParam: string): string {
   return `(i.role_id = ANY(${roleIdsParam}) OR (i.role_id IS NULL AND lower(i.role_title) = ANY(${roleTitlesParam})))`;
@@ -87,10 +107,56 @@ export interface RoleRepository {
     roleTitle: string,
     candidateId: string,
   ): Promise<{ fileName: string | null; text: string } | null>;
+
+  // --- Public application form -------------------------------------------------
+  /** The role's form link row (active or revoked), or null when none exists. */
+  getFormLink(roleId: string): Promise<RoleFormLink | null>;
+  /** Reuses the role's token, creating it (or reactivating it) when needed. */
+  getOrCreateFormLink(roleId: string): Promise<RoleFormLink>;
+  /** Replaces the extra questions the form asks. */
+  updateFormLinkFields(roleId: string, fields: ApplicationField[]): Promise<RoleFormLink | null>;
+  /** Stops a link working without throwing away the applications it collected. */
+  revokeFormLink(roleId: string): Promise<void>;
+  /** The role a public token belongs to; only active links resolve. */
+  getRoleByFormToken(token: string): Promise<Role | null>;
+  /** Inserts an application; null when this email already applied to the role. */
+  createApplication(input: CreateApplicationRow): Promise<RoleApplication | null>;
+  listApplications(
+    roleId: string,
+    limit: number,
+    offset: number,
+  ): Promise<{ applications: RoleApplication[]; total: number }>;
+  getApplication(roleId: string, applicationId: string): Promise<RoleApplication | null>;
+  updateApplicationStatus(
+    roleId: string,
+    applicationId: string,
+    status: ApplicationStatus,
+    interviewId?: string | null,
+  ): Promise<RoleApplication | null>;
+  /** Stored resume for one application, for the recruiter's download link. */
+  getApplicationResume(
+    roleId: string,
+    applicationId: string,
+  ): Promise<{ fileName: string | null; objectPath: string | null; text: string } | null>;
 }
 
 export function newRoleId(): string {
   return `role_${randomBytes(ROLE_ID_RANDOM_BYTES).toString("base64url")}`;
+}
+
+/** Public form tokens: 24 random bytes, URL-safe. */
+const FORM_TOKEN_PATTERN = /^[A-Za-z0-9_-]{20,64}$/;
+
+export function newFormToken(): string {
+  return randomBytes(24).toString("base64url");
+}
+
+export function isFormToken(value: string): boolean {
+  return FORM_TOKEN_PATTERN.test(value);
+}
+
+export function newApplicationId(): string {
+  return `app_${randomBytes(12).toString("base64url")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +181,32 @@ CREATE TABLE IF NOT EXISTS roles (
 );
 ALTER TABLE interviews ADD COLUMN IF NOT EXISTS role_id TEXT;
 CREATE INDEX IF NOT EXISTS interviews_role_id_idx ON interviews (role_id);
+CREATE TABLE IF NOT EXISTS role_form_links (
+  role_id TEXT PRIMARY KEY REFERENCES roles(id) ON DELETE CASCADE,
+  token TEXT NOT NULL UNIQUE,
+  fields JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS role_applications (
+  id TEXT PRIMARY KEY,
+  role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  email TEXT NOT NULL,
+  college_id TEXT,
+  answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  resume_file_name TEXT,
+  resume_text TEXT,
+  resume_object_path TEXT,
+  status TEXT NOT NULL DEFAULT 'new',
+  interview_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS role_applications_role_email_idx
+  ON role_applications (role_id, lower(email));
+CREATE INDEX IF NOT EXISTS role_applications_role_created_idx
+  ON role_applications (role_id, created_at DESC);
 `;
 
 function getPool(): Pool {
@@ -164,6 +256,64 @@ function rowToRole(row: RolePgRow): Role {
     updatedAt: row.updated_at.toISOString(),
   };
 }
+
+interface FormLinkPgRow {
+  role_id: string;
+  token: string;
+  fields: unknown;
+  created_at: Date;
+  revoked_at: Date | null;
+}
+
+function rowToFormLink(row: FormLinkPgRow): RoleFormLink {
+  return {
+    roleId: row.role_id,
+    token: row.token,
+    fields: Array.isArray(row.fields) ? (row.fields as ApplicationField[]) : [],
+    createdAt: row.created_at.toISOString(),
+    revokedAt: row.revoked_at ? row.revoked_at.toISOString() : null,
+  };
+}
+
+interface ApplicationPgRow {
+  id: string;
+  role_id: string;
+  name: string;
+  phone: string;
+  email: string;
+  college_id: string | null;
+  answers: unknown;
+  resume_file_name: string | null;
+  resume_text: string | null;
+  resume_object_path: string | null;
+  status: string;
+  interview_id: string | null;
+  created_at: Date;
+}
+
+function rowToApplication(row: ApplicationPgRow): RoleApplication {
+  return {
+    id: row.id,
+    roleId: row.role_id,
+    name: row.name,
+    phone: row.phone,
+    email: row.email,
+    collegeId: row.college_id,
+    answers:
+      row.answers && typeof row.answers === "object" && !Array.isArray(row.answers)
+        ? (row.answers as Record<string, string>)
+        : {},
+    resumeFileName: row.resume_file_name,
+    resumeObjectPath: row.resume_object_path,
+    hasResumeText: Boolean(row.resume_text && row.resume_text.trim() !== ""),
+    status: row.status === "rejected" || row.status === "scheduled" ? row.status : "new",
+    interviewId: row.interview_id,
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+const APPLICATION_COLUMNS = `id, role_id, name, phone, email, college_id, answers,
+  resume_file_name, resume_text, resume_object_path, status, interview_id, created_at`;
 
 function decisionFromJson(value: unknown): HumanDecision | null {
   if (!value || typeof value !== "object") return null;
@@ -374,33 +524,66 @@ export function getPostgresRolesRepository(): RoleRepository {
            SELECT DISTINCT ON (LOWER(candidate_email)) *
            FROM assoc
            ORDER BY LOWER(candidate_email), created_at DESC, id DESC
+         ),
+         interview_rows AS (
+           SELECT
+             l.id AS room_id,
+             l.candidate_email,
+             l.status,
+             l.created_at,
+             l.decision,
+             (SELECT a.candidate_name FROM assoc a
+               WHERE LOWER(a.candidate_email) = LOWER(l.candidate_email)
+                 AND a.candidate_name IS NOT NULL
+               ORDER BY a.created_at DESC, a.id DESC LIMIT 1) AS candidate_name,
+             (SELECT COUNT(*)::int FROM assoc a
+               WHERE LOWER(a.candidate_email) = LOWER(l.candidate_email)) AS interviews,
+             (SELECT COUNT(*)::int FROM assoc a
+               WHERE LOWER(a.candidate_email) = LOWER(l.candidate_email)
+                 AND a.status = 'completed') AS completed,
+             COALESCE(s.scorecard -> 'overall' ->> 'score', NULL) AS overall,
+             s.scorecard ->> 'suggestion' AS suggestion,
+             ra.id AS application_id,
+             ra.created_at AS applied_at,
+             ra.status AS application_status,
+             ra.phone AS application_phone,
+             ra.college_id AS application_college_id,
+             ra.answers AS application_answers
+           FROM latest l
+           LEFT JOIN scorecards s ON s.room_id = l.id
+           LEFT JOIN role_applications ra
+             ON ra.role_id = $1 AND LOWER(ra.email) = LOWER(l.candidate_email)
+         ),
+         application_rows AS (
+           SELECT
+             ''::text AS room_id,
+             a.email AS candidate_email,
+             'scheduled'::text AS status,
+             a.created_at,
+             NULL::jsonb AS decision,
+             a.name AS candidate_name,
+             0 AS interviews,
+             0 AS completed,
+             NULL::text AS overall,
+             NULL::text AS suggestion,
+             a.id AS application_id,
+             a.created_at AS applied_at,
+             a.status AS application_status,
+             a.phone AS application_phone,
+             a.college_id AS application_college_id,
+             a.answers AS application_answers
+           FROM role_applications a
+           WHERE a.role_id = $1
+             AND LOWER(a.email) NOT IN (SELECT LOWER(candidate_email) FROM assoc)
          )
-         SELECT
-           l.id,
-           l.candidate_email,
-           l.status,
-           l.created_at,
-           l.decision,
-           (SELECT a.candidate_name FROM assoc a
-             WHERE LOWER(a.candidate_email) = LOWER(l.candidate_email)
-               AND a.candidate_name IS NOT NULL
-             ORDER BY a.created_at DESC, a.id DESC LIMIT 1) AS candidate_name,
-           (SELECT COUNT(*)::int FROM assoc a
-             WHERE LOWER(a.candidate_email) = LOWER(l.candidate_email)) AS interviews,
-           (SELECT COUNT(*)::int FROM assoc a
-             WHERE LOWER(a.candidate_email) = LOWER(l.candidate_email)
-               AND a.status = 'completed') AS completed,
-           COALESCE(s.scorecard -> 'overall' ->> 'score', NULL) AS overall,
-           s.scorecard ->> 'suggestion' AS suggestion,
-           COUNT(*) OVER()::int AS total
-         FROM latest l
-         LEFT JOIN scorecards s ON s.room_id = l.id
-         ORDER BY l.created_at DESC, l.id DESC
+         SELECT u.*, COUNT(*) OVER()::int AS total
+         FROM (SELECT * FROM interview_rows UNION ALL SELECT * FROM application_rows) u
+         ORDER BY u.created_at DESC, u.room_id DESC
          LIMIT $3 OFFSET $4`,
         [roleId, roleTitle, limit, offset],
       );
       const rows = result.rows as {
-        id: string;
+        room_id: string;
         candidate_email: string;
         candidate_name: string | null;
         status: string;
@@ -410,10 +593,16 @@ export function getPostgresRolesRepository(): RoleRepository {
         completed: number;
         overall: string | null;
         suggestion: string | null;
+        application_id: string | null;
+        applied_at: Date | null;
+        application_status: string | null;
+        application_phone: string | null;
+        application_college_id: string | null;
+        application_answers: unknown;
         total: number;
       }[];
       const candidates = rows.map((row) => ({
-        roomId: row.id,
+        roomId: row.room_id,
         candidateId: row.candidate_email.toLowerCase(),
         candidateEmail: row.candidate_email.toLowerCase(),
         candidateName: row.candidate_name,
@@ -424,6 +613,24 @@ export function getPostgresRolesRepository(): RoleRepository {
         overallScore: row.overall === null ? null : Math.round(Number(row.overall)),
         suggestion: parseSuggestion(row.suggestion),
         decision: decisionFromJson(row.decision),
+        applicationId: row.application_id,
+        applicationStatus:
+          row.application_id === null
+            ? null
+            : row.application_status === "rejected"
+              ? ("rejected" as const)
+              : row.application_status === "scheduled"
+                ? ("scheduled" as const)
+                : ("new" as const),
+        appliedAt: row.applied_at ? row.applied_at.toISOString() : null,
+        candidatePhone: row.application_phone,
+        candidateCollegeId: row.application_college_id,
+        answers:
+          row.application_answers &&
+          typeof row.application_answers === "object" &&
+          !Array.isArray(row.application_answers)
+            ? (row.application_answers as Record<string, string>)
+            : null,
       }));
       return { candidates, total: rows.length > 0 ? Number(rows[0].total) : 0 };
     },
@@ -497,6 +704,190 @@ export function getPostgresRolesRepository(): RoleRepository {
         | undefined;
       return row ? { fileName: row.resume_file_name, text: row.resume_text } : null;
     },
+
+    async getFormLink(roleId: string): Promise<RoleFormLink | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT role_id, token, fields, created_at, revoked_at
+         FROM role_form_links WHERE role_id = $1`,
+        [roleId],
+      );
+      const row = result.rows[0] as FormLinkPgRow | undefined;
+      return row ? rowToFormLink(row) : null;
+    },
+
+    async getOrCreateFormLink(roleId: string): Promise<RoleFormLink> {
+      await ensureSchema();
+      const found = await getPool().query(
+        `SELECT role_id, token, fields, created_at, revoked_at
+         FROM role_form_links WHERE role_id = $1`,
+        [roleId],
+      );
+      const existingRow = found.rows[0] as FormLinkPgRow | undefined;
+      const existing = existingRow ? rowToFormLink(existingRow) : null;
+      if (existing) {
+        if (existing.revokedAt === null) return existing;
+        // Sharing the link again brings the same token back to life, so a
+        // group that already has it does not need a fresh one.
+        const restored = await getPool().query(
+          `UPDATE role_form_links SET revoked_at = NULL WHERE role_id = $1
+           RETURNING role_id, token, fields, created_at, revoked_at`,
+          [roleId],
+        );
+        return rowToFormLink(restored.rows[0] as FormLinkPgRow);
+      }
+      // A token collision is vanishingly unlikely; retry a few times anyway.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const created = await getPool().query(
+            `INSERT INTO role_form_links (role_id, token)
+             VALUES ($1, $2)
+             RETURNING role_id, token, fields, created_at, revoked_at`,
+            [roleId, newFormToken()],
+          );
+          return rowToFormLink(created.rows[0] as FormLinkPgRow);
+        } catch (error) {
+          if ((error as { code?: string }).code !== "23505") throw error;
+        }
+      }
+      throw new Error("Could not allocate a unique form token.");
+    },
+
+    async updateFormLinkFields(
+      roleId: string,
+      fields: ApplicationField[],
+    ): Promise<RoleFormLink | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `UPDATE role_form_links SET fields = $2::jsonb
+         WHERE role_id = $1
+         RETURNING role_id, token, fields, created_at, revoked_at`,
+        [roleId, JSON.stringify(fields)],
+      );
+      const row = result.rows[0] as FormLinkPgRow | undefined;
+      return row ? rowToFormLink(row) : null;
+    },
+
+    async revokeFormLink(roleId: string): Promise<void> {
+      await ensureSchema();
+      await getPool().query(
+        `UPDATE role_form_links SET revoked_at = now() WHERE role_id = $1 AND revoked_at IS NULL`,
+        [roleId],
+      );
+    },
+
+    async getRoleByFormToken(token: string): Promise<Role | null> {
+      if (!isFormToken(token)) return null;
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT r.id, r.title, r.description, r.skills, r.deadline, r.status, r.created_at, r.updated_at
+         FROM role_form_links f
+         JOIN roles r ON r.id = f.role_id
+         WHERE f.token = $1 AND f.revoked_at IS NULL`,
+        [token],
+      );
+      const row = result.rows[0] as RolePgRow | undefined;
+      return row ? rowToRole(row) : null;
+    },
+
+    async createApplication(input: CreateApplicationRow): Promise<RoleApplication | null> {
+      await ensureSchema();
+      try {
+        const result = await getPool().query(
+          `INSERT INTO role_applications
+             (id, role_id, name, phone, email, college_id, answers,
+              resume_file_name, resume_text, resume_object_path)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+           RETURNING ${APPLICATION_COLUMNS}`,
+          [
+            input.id,
+            input.roleId,
+            input.name,
+            input.phone,
+            input.email,
+            input.collegeId,
+            JSON.stringify(input.answers),
+            input.resumeFileName,
+            input.resumeText,
+            input.resumeObjectPath,
+          ],
+        );
+        return rowToApplication(result.rows[0] as ApplicationPgRow);
+      } catch (error) {
+        if ((error as { code?: string }).code === "23505") return null;
+        throw error;
+      }
+    },
+
+    async listApplications(
+      roleId: string,
+      limit: number,
+      offset: number,
+    ): Promise<{ applications: RoleApplication[]; total: number }> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT ${APPLICATION_COLUMNS}, COUNT(*) OVER()::int AS total
+         FROM role_applications
+         WHERE role_id = $1
+         ORDER BY created_at DESC, id DESC
+         LIMIT $2 OFFSET $3`,
+        [roleId, limit, offset],
+      );
+      const rows = result.rows as (ApplicationPgRow & { total: number })[];
+      return {
+        applications: rows.map(rowToApplication),
+        total: rows.length > 0 ? Number(rows[0].total) : 0,
+      };
+    },
+
+    async getApplication(roleId: string, applicationId: string): Promise<RoleApplication | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT ${APPLICATION_COLUMNS} FROM role_applications WHERE role_id = $1 AND id = $2`,
+        [roleId, applicationId],
+      );
+      const row = result.rows[0] as ApplicationPgRow | undefined;
+      return row ? rowToApplication(row) : null;
+    },
+
+    async updateApplicationStatus(
+      roleId: string,
+      applicationId: string,
+      status: ApplicationStatus,
+      interviewId?: string | null,
+    ): Promise<RoleApplication | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `UPDATE role_applications
+         SET status = $3, interview_id = COALESCE($4, interview_id)
+         WHERE role_id = $1 AND id = $2
+         RETURNING ${APPLICATION_COLUMNS}`,
+        [roleId, applicationId, status, interviewId ?? null],
+      );
+      const row = result.rows[0] as ApplicationPgRow | undefined;
+      return row ? rowToApplication(row) : null;
+    },
+
+    async getApplicationResume(
+      roleId: string,
+      applicationId: string,
+    ): Promise<{ fileName: string | null; objectPath: string | null; text: string } | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT resume_file_name, resume_object_path, resume_text
+         FROM role_applications WHERE role_id = $1 AND id = $2`,
+        [roleId, applicationId],
+      );
+      const row = result.rows[0] as
+        | { resume_file_name: string | null; resume_object_path: string | null; resume_text: string | null }
+        | undefined;
+      if (!row) return null;
+      return {
+        fileName: row.resume_file_name,
+        objectPath: row.resume_object_path,
+        text: row.resume_text ?? "",
+      };
+    },
   };
 }
 
@@ -506,13 +897,19 @@ export function getPostgresRolesRepository(): RoleRepository {
 
 interface InMemoryRoleStore {
   roles: Map<string, Role>;
+  formLinks: Map<string, RoleFormLink>;
+  applications: Map<string, RoleApplication>;
 }
 
 const globalStore = globalThis as unknown as { __rolesStoreV2?: InMemoryRoleStore };
 
 function getStore(): InMemoryRoleStore {
   if (!globalStore.__rolesStoreV2) {
-    globalStore.__rolesStoreV2 = { roles: new Map() };
+    globalStore.__rolesStoreV2 = {
+      roles: new Map(),
+      formLinks: new Map(),
+      applications: new Map(),
+    };
   }
   return globalStore.__rolesStoreV2;
 }
@@ -541,6 +938,29 @@ function toAggregationScorecard(scorecard: Scorecard): AggregationScorecard {
     overallScore: scorecard.overall?.score ?? null,
     suggestion: scorecard.suggestion,
     needsHumanReview: scorecard.needsHumanReview,
+  };
+}
+
+/** Application-only candidate row, shaped like an aggregated interview row. */
+function applicationToCandidate(application: RoleApplication): CandidateRow {
+  return {
+    roomId: "",
+    candidateId: application.email.toLowerCase(),
+    candidateEmail: application.email.toLowerCase(),
+    candidateName: application.name,
+    interviews: 0,
+    completed: 0,
+    latestStatus: "scheduled",
+    latestInterviewAt: application.createdAt,
+    overallScore: null,
+    suggestion: null,
+    decision: null,
+    applicationId: application.id,
+    applicationStatus: application.status,
+    appliedAt: application.createdAt,
+    candidatePhone: application.phone,
+    candidateCollegeId: application.collegeId,
+    answers: application.answers,
   };
 }
 
@@ -609,6 +1029,10 @@ export function getInMemoryRolesRepository(): RoleRepository {
           interviews += 1;
         }
         if (getStore().roles.delete(id)) roles += 1;
+        getStore().formLinks.delete(id);
+        for (const [applicationId, application] of getStore().applications) {
+          if (application.roleId === id) getStore().applications.delete(applicationId);
+        }
       }
       return { roles, interviews };
     },
@@ -642,7 +1066,17 @@ export function getInMemoryRolesRepository(): RoleRepository {
         scorecards.set(roomId, toAggregationScorecard(scorecard));
       }
       const all = aggregateCandidates(roleId, roleTitle, interviews, scorecards);
-      return { candidates: all.slice(offset, offset + limit), total: all.length };
+      const interviewed = new Set(all.map((candidate) => candidate.candidateId));
+      const appRows = [...getStore().applications.values()]
+        .filter(
+          (application) =>
+            application.roleId === roleId && !interviewed.has(application.email.toLowerCase()),
+        )
+        .map(applicationToCandidate);
+      const merged = [...all, ...appRows].sort(
+        (a, b) => b.latestInterviewAt.localeCompare(a.latestInterviewAt),
+      );
+      return { candidates: merged.slice(offset, offset + limit), total: merged.length };
     },
 
     async getCandidateInterviews(
@@ -695,6 +1129,135 @@ export function getInMemoryRolesRepository(): RoleRepository {
       return latest?.resume
         ? { fileName: latest.resume.fileName ?? null, text: latest.resume.text }
         : null;
+    },
+
+    async getFormLink(roleId: string): Promise<RoleFormLink | null> {
+      return getStore().formLinks.get(roleId) ?? null;
+    },
+
+    async getOrCreateFormLink(roleId: string): Promise<RoleFormLink> {
+      const store = getStore();
+      const existing = store.formLinks.get(roleId);
+      if (existing) {
+        if (existing.revokedAt === null) return existing;
+        const restored = { ...existing, revokedAt: null };
+        store.formLinks.set(roleId, restored);
+        return restored;
+      }
+      const link: RoleFormLink = {
+        roleId,
+        token: newFormToken(),
+        fields: [],
+        createdAt: new Date().toISOString(),
+        revokedAt: null,
+      };
+      store.formLinks.set(roleId, link);
+      return link;
+    },
+
+    async updateFormLinkFields(
+      roleId: string,
+      fields: ApplicationField[],
+    ): Promise<RoleFormLink | null> {
+      const store = getStore();
+      const existing = store.formLinks.get(roleId);
+      if (!existing) return null;
+      const updated = { ...existing, fields: [...fields] };
+      store.formLinks.set(roleId, updated);
+      return updated;
+    },
+
+    async revokeFormLink(roleId: string): Promise<void> {
+      const store = getStore();
+      const existing = store.formLinks.get(roleId);
+      if (existing) {
+        store.formLinks.set(roleId, { ...existing, revokedAt: new Date().toISOString() });
+      }
+    },
+
+    async getRoleByFormToken(token: string): Promise<Role | null> {
+      if (!isFormToken(token)) return null;
+      const link = [...getStore().formLinks.values()].find(
+        (entry) => entry.token === token && entry.revokedAt === null,
+      );
+      return link ? roleOf(link.roleId) : null;
+    },
+
+    async createApplication(input: CreateApplicationRow): Promise<RoleApplication | null> {
+      const store = getStore();
+      const duplicate = [...store.applications.values()].some(
+        (application) =>
+          application.roleId === input.roleId &&
+          application.email.toLowerCase() === input.email.toLowerCase(),
+      );
+      if (duplicate) return null;
+      const application: RoleApplication = {
+        id: input.id,
+        roleId: input.roleId,
+        name: input.name,
+        phone: input.phone,
+        email: input.email,
+        collegeId: input.collegeId,
+        answers: input.answers,
+        resumeFileName: input.resumeFileName,
+        resumeObjectPath: input.resumeObjectPath,
+        hasResumeText: input.resumeText.trim() !== "",
+        status: "new",
+        interviewId: null,
+        createdAt: new Date().toISOString(),
+      };
+      store.applications.set(application.id, application);
+      return application;
+    },
+
+    async listApplications(
+      roleId: string,
+      limit: number,
+      offset: number,
+    ): Promise<{ applications: RoleApplication[]; total: number }> {
+      const all = [...getStore().applications.values()]
+        .filter((application) => application.roleId === roleId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+      return { applications: all.slice(offset, offset + limit), total: all.length };
+    },
+
+    async getApplication(
+      roleId: string,
+      applicationId: string,
+    ): Promise<RoleApplication | null> {
+      const application = getStore().applications.get(applicationId);
+      return application && application.roleId === roleId ? application : null;
+    },
+
+    async updateApplicationStatus(
+      roleId: string,
+      applicationId: string,
+      status: ApplicationStatus,
+      interviewId?: string | null,
+    ): Promise<RoleApplication | null> {
+      const store = getStore();
+      const application = store.applications.get(applicationId);
+      if (!application || application.roleId !== roleId) return null;
+      const updated: RoleApplication = {
+        ...application,
+        status,
+        interviewId: interviewId ?? application.interviewId,
+      };
+      store.applications.set(applicationId, updated);
+      return updated;
+    },
+
+    async getApplicationResume(
+      roleId: string,
+      applicationId: string,
+    ): Promise<{ fileName: string | null; objectPath: string | null; text: string } | null> {
+      const application = getStore().applications.get(applicationId);
+      if (!application || application.roleId !== roleId) return null;
+      return {
+        fileName: application.resumeFileName,
+        objectPath: application.resumeObjectPath,
+        text: "",
+      };
     },
   };
 }
