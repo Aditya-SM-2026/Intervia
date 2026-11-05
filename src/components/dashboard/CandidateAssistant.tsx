@@ -218,13 +218,13 @@ export function CandidateAssistant({
           type="button"
           aria-label="Close assistant"
           onClick={onClose}
-          className="fixed inset-0 z-30 bg-slate-950/30 backdrop-blur-[2px] lg:hidden"
+          className="fixed inset-x-0 bottom-0 top-14 z-30 bg-slate-950/30 backdrop-blur-[2px] lg:hidden"
         />
       )}
 
       <aside
         aria-label="Candidate AI assistant"
-        className={`fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-slate-200/90 bg-white shadow-2xl transition-transform duration-300 dark:border-border dark:bg-surface sm:w-[480px] ${
+        className={`fixed bottom-0 right-0 top-14 z-40 flex w-full flex-col border-l border-slate-200/90 bg-white shadow-2xl transition-transform duration-300 dark:border-border dark:bg-surface sm:w-[480px] ${
           open ? "translate-x-0" : "translate-x-full pointer-events-none"
         }`}
         aria-hidden={!open}
@@ -388,7 +388,7 @@ export function CandidateAssistant({
 
         {/* Composer */}
         <div className="border-t border-slate-200/80 bg-white p-3 dark:border-border dark:bg-surface">
-          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-2 shadow-xs transition focus-within:border-blue-400 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/10 dark:border-border dark:bg-slate-900/40">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-2 shadow-xs transition focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-500/15 dark:border-border dark:bg-slate-900/40 dark:focus-within:border-blue-500/70">
             <textarea
               ref={inputRef}
               value={input}
