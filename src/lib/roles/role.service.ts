@@ -149,6 +149,12 @@ export async function listRoleCandidates(
     overallScore: row.overallScore,
     suggestion: row.suggestion,
     decision: row.decision,
+    applicationId: row.applicationId ?? null,
+    applicationStatus: row.applicationStatus ?? null,
+    appliedAt: row.appliedAt ?? null,
+    candidatePhone: row.candidatePhone ?? null,
+    candidateCollegeId: row.candidateCollegeId ?? null,
+    answers: row.answers ?? null,
   }));
   return { candidates, total: page.total };
 }

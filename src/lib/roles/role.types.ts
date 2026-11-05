@@ -55,6 +55,17 @@ export interface RoleCandidateSummary {
   overallScore: number | null;
   suggestion: ScoreSuggestion | null;
   decision: HumanDecision | null;
+  /**
+   * Set when this row came from the role's application form. `interviews` is
+   * 0 until an interview is booked, and `latestInterviewId` is "".
+   */
+  applicationId?: string | null;
+  applicationStatus?: "new" | "scheduled" | "rejected" | null;
+  appliedAt?: string | null;
+  candidatePhone?: string | null;
+  candidateCollegeId?: string | null;
+  /** Answers to the role's extra form fields, keyed by field id. */
+  answers?: Record<string, string> | null;
 }
 
 /** One interview of a candidate inside a role, with its scorecard summary. */

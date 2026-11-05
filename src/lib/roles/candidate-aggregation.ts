@@ -71,6 +71,13 @@ export interface AggregatedCandidate {
   overallScore: number | null;
   suggestion: ScoreSuggestion | null;
   decision: HumanDecision | null;
+  /** Application-form provenance, present when the row came from a form. */
+  applicationId?: string | null;
+  applicationStatus?: "new" | "scheduled" | "rejected" | null;
+  appliedAt?: string | null;
+  candidatePhone?: string | null;
+  candidateCollegeId?: string | null;
+  answers?: Record<string, string> | null;
 }
 
 /** One interview row of a candidate inside a role (detail views). */

@@ -30,6 +30,9 @@ interface CreateInterviewPanelProps {
   initialRole?: InterviewRoleDefaults | null;
   /** Legacy prefill: only a role title, from an older ?role= link. */
   initialRoleTitle?: string;
+  /** Candidate details, when opened from a form application. */
+  initialCandidateName?: string;
+  initialCandidateEmail?: string;
   /** Roles HR already has, offered as choices instead of retyping them. */
   roles?: InterviewRoleDefaults[];
 }
@@ -37,6 +40,8 @@ interface CreateInterviewPanelProps {
 export function CreateInterviewPanel({
   initialRole = null,
   initialRoleTitle,
+  initialCandidateName = "",
+  initialCandidateEmail = "",
   roles = [],
 }: CreateInterviewPanelProps) {
   const router = useRouter();
@@ -148,6 +153,14 @@ export function CreateInterviewPanel({
         isSubmitting={isSubmitting}
         initialRole={initialRole}
         initialRoleTitle={initialRoleTitle}
+        initial={
+          initialCandidateName || initialCandidateEmail
+            ? {
+                candidateName: initialCandidateName,
+                candidateEmail: initialCandidateEmail,
+              }
+            : undefined
+        }
         roles={roles}
       />
     </div>

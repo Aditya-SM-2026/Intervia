@@ -13,6 +13,7 @@ import {
   Database,
   ExternalLink,
   FileBarChart,
+  FileText,
   Filter,
   Layers,
   LayoutGrid,
@@ -34,6 +35,7 @@ import type {
 } from "@/lib/roles/role.types";
 import {
   compareByHirePriority,
+  deriveApplicationStage,
   deriveHireStage,
   HIRE_STAGE_LABELS,
   HIRE_STAGE_STYLES,
@@ -180,12 +182,16 @@ function rankCandidates(candidates: RoleCandidateSummary[]): RankedCandidate[] {
   return candidates
     .map((candidate) => ({
       candidate,
-      stage: deriveHireStage({
-        status: candidate.latestStatus,
-        overallScore: candidate.overallScore,
-        decision: candidate.decision?.outcome ?? null,
-        cutoff: null,
-      }) as HireStage,
+      stage: (
+        candidate.applicationStatus && candidate.interviews === 0
+          ? deriveApplicationStage(candidate.applicationStatus)
+          : deriveHireStage({
+              status: candidate.latestStatus,
+              overallScore: candidate.overallScore,
+              decision: candidate.decision?.outcome ?? null,
+              cutoff: null,
+            })
+      ) as HireStage,
     }))
     .sort((a, b) =>
       compareByHirePriority(
@@ -266,38 +272,59 @@ function CandidateTable({
                 <StageBadge stage={stage} />
               </td>
               <td className="px-4 py-3 text-xs text-muted">
-                {formatDate(candidate.latestInterviewAt)}
-                <span className="block">{relativeDate(candidate.latestInterviewAt)}</span>
+                {candidate.interviews === 0 && candidate.appliedAt ? (
+                  <>
+                    Applied {formatDate(candidate.appliedAt)}
+                    <span className="block">{relativeDate(candidate.appliedAt)}</span>
+                  </>
+                ) : (
+                  <>
+                    {formatDate(candidate.latestInterviewAt)}
+                    <span className="block">{relativeDate(candidate.latestInterviewAt)}</span>
+                  </>
+                )}
               </td>
               <td className="px-4 py-3">
                 <div className="flex items-center justify-end gap-2">
-                  <Link
-                    href={`/dashboard/${candidate.latestInterviewId}`}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5"
-                  >
-                    View report
-                    <ExternalLink className="size-3" aria-hidden />
-                  </Link>
-                  <Menu
-                    label={`Actions for ${candidate.candidateName ?? candidate.candidateEmail}`}
-                    align="end"
-                    trigger={
-                      <button
-                        type="button"
-                        aria-label={`More actions for ${candidate.candidateName ?? candidate.candidateEmail}`}
-                        className="grid size-8 place-items-center rounded-lg border border-transparent text-muted transition hover:border-border hover:bg-background hover:text-foreground"
+                  {candidate.interviews === 0 && candidate.applicationId ? (
+                    <Link
+                      href={`/dashboard/roles/${roleId}#application-${candidate.applicationId}`}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5"
+                    >
+                      Review application
+                      <ExternalLink className="size-3" aria-hidden />
+                    </Link>
+                  ) : (
+                    <>
+                      <Link
+                        href={`/dashboard/${candidate.latestInterviewId}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5"
                       >
-                        <span aria-hidden className="text-base leading-none">⋯</span>
-                      </button>
-                    }
-                    items={[
-                      {
-                        id: "profile",
-                        label: "Open candidate profile",
-                        onSelect: () => router.push(`/dashboard/roles/${roleId}/candidates/${encodeURIComponent(candidate.candidateId)}`),
-                      },
-                    ]}
-                  />
+                        View report
+                        <ExternalLink className="size-3" aria-hidden />
+                      </Link>
+                      <Menu
+                        label={`Actions for ${candidate.candidateName ?? candidate.candidateEmail}`}
+                        align="end"
+                        trigger={
+                          <button
+                            type="button"
+                            aria-label={`More actions for ${candidate.candidateName ?? candidate.candidateEmail}`}
+                            className="grid size-8 place-items-center rounded-lg border border-transparent text-muted transition hover:border-border hover:bg-background hover:text-foreground"
+                          >
+                            <span aria-hidden className="text-base leading-none">⋯</span>
+                          </button>
+                        }
+                        items={[
+                          {
+                            id: "profile",
+                            label: "Open candidate profile",
+                            onSelect: () => router.push(`/dashboard/roles/${roleId}/candidates/${encodeURIComponent(candidate.candidateId)}`),
+                          },
+                        ]}
+                      />
+                    </>
+                  )}
                 </div>
               </td>
             </tr>
@@ -343,6 +370,33 @@ function RoleCard({
       .writeText(url)
       .then(() => onNotice("Invite link copied — it opens the interview form with this role pre-filled."))
       .catch(() => onNotice(url));
+  }
+
+  /**
+   * The public application form link. It is created on first use and stays
+   * the same afterwards, so a group that already has it keeps working.
+   */
+  function copyFormLink() {
+    void fetch(`/api/roles/${encodeURIComponent(role.id)}/form-link`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
+      .then(async (response) => {
+        const body = (await response.json()) as { url?: string; error?: { message?: string } };
+        if (!response.ok || !body.url) {
+          throw new Error(body.error?.message ?? "Could not create the form link.");
+        }
+        try {
+          await navigator.clipboard.writeText(body.url);
+          onNotice("Application form link copied — share it with the college group.");
+        } catch {
+          onNotice(body.url);
+        }
+      })
+      .catch((cause: unknown) =>
+        onNotice(cause instanceof Error ? cause.message : "Could not create the form link."),
+      );
   }
 
   return (
@@ -435,7 +489,19 @@ function RoleCard({
                     label: "Manage role",
                     onSelect: () => router.push(`/dashboard/roles/${role.id}`),
                   },
-                  { id: "share", label: "Copy invite link", onSelect: copyInvite, separatorAfter: true },
+                  { id: "share", label: "Copy invite link", onSelect: copyInvite },
+                  {
+                    id: "form",
+                    label: "Copy application form link",
+                    icon: <FileText className="size-4" aria-hidden />,
+                    onSelect: copyFormLink,
+                  },
+                  {
+                    id: "form-settings",
+                    label: "Application form settings",
+                    onSelect: () => router.push(`/dashboard/roles/${role.id}#application-form`),
+                    separatorAfter: true,
+                  },
                   {
                     id: "delete",
                     label: "Delete role",

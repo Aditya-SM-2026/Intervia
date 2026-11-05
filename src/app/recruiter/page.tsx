@@ -23,6 +23,9 @@ export default async function RecruiterPage({ searchParams }: PageProps<"/recrui
   const roleId = typeof params.roleId === "string" ? params.roleId : null;
   // Older copied links carry ?role=<title>; they still get the title prefill.
   const legacyRoleTitle = !roleId && typeof params.role === "string" ? params.role : undefined;
+  // "Schedule interview" on a form application fills in who it is for.
+  const candidateName = typeof params.candidateName === "string" ? params.candidateName : "";
+  const candidateEmail = typeof params.candidateEmail === "string" ? params.candidateEmail : "";
 
   const role = roleId ? await getRoleForForm(roleId).catch((error: unknown) => {
     // A role lookup must never block the form; the recruiter can still fill
@@ -53,6 +56,8 @@ export default async function RecruiterPage({ searchParams }: PageProps<"/recrui
         <CreateInterviewPanel
           initialRole={initialRole}
           initialRoleTitle={initialRole ? undefined : legacyRoleTitle}
+          initialCandidateName={candidateName}
+          initialCandidateEmail={candidateEmail}
           roles={roleOptions}
         />
       </main>

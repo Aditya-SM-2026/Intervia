@@ -8,6 +8,7 @@ import type { HumanDecision, InterviewStatus } from "@/lib/interviews/interview.
 
 export type HireStage =
   | "not-started"
+  | "waiting"
   | "in-progress"
   | "awaiting-analysis"
   | "completed"
@@ -24,6 +25,7 @@ export const HIRE_STAGE_ORDER: readonly HireStage[] = [
   "on-hold",
   "awaiting-analysis",
   "in-progress",
+  "waiting",
   "not-started",
   "dropped-out",
   "rejected",
@@ -31,6 +33,7 @@ export const HIRE_STAGE_ORDER: readonly HireStage[] = [
 
 export const HIRE_STAGE_LABELS: Record<HireStage, string> = {
   "not-started": "Not started",
+  waiting: "Waiting",
   "in-progress": "Interview in progress",
   "awaiting-analysis": "Awaiting analysis",
   completed: "Completed",
@@ -43,6 +46,7 @@ export const HIRE_STAGE_LABELS: Record<HireStage, string> = {
 
 export const HIRE_STAGE_STYLES: Record<HireStage, string> = {
   "not-started": "bg-border/60 text-muted",
+  waiting: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
   "in-progress": "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
   "awaiting-analysis": "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   completed: "bg-border text-foreground",
@@ -85,6 +89,19 @@ export function deriveHireStage(input: HireStageInput): HireStage {
     default:
       return "awaiting-analysis";
   }
+}
+
+/**
+ * Stage for someone who applied through a role's form and has no interview
+ * yet. Rejected is the recruiter's own call; everything else is Waiting for
+ * an interview to be booked, and once it is booked the interview's own stage
+ * takes over.
+ */
+export function deriveApplicationStage(
+  status: "new" | "scheduled" | "rejected",
+): HireStage {
+  if (status === "rejected") return "rejected";
+  return "waiting";
 }
 
 /** Sort candidates the way an HR would read a shortlist: best and actionable first. */
