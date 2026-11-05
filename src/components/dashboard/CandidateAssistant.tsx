@@ -62,9 +62,9 @@ export function CandidateAssistant({
   const [loading, setLoading] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useCallback((node: HTMLTextAreaElement | null) => {
-    if (open && node) window.setTimeout(() => node.focus(), 120);
+    if (open && node) window.setTimeout(() => node.focus({ preventScroll: true }), 120);
   }, [open]);
 
   useEffect(() => {
@@ -108,7 +108,8 @@ export function CandidateAssistant({
   }, [open, roomId]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const container = messagesRef.current;
+    if (container) container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
 
   async function openConversation(id: string) {
@@ -324,7 +325,7 @@ export function CandidateAssistant({
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div ref={messagesRef} className="flex-1 overflow-y-auto px-4 py-4">
           {messages.length === 0 && !loading && !error ? (
             <div className="grid gap-4">
               <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 dark:border-blue-900/60 dark:bg-blue-950/20">
@@ -381,7 +382,6 @@ export function CandidateAssistant({
                   <span>{error}</span>
                 </div>
               )}
-              <div ref={endRef} />
             </div>
           )}
         </div>
