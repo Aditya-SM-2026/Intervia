@@ -336,6 +336,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
   const [navCollapsed, setNavCollapsed] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const navAutoCollapsed = useRef(false);
   const router = useRouter();
 
   // The report rail is expanded by default; a recruiter who folds it keeps it
@@ -363,6 +364,24 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       }
       return next;
     });
+  }
+
+  /** Docks the assistant on the right and folds the section rail when room is tight. */
+  function openAssistant() {
+    navAutoCollapsed.current = false;
+    if (!navCollapsed && typeof window !== "undefined" && window.innerWidth < 1536) {
+      navAutoCollapsed.current = true;
+      setNavCollapsed(true);
+    }
+    setAssistantOpen(true);
+  }
+
+  function closeAssistant() {
+    setAssistantOpen(false);
+    if (navAutoCollapsed.current) {
+      navAutoCollapsed.current = false;
+      setNavCollapsed(false);
+    }
   }
 
   useEffect(() => {
@@ -582,7 +601,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
   );
 
   return (
-    <div className="mx-auto max-w-7xl grid gap-6">
+    <div className={`mx-auto grid gap-6 transition-[max-width] duration-300 ${assistantOpen ? "max-w-[1560px]" : "max-w-7xl"}`}>
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-xs font-semibold text-white shadow-xl dark:bg-white dark:text-slate-900 animate-in fade-in slide-in-from-bottom-3 duration-200">
@@ -617,7 +636,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
             showToast("Interview link copied to clipboard");
           }
         }}
-        onOpenAssistant={() => setAssistantOpen(true)}
+        onOpenAssistant={openAssistant}
       />
 
       {error && (
@@ -724,26 +743,26 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
             )}
           </footer>
         </div>
+
+        <CandidateAssistant
+          roomId={roomId}
+          candidateName={session.candidateName || "Candidate"}
+          open={assistantOpen}
+          onClose={closeAssistant}
+          onJumpToTurn={jumpToCitedTurn}
+        />
       </div>
 
       {scorecard && !assistantOpen && (
         <button
           type="button"
-          onClick={() => setAssistantOpen(true)}
+          onClick={openAssistant}
           className="fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-xl shadow-blue-900/20 transition hover:-translate-y-0.5 hover:bg-blue-700 sm:bottom-6 sm:right-6"
         >
           <Sparkles className="size-4" />
           <span>Ask AI</span>
         </button>
       )}
-
-      <CandidateAssistant
-        roomId={roomId}
-        candidateName={session.candidateName || "Candidate"}
-        open={assistantOpen}
-        onClose={() => setAssistantOpen(false)}
-        onJumpToTurn={jumpToCitedTurn}
-      />
     </div>
   );
 }

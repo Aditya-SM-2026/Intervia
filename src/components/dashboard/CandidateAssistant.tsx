@@ -218,14 +218,14 @@ export function CandidateAssistant({
           type="button"
           aria-label="Close assistant"
           onClick={onClose}
-          className="fixed inset-x-0 bottom-0 top-14 z-30 bg-slate-950/30 backdrop-blur-[2px] lg:hidden"
+          className="fixed inset-x-0 bottom-0 top-16 z-30 bg-slate-950/30 backdrop-blur-[2px] xl:hidden"
         />
       )}
 
       <aside
         aria-label="Candidate AI assistant"
-        className={`fixed bottom-0 right-0 top-14 z-40 flex w-full flex-col border-l border-slate-200/90 bg-white shadow-2xl transition-transform duration-300 dark:border-border dark:bg-surface sm:w-[480px] ${
-          open ? "translate-x-0" : "translate-x-full pointer-events-none"
+        className={`fixed bottom-0 right-0 top-16 z-40 w-full flex-col overflow-hidden border-l border-slate-200/90 bg-white shadow-2xl transition-transform duration-300 dark:border-border dark:bg-surface sm:w-[480px] xl:sticky xl:bottom-auto xl:right-auto xl:top-20 xl:z-10 xl:h-[calc(100dvh-6rem)] xl:w-[380px] xl:shrink-0 xl:translate-x-0 xl:rounded-2xl xl:border xl:shadow-[0_1px_3px_rgba(0,0,0,0.04)] ${
+          open ? "flex translate-x-0" : "hidden translate-x-full pointer-events-none"
         }`}
         aria-hidden={!open}
         inert={!open}
