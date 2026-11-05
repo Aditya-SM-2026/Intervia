@@ -25,6 +25,7 @@ import type {
 import { FACTOR_META } from "./factors";
 import { buildReportInsights, type ReportInsights } from "@/lib/interviews/report-insights";
 import { GAZE_GRID, GAZE_LABEL } from "./gaze";
+import { CandidateAssistant } from "./CandidateAssistant";
 import {
   AlertCircle,
   AlertTriangle,
@@ -62,6 +63,7 @@ import {
   Search,
   Share2,
   SlidersHorizontal,
+  Sparkles,
   User,
   Users,
   Video,
@@ -332,6 +334,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
   const [resumeOpen, setResumeOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [navCollapsed, setNavCollapsed] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const router = useRouter();
 
@@ -492,6 +495,22 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
     video.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  /** Scrolls to the transcript turn cited by the assistant and flashes it. */
+  function jumpToCitedTurn(seq: number) {
+    const row = document.querySelector<HTMLButtonElement>(`button[data-seq="${seq}"]`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Clicking the transcript row jumps the recording and marks the turn
+    // active; a disabled row (no recording) simply stays put.
+    row.click();
+    // On a phone the panel covers the whole report, so step out of the way.
+    if (window.innerWidth < 640) setAssistantOpen(false);
+    row.classList.add("ring-2", "ring-blue-400", "ring-offset-1");
+    window.setTimeout(() => {
+      row.classList.remove("ring-2", "ring-blue-400", "ring-offset-1");
+    }, 1800);
+  }
+
   if (error && !detail) {
     return (
       <div className="mx-auto max-w-7xl grid gap-4">
@@ -598,6 +617,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
             showToast("Interview link copied to clipboard");
           }
         }}
+        onOpenAssistant={() => setAssistantOpen(true)}
       />
 
       {error && (
@@ -705,6 +725,25 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
           </footer>
         </div>
       </div>
+
+      {scorecard && !assistantOpen && (
+        <button
+          type="button"
+          onClick={() => setAssistantOpen(true)}
+          className="fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-xl shadow-blue-900/20 transition hover:-translate-y-0.5 hover:bg-blue-700 sm:bottom-6 sm:right-6"
+        >
+          <Sparkles className="size-4" />
+          <span>Ask AI</span>
+        </button>
+      )}
+
+      <CandidateAssistant
+        roomId={roomId}
+        candidateName={session.candidateName || "Candidate"}
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        onJumpToTurn={jumpToCitedTurn}
+      />
     </div>
   );
 }
@@ -779,6 +818,7 @@ function CandidateHeader({
   onRegenerate,
   isRegenerating,
   onShare,
+  onOpenAssistant,
 }: {
   session: InterviewRoom;
   peers: PeerSummary[];
@@ -789,6 +829,7 @@ function CandidateHeader({
   onRegenerate: () => void;
   isRegenerating: boolean;
   onShare: () => void;
+  onOpenAssistant: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const outcome = session.outcome;
@@ -939,6 +980,15 @@ function CandidateHeader({
 
           {/* Quick Action Buttons */}
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={onOpenAssistant}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700"
+            >
+              <Sparkles className="size-3.5" />
+              <span>Ask AI</span>
+            </button>
+
             {hasResume && (
               <button
                 type="button"

@@ -29,6 +29,8 @@ export interface StructuredRequest<T> {
 export interface StructuredResult<T> {
   data: T;
   model: string;
+  /** Actual cost reported by Ominibot, when it reports one. */
+  costUsd: number | null;
 }
 
 type Provider = "ominibot" | "gemini";
@@ -61,9 +63,9 @@ export async function generateStructured<T>(
   for (const provider of providers) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const { text, model } = await generateJsonText(provider, request);
+        const { text, model, costUsd } = await generateJsonText(provider, request);
         const parsed = request.schema.safeParse(parseJson(text));
-        if (parsed.success) return { data: parsed.data, model };
+        if (parsed.success) return { data: parsed.data, model, costUsd };
         lastError = new LlmError(
           `LLM reply did not match the expected shape: ${parsed.error.issues[0]?.message ?? "invalid"}`,
         );
@@ -83,7 +85,7 @@ export async function generateStructured<T>(
 async function generateJsonText<T>(
   provider: Provider,
   request: StructuredRequest<T>,
-): Promise<{ text: string; model: string }> {
+): Promise<{ text: string; model: string; costUsd: number | null }> {
   const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   if (provider === "ominibot") {
@@ -94,7 +96,7 @@ async function generateJsonText<T>(
       temperature: request.temperature ?? 0.2,
       timeoutMs,
     });
-    return { text: reply.text, model: reply.model };
+    return { text: reply.text, model: reply.model, costUsd: reply.costUsd };
   }
 
   const gemini = getGeminiTextConfig();
@@ -134,7 +136,7 @@ async function generateJsonText<T>(
     .join("")
     .trim();
   if (!text) throw new LlmError("LLM service returned an empty response.");
-  return { text, model: gemini.model };
+  return { text, model: gemini.model, costUsd: null };
 }
 
 /** Parses a JSON object out of a model reply, tolerating code fences. */

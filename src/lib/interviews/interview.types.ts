@@ -1,6 +1,13 @@
 import type { InterviewPlan } from "./plan.types";
 import type { Scorecard, ScorecardSummary } from "./scorecard.types";
 import type { SkillFocus } from "./skill-focus";
+import type {
+  AssistantAnswer,
+  AssistantCandidateRef,
+  AssistantConversation,
+  AssistantMessage,
+  AssistantScope,
+} from "./assistant.types";
 
 /** Lifecycle states for an interview room (status transitions land in Phase 2). */
 export type InterviewStatus =
@@ -280,4 +287,34 @@ export interface InterviewRepository {
   getScorecard(roomId: string): Promise<Scorecard | null>;
   /** Scorecard summaries for many rooms in one call (dashboard list badges). */
   getScorecardSummaries(roomIds: readonly string[]): Promise<Map<string, ScorecardSummary>>;
+
+  /** AI assistant history is scoped to one interview. */
+  createAssistantConversation(roomId: string, title: string): Promise<AssistantConversation>;
+  listAssistantConversations(roomId: string): Promise<AssistantConversation[]>;
+  getAssistantConversation(
+    conversationId: string,
+    roomId: string,
+  ): Promise<AssistantConversation | null>;
+  getAssistantMessages(conversationId: string): Promise<AssistantMessage[]>;
+  appendAssistantExchange(
+    conversationId: string,
+    exchange: AssistantExchangeInput,
+  ): Promise<AssistantMessage[]>;
+  deleteAssistantConversation(conversationId: string, roomId: string): Promise<boolean>;
+
+  /**
+   * Compact records for name resolution and role-wide rankings. No resumes or
+   * transcripts: the assistant only loads those for the candidates it needs.
+   */
+  listAssistantCandidates(): Promise<AssistantCandidateRef[]>;
+}
+
+export interface AssistantExchangeInput {
+  userContent: string;
+  assistantContent: string;
+  answer: AssistantAnswer;
+  scope: AssistantScope;
+  referencedRoomIds: string[];
+  model: string | null;
+  costUsd: number | null;
 }

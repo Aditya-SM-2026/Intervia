@@ -1,5 +1,7 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import type {
+  AssistantExchangeInput,
   DashboardListFilter,
   InterviewEvent,
   InterviewEventInput,
@@ -8,6 +10,11 @@ import type {
   InterviewTurn,
   InterviewTurnInput,
 } from "@/lib/interviews/interview.types";
+import type {
+  AssistantCandidateRef,
+  AssistantConversation,
+  AssistantMessage,
+} from "@/lib/interviews/assistant.types";
 import type { Scorecard, ScorecardSummary } from "@/lib/interviews/scorecard.types";
 
 /**
@@ -22,6 +29,8 @@ interface InterviewStore {
   turns: Map<string, InterviewTurn[]>;
   events: Map<string, InterviewEvent[]>;
   scorecards: Map<string, Scorecard>;
+  assistantConversations: Map<string, AssistantConversation>;
+  assistantMessages: Map<string, AssistantMessage[]>;
 }
 
 const globalStore = globalThis as unknown as { __interviewStoreV2?: InterviewStore };
@@ -41,6 +50,8 @@ function getStore(): InterviewStore {
       turns: new Map(),
       events: new Map(),
       scorecards: new Map(),
+      assistantConversations: new Map(),
+      assistantMessages: new Map(),
     };
   }
   return globalStore.__interviewStoreV2;
@@ -159,6 +170,110 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
         }
       }
       return result;
+    },
+
+    async createAssistantConversation(roomId, title) {
+      const now = new Date().toISOString();
+      const conversation: AssistantConversation = {
+        id: randomUUID(),
+        roomId,
+        title: title.slice(0, 120),
+        createdAt: now,
+        updatedAt: now,
+      };
+      store.assistantConversations.set(conversation.id, conversation);
+      store.assistantMessages.set(conversation.id, []);
+      return conversation;
+    },
+
+    async listAssistantConversations(roomId) {
+      return [...store.assistantConversations.values()]
+        .filter((conversation) => conversation.roomId === roomId)
+        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+        .slice(0, 40);
+    },
+
+    async getAssistantConversation(conversationId, roomId) {
+      const conversation = store.assistantConversations.get(conversationId);
+      return conversation && conversation.roomId === roomId ? conversation : null;
+    },
+
+    async getAssistantMessages(conversationId) {
+      return [...(store.assistantMessages.get(conversationId) ?? [])];
+    },
+
+    async appendAssistantExchange(conversationId, exchange: AssistantExchangeInput) {
+      const userTime = new Date();
+      const assistantTime = new Date(userTime.getTime() + 1);
+      const user: AssistantMessage = {
+        id: randomUUID(),
+        conversationId,
+        role: "user",
+        content: exchange.userContent,
+        answer: null,
+        scope: exchange.scope,
+        referencedRoomIds: exchange.referencedRoomIds,
+        model: null,
+        costUsd: null,
+        createdAt: userTime.toISOString(),
+      };
+      const assistant: AssistantMessage = {
+        id: randomUUID(),
+        conversationId,
+        role: "assistant",
+        content: exchange.assistantContent,
+        answer: exchange.answer,
+        scope: exchange.scope,
+        referencedRoomIds: exchange.referencedRoomIds,
+        model: exchange.model,
+        costUsd: exchange.costUsd,
+        createdAt: assistantTime.toISOString(),
+      };
+      const messages = store.assistantMessages.get(conversationId) ?? [];
+      messages.push(user, assistant);
+      store.assistantMessages.set(conversationId, messages);
+      const conversation = store.assistantConversations.get(conversationId);
+      if (conversation) {
+        conversation.updatedAt = assistant.createdAt;
+        store.assistantConversations.set(conversationId, conversation);
+      }
+      return [user, assistant];
+    },
+
+    async deleteAssistantConversation(conversationId, roomId) {
+      const conversation = store.assistantConversations.get(conversationId);
+      if (!conversation || conversation.roomId !== roomId) return false;
+      store.assistantConversations.delete(conversationId);
+      store.assistantMessages.delete(conversationId);
+      return true;
+    },
+
+    async listAssistantCandidates(): Promise<AssistantCandidateRef[]> {
+      const result: AssistantCandidateRef[] = [];
+      for (const room of store.rooms.values()) {
+        const scorecard = store.scorecards.get(room.id);
+        const customScores: Record<string, number | null> = {};
+        for (const parameter of scorecard?.customParameters ?? []) {
+          customScores[parameter.skill] = parameter.score;
+        }
+        result.push({
+          roomId: room.id,
+          candidateName: room.candidateName,
+          roleTitle: room.roleTitle,
+          roleId: room.roleId,
+          status: room.status,
+          overall: scorecard?.overall?.score ?? null,
+          answers: scorecard?.answerQuality ?? null,
+          resume: scorecard?.resumeMatch?.score ?? null,
+          authenticity: scorecard?.authenticity?.score ?? null,
+          video: scorecard?.video?.score ?? null,
+          customScores,
+          decision: room.decision?.outcome ?? null,
+          suggestion: scorecard?.suggestion ?? null,
+        });
+      }
+      result.sort((a, b) => (a.candidateName ?? "").localeCompare(b.candidateName ?? ""));
+      return result.slice(0, 1000);
     },
   };
 }

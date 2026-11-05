@@ -1,6 +1,8 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import type {
+  AssistantExchangeInput,
   DashboardListFilter,
   DifficultyLevel,
   HumanDecision,
@@ -15,6 +17,11 @@ import type {
 } from "@/lib/interviews/interview.types";
 import type { InterviewPlan } from "@/lib/interviews/plan.types";
 import type { Scorecard, ScorecardSummary } from "@/lib/interviews/scorecard.types";
+import type {
+  AssistantCandidateRef,
+  AssistantConversation,
+  AssistantMessage,
+} from "@/lib/interviews/assistant.types";
 
 /**
  * Postgres-backed store (Cloud SQL in production). The schema is bootstrapped
@@ -89,6 +96,30 @@ CREATE TABLE IF NOT EXISTS scorecards (
   scorecard JSONB NOT NULL,
   generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS assistant_conversations (
+  id TEXT PRIMARY KEY,
+  room_id TEXT NOT NULL REFERENCES interviews(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS assistant_conversations_room_idx
+  ON assistant_conversations (room_id, updated_at DESC);
+CREATE TABLE IF NOT EXISTS assistant_messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES assistant_conversations(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  answer JSONB,
+  scope TEXT NOT NULL DEFAULT 'candidate',
+  referenced_room_ids TEXT[] NOT NULL DEFAULT '{}',
+  model TEXT,
+  cost_usd NUMERIC,
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS assistant_messages_conversation_idx
+  ON assistant_messages (conversation_id, created_at);
 `;
 
 const ROOM_COLUMNS = `id, title, candidate_name, status, created_at, expires_at,
@@ -554,6 +585,260 @@ role_id = EXCLUDED.role_id,
       }
       return result;
     },
+
+    async createAssistantConversation(
+      roomId: string,
+      title: string,
+    ): Promise<AssistantConversation> {
+      await ensureSchema();
+      const id = randomUUID();
+      const now = new Date().toISOString();
+      await getPool().query(
+        `INSERT INTO assistant_conversations (id, room_id, title, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $4)`,
+        [id, roomId, title.slice(0, 120), now],
+      );
+      return { id, roomId, title: title.slice(0, 120), createdAt: now, updatedAt: now };
+    },
+
+    async listAssistantConversations(roomId: string): Promise<AssistantConversation[]> {
+      await ensureSchema();
+      const result = await getPool().query<AssistantConversationRow>(
+        `SELECT id, room_id, title, created_at, updated_at
+         FROM assistant_conversations
+         WHERE room_id = $1
+         ORDER BY updated_at DESC
+         LIMIT 40`,
+        [roomId],
+      );
+      return result.rows.map(conversationRowToConversation);
+    },
+
+    async getAssistantConversation(
+      conversationId: string,
+      roomId: string,
+    ): Promise<AssistantConversation | null> {
+      await ensureSchema();
+      const result = await getPool().query<AssistantConversationRow>(
+        `SELECT id, room_id, title, created_at, updated_at
+         FROM assistant_conversations
+         WHERE id = $1 AND room_id = $2`,
+        [conversationId, roomId],
+      );
+      return result.rows[0] ? conversationRowToConversation(result.rows[0]) : null;
+    },
+
+    async getAssistantMessages(conversationId: string): Promise<AssistantMessage[]> {
+      await ensureSchema();
+      const result = await getPool().query<AssistantMessageRow>(
+        `SELECT id, conversation_id, role, content, answer, scope, referenced_room_ids,
+                model, cost_usd, created_at
+         FROM assistant_messages
+         WHERE conversation_id = $1
+         ORDER BY created_at ASC, id ASC`,
+        [conversationId],
+      );
+      return result.rows.map(messageRowToMessage);
+    },
+
+    async appendAssistantExchange(
+      conversationId: string,
+      exchange: AssistantExchangeInput,
+    ): Promise<AssistantMessage[]> {
+      await ensureSchema();
+      const client = await getPool().connect();
+      const userTime = new Date();
+      const assistantTime = new Date(userTime.getTime() + 1);
+      const user: AssistantMessage = {
+        id: randomUUID(),
+        conversationId,
+        role: "user",
+        content: exchange.userContent,
+        answer: null,
+        scope: exchange.scope,
+        referencedRoomIds: exchange.referencedRoomIds,
+        model: null,
+        costUsd: null,
+        createdAt: userTime.toISOString(),
+      };
+      const assistant: AssistantMessage = {
+        id: randomUUID(),
+        conversationId,
+        role: "assistant",
+        content: exchange.assistantContent,
+        answer: exchange.answer,
+        scope: exchange.scope,
+        referencedRoomIds: exchange.referencedRoomIds,
+        model: exchange.model,
+        costUsd: exchange.costUsd,
+        createdAt: assistantTime.toISOString(),
+      };
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          `INSERT INTO assistant_messages
+             (id, conversation_id, role, content, answer, scope, referenced_room_ids, model, cost_usd, created_at)
+           VALUES ($1, $2, 'user', $3, NULL, $4, $5, NULL, NULL, $6)`,
+          [
+            user.id,
+            conversationId,
+            user.content,
+            exchange.scope,
+            exchange.referencedRoomIds,
+            user.createdAt,
+          ],
+        );
+        await client.query(
+          `INSERT INTO assistant_messages
+             (id, conversation_id, role, content, answer, scope, referenced_room_ids, model, cost_usd, created_at)
+           VALUES ($1, $2, 'assistant', $3, $4::jsonb, $5, $6, $7, $8, $9)`,
+          [
+            assistant.id,
+            conversationId,
+            assistant.content,
+            JSON.stringify(exchange.answer),
+            exchange.scope,
+            exchange.referencedRoomIds,
+            exchange.model,
+            exchange.costUsd,
+            assistant.createdAt,
+          ],
+        );
+        await client.query(
+          `UPDATE assistant_conversations SET updated_at = $2 WHERE id = $1`,
+          [conversationId, assistant.createdAt],
+        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+      return [user, assistant];
+    },
+
+    async deleteAssistantConversation(
+      conversationId: string,
+      roomId: string,
+    ): Promise<boolean> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `DELETE FROM assistant_conversations WHERE id = $1 AND room_id = $2`,
+        [conversationId, roomId],
+      );
+      return (result.rowCount ?? 0) > 0;
+    },
+
+    async listAssistantCandidates(): Promise<AssistantCandidateRef[]> {
+      await ensureSchema();
+      const result = await getPool().query<AssistantCandidateRow>(
+        `SELECT r.id AS room_id, r.candidate_name, r.role_title, r.role_id, r.status,
+                (s.scorecard -> 'overall' ->> 'score')::float AS overall,
+                (s.scorecard ->> 'answerQuality')::float AS answers,
+                (s.scorecard -> 'resumeMatch' ->> 'score')::float AS resume,
+                (s.scorecard -> 'authenticity' ->> 'score')::float AS authenticity,
+                (s.scorecard -> 'video' ->> 'score')::float AS video,
+                s.scorecard -> 'customParameters' AS custom_parameters,
+                s.scorecard ->> 'suggestion' AS suggestion,
+                r.decision ->> 'outcome' AS decision
+         FROM interviews r
+         LEFT JOIN scorecards s ON s.room_id = r.id
+         ORDER BY r.created_at DESC
+         LIMIT 1000`,
+      );
+      return result.rows.map(candidateRowToRef);
+    },
+  };
+}
+
+interface AssistantConversationRow {
+  id: string;
+  room_id: string;
+  title: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function conversationRowToConversation(row: AssistantConversationRow): AssistantConversation {
+  return {
+    id: row.id,
+    roomId: row.room_id,
+    title: row.title,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+
+interface AssistantMessageRow {
+  id: string;
+  conversation_id: string;
+  role: string;
+  content: string;
+  answer: AssistantMessage["answer"];
+  scope: AssistantMessage["scope"];
+  referenced_room_ids: string[] | null;
+  model: string | null;
+  cost_usd: string | number | null;
+  created_at: Date;
+}
+
+function messageRowToMessage(row: AssistantMessageRow): AssistantMessage {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: row.content,
+    answer: row.answer ?? null,
+    scope: row.scope,
+    referencedRoomIds: row.referenced_room_ids ?? [],
+    model: row.model,
+    costUsd: row.cost_usd === null ? null : Number(row.cost_usd),
+    createdAt: row.created_at.toISOString(),
+  };
+}
+
+interface AssistantCandidateRow {
+  room_id: string;
+  candidate_name: string | null;
+  role_title: string | null;
+  role_id: string | null;
+  status: string;
+  overall: number | null;
+  answers: number | null;
+  resume: number | null;
+  authenticity: number | null;
+  video: number | null;
+  custom_parameters: unknown;
+  suggestion: string | null;
+  decision: string | null;
+}
+
+function candidateRowToRef(row: AssistantCandidateRow): AssistantCandidateRef {
+  const customScores: Record<string, number | null> = {};
+  if (Array.isArray(row.custom_parameters)) {
+    for (const item of row.custom_parameters) {
+      if (item && typeof item === "object" && "skill" in item) {
+        const skill = String((item as { skill: unknown }).skill);
+        const score = (item as { score?: number | null }).score;
+        customScores[skill] = typeof score === "number" ? score : null;
+      }
+    }
+  }
+  return {
+    roomId: row.room_id,
+    candidateName: row.candidate_name,
+    roleTitle: row.role_title,
+    roleId: row.role_id,
+    status: row.status,
+    overall: row.overall,
+    answers: row.answers,
+    resume: row.resume,
+    authenticity: row.authenticity,
+    video: row.video,
+    customScores,
+    decision: row.decision,
+    suggestion: row.suggestion,
   };
 }
 
