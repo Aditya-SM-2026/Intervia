@@ -131,14 +131,6 @@ export function CreateInterviewPanel({
 
   return (
     <div className="grid gap-4">
-      {roleHref && (
-        <Link
-          href={roleHref}
-          className="-mt-3 inline-flex w-fit items-center gap-1.5 text-sm text-muted transition hover:text-foreground"
-        >
-          Roles / {initialRole?.title}
-        </Link>
-      )}
       {error && (
         <p
           role="alert"
