@@ -1,12 +1,20 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Newsreader } from "next/font/google";
 import { THEME_COOKIE, parseThemeCookie } from "@/lib/theme";
 import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+});
+
+// Display face for page titles and headline figures: a text serif with an
+// academic voice that suits the Medhas Academy brand. UI text stays in Geist.
+const display = Newsreader({
+  variable: "--font-display-face",
+  subsets: ["latin"],
+  style: ["normal", "italic"],
 });
 
 const geistMono = Geist_Mono({
@@ -33,7 +41,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={[geistSans.variable, geistMono.variable, theme === "dark" && "dark"]
+      className={[geistSans.variable, geistMono.variable, display.variable, theme === "dark" && "dark"]
         .filter(Boolean)
         .join(" ")}
       style={{ colorScheme: theme }}

@@ -44,7 +44,7 @@ export function BrandMark({
         <span className={`font-semibold tracking-tight text-foreground ${size === "sm" ? "text-[13px]" : "text-[15px]"}`}>
           Medhas Academy
         </span>
-        <span className="mt-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted">Interviews</span>
+        <span className="mt-0.5 text-[11px] text-muted">Interviews</span>
       </span>
     </span>
   );

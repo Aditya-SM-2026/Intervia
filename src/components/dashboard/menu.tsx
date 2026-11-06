@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   cloneElement,
@@ -186,7 +186,7 @@ export function Menu({ trigger, items, align = "end", label, header, panelClassN
               left: position?.left ?? -9999,
               visibility: position ? "visible" : "hidden",
             }}
-            className={`z-50 min-w-44 overflow-hidden rounded-xl border border-border bg-surface p-1 shadow-lg shadow-black/10 dark:shadow-black/40 ${panelClassName ?? ""}`}
+            className={`animate-pop-in z-50 min-w-44 overflow-hidden rounded-xl border border-border bg-surface/95 p-1 shadow-xl shadow-black/10 backdrop-blur-xl dark:shadow-black/50 ${panelClassName ?? ""}`}
           >
             {header}
             {items.map((item) => (
@@ -196,10 +196,10 @@ export function Menu({ trigger, items, align = "end", label, header, panelClassN
                   role="menuitem"
                   disabled={item.disabled}
                   onClick={() => select(item)}
-                  className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition disabled:opacity-50 ${
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm outline-none transition-colors disabled:opacity-50 ${
                     item.danger
-                      ? "text-red-600 hover:bg-red-500/10 dark:text-red-400"
-                      : "hover:bg-accent-soft"
+                      ? "text-red-600 hover:bg-red-500/10 focus-visible:bg-red-500/10 dark:text-red-400"
+                      : "hover:bg-foreground/[0.06] focus-visible:bg-foreground/[0.06]"
                   }`}
                 >
                   {item.icon && <span className="grid size-4 shrink-0 place-items-center">{item.icon}</span>}

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import type { InterviewStatus } from "@/lib/interviews/interview.types";
 import { TrendingDown, TrendingUp } from "lucide-react";
@@ -31,34 +31,40 @@ export function Avatar({ name, className }: { name: string | null; className?: s
   return (
     <span
       aria-hidden
-      className={`grid shrink-0 place-items-center rounded-full text-sm font-semibold ${tintFor(label)} ${className ?? "size-10"}`}
+      className={`grid shrink-0 place-items-center rounded-full text-sm font-semibold ring-1 ring-inset ring-black/5 dark:ring-white/10 ${tintFor(label)} ${className ?? "size-10"}`}
     >
       {initial}
     </span>
   );
 }
 
-const STATUS_BADGE_STYLES: Record<InterviewStatus, string> = {
-  scheduled: "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  waiting: "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  active: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  completed: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  expired: "border-border bg-surface text-muted",
-  cancelled: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
+const STATUS_BADGE_STYLES: Record<InterviewStatus, { chip: string; dot: string }> = {
+  scheduled: { chip: "bg-sky-500/10 text-sky-700 dark:text-sky-300", dot: "bg-sky-500" },
+  waiting: { chip: "bg-sky-500/10 text-sky-700 dark:text-sky-300", dot: "bg-sky-500" },
+  active: { chip: "bg-violet-500/10 text-violet-700 dark:text-violet-300", dot: "bg-violet-500" },
+  completed: { chip: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", dot: "bg-emerald-500" },
+  expired: { chip: "bg-foreground/[0.06] text-muted", dot: "bg-muted/60" },
+  cancelled: { chip: "bg-rose-500/10 text-rose-700 dark:text-rose-300", dot: "bg-rose-500" },
 };
 
 const STATUS_LABELS: Record<InterviewStatus, string> = {
   scheduled: "Scheduled",
-  waiting: "Waiting",
-  active: "Active",
+  waiting: "Joining",
+  active: "In progress",
   completed: "Completed",
   expired: "Expired",
   cancelled: "Cancelled",
 };
 
 export function StatusBadge({ status }: { status: InterviewStatus }) {
+  const style = STATUS_BADGE_STYLES[status];
+  const live = status === "active" || status === "waiting";
   return (
-    <span className={`inline-block rounded-full border px-2.5 py-1 text-xs font-medium ${STATUS_BADGE_STYLES[status]}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${style.chip}`}>
+      <span className="relative flex size-1.5">
+        {live && <span className={`absolute inline-flex size-full animate-ping rounded-full opacity-70 ${style.dot}`} />}
+        <span className={`relative inline-flex size-1.5 rounded-full ${style.dot}`} />
+      </span>
       {STATUS_LABELS[status]}
     </span>
   );

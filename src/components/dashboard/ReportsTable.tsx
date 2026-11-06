@@ -2,19 +2,11 @@
 // Reports table: shows the 0-100 overall score; thin-transcript reports carry a cost-savings note.
 
 import { useEffect, useRef } from "react";
-import Link from "next/link";
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  Download,
-  Eye,
-  MoreHorizontal,
-  Pencil,
-  Trash2,
-} from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
+import { ArrowDown, ArrowUp, ArrowUpRight, Download, Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import type { DashboardInterviewSummary } from "@/lib/dashboard/dashboard.types";
 import type { InterviewStatus } from "@/lib/interviews/interview.types";
+import { EASE_OUT } from "@/components/ui/animated";
 import { Avatar, StatusBadge } from "./primitives";
 import { Menu } from "./menu";
 
@@ -61,11 +53,19 @@ export function reportCell(summary: DashboardInterviewSummary): { state: ReportC
   return { state: "not-started", detail: "Interview not started" };
 }
 
-const REPORT_STATE_STYLES: Record<ReportCellState, { dot: string; label: string }> = {
-  ready: { dot: "bg-emerald-500", label: "Ready" },
-  processing: { dot: "bg-amber-500", label: "Processing" },
-  "not-started": { dot: "bg-muted", label: "Not started" },
-};
+
+/** The 0-100 score when a report exists. */
+function scoreOf(summary: DashboardInterviewSummary): number | null {
+  const card = summary.scorecard;
+  if (!card) return null;
+  return card.overall?.score ?? (card.overallScore !== null ? Math.round((card.overallScore / 5) * 100) : null);
+}
+
+function scoreTone(score: number): { bar: string; text: string } {
+  if (score >= 70) return { bar: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400" };
+  if (score >= 50) return { bar: "bg-amber-500", text: "text-amber-700 dark:text-amber-400" };
+  return { bar: "bg-rose-500", text: "text-rose-700 dark:text-rose-400" };
+}
 
 interface ReportsTableProps {
   rows: DashboardInterviewSummary[];
@@ -78,6 +78,8 @@ interface ReportsTableProps {
   onSortToggle: () => void;
   onAction: (action: "view" | "download" | "edit" | "delete", roomId: string) => void;
 }
+
+const TH = "px-4 py-3 text-left text-xs font-medium text-muted";
 
 export function ReportsTable({
   rows,
@@ -96,227 +98,236 @@ export function ReportsTable({
   const someSelected = selectedOnPage > 0 && !allSelected;
 
   useEffect(() => {
-    if (headerCheckboxRef.current) {
-      headerCheckboxRef.current.indeterminate = someSelected;
-    }
+    if (headerCheckboxRef.current) headerCheckboxRef.current.indeterminate = someSelected;
   }, [someSelected]);
-
-  const selectAllLabel = allSelected
-    ? "Deselect all rows on this page"
-    : someSelected
-      ? `${selectedOnPage} of ${rows.length} rows on this page selected`
-      : `Select all ${rows.length} rows on this page`;
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
-      <table className="w-full min-w-[880px] border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-border text-left">
-            <th scope="col" className="w-12 px-4 py-3">
-              <input
+      <table className="w-full min-w-[860px] border-collapse text-sm">
+        <thead className="border-b border-border bg-foreground/[0.015]">
+          <tr>
+            <th scope="col" className="w-12 py-3 pl-5 pr-2">
+              <Checkbox
                 ref={headerCheckboxRef}
-                type="checkbox"
                 checked={allSelected}
                 onChange={onToggleAll}
-                aria-label={selectAllLabel}
-                title="Select all rows on this page"
-                className="size-4 cursor-pointer accent-[var(--accent)]"
+                label={allSelected ? "Deselect all rows on this page" : `Select all ${rows.length} rows on this page`}
               />
             </th>
-            <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted">
-              Candidate / Role
-            </th>
-            <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted">
-              Recruiter
-            </th>
-            <th
-              scope="col"
-              aria-sort={sortDir === "asc" ? "ascending" : "descending"}
-              className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted"
-            >
+            <th scope="col" className={TH}>Candidate</th>
+            <th scope="col" className={TH}>Role</th>
+            <th scope="col" aria-sort={sortDir === "asc" ? "ascending" : "descending"} className={TH}>
               <button
                 type="button"
                 onClick={onSortToggle}
-                className="inline-flex items-center gap-1.5 uppercase tracking-wide transition hover:text-foreground"
+                className="-mx-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition hover:bg-foreground/[0.05] hover:text-foreground"
                 aria-label={`Sort by date, currently ${sortDir === "asc" ? "oldest first" : "newest first"}`}
               >
-                Date
-                {sortDir === "asc" ? (
-                  <ArrowUp className="size-3.5" aria-hidden />
-                ) : sortDir === "desc" ? (
-                  <ArrowDown className="size-3.5" aria-hidden />
-                ) : (
-                  <ArrowUpDown className="size-3.5" aria-hidden />
-                )}
+                Created
+                {sortDir === "asc" ? <ArrowUp className="size-3" aria-hidden /> : <ArrowDown className="size-3" aria-hidden />}
               </button>
             </th>
-            <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted">
-              Report
-            </th>
-            <th scope="col" className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted">
-              Status
-            </th>
-            <th scope="col" className="w-16 px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
-              Actions
-            </th>
+            <th scope="col" className={TH}>Status</th>
+            <th scope="col" className={`${TH} w-44`}>Score</th>
+            <th scope="col" className="w-24 py-3 pr-5"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y divide-border">
           {loading
             ? Array.from({ length: skeletonCount }, (_, index) => <SkeletonRow key={index} />)
-            : rows.map((summary) => {
-                const { room, scorecard } = summary;
-                const cell = reportCell(summary);
-                const isSelected = selected.has(room.id);
-                return (
-                  <tr
-                    key={room.id}
-                    onClick={scorecard ? () => onAction("view", room.id) : undefined}
-                    className={`border-b border-border transition last:border-b-0 hover:bg-background ${
-                      isSelected ? "bg-accent-soft" : ""
-                    } ${scorecard ? "cursor-pointer" : ""}`}
-                  >
-                    <td className="px-4 py-3.5" onClick={(event) => event.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => onToggleRow(room.id)}
-                        aria-label={`Select interview for ${room.candidateName ?? room.roleTitle ?? room.title}`}
-                        className="size-4 cursor-pointer accent-[var(--accent)]"
-                      />
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <Avatar name={room.candidateName ?? room.roleTitle ?? room.title} />
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{room.candidateName ?? "Candidate name not set"}</p>
-                          <p className="truncate text-xs text-muted">{room.roleTitle ?? room.title}</p>
-                          {room.candidateEmail && (
-                            <p className="truncate text-xs text-muted">{room.candidateEmail}</p>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <Avatar name={room.recruiterName ?? "Recruiter"} className="size-9" />
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{room.recruiterName ?? "Recruiter not set"}</p>
-                          <p className="text-xs text-muted">Recruiter</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <p>{formatDate(room.createdAt)}</p>
-                      <p className="text-xs text-muted">{formatTime(room.createdAt)}</p>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <span aria-hidden className={`size-2 rounded-full ${REPORT_STATE_STYLES[cell.state].dot}`} />
-                        <span className="font-medium">{REPORT_STATE_STYLES[cell.state].label}</span>
-                      </div>
-                      {cell.state === "ready" ? (
-                        <>
-                          <Link
-                            href={`/dashboard/${room.id}`}
-                            onClick={(event) => event.stopPropagation()}
-                            className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
-                          >
-                            View report
-                            <span aria-hidden className="text-[10px]">↗</span>
-                          </Link>
-                          <p className="mt-0.5 text-xs text-muted">{cell.detail}</p>
-                        </>
-                      ) : (
-                        <p className="mt-0.5 text-xs text-muted">{cell.detail}</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <StatusBadge status={room.status} />
-                    </td>
-                    <td className="px-4 py-3.5 text-right" onClick={(event) => event.stopPropagation()}>
-                      <Menu
-                        label={`Actions for ${room.candidateName ?? room.title}`}
-                        align="end"
-                        trigger={
-                          <button
-                            type="button"
-                            aria-label={`Actions for ${room.candidateName ?? room.title}`}
-                            className="grid size-8 place-items-center rounded-lg border border-border text-muted transition hover:bg-background hover:text-foreground"
-                          >
-                            <MoreHorizontal className="size-4" aria-hidden />
-                          </button>
-                        }
-                        items={[
-                          { id: "view", label: "View report", icon: <Eye className="size-4" aria-hidden />, onSelect: () => onAction("view", room.id) },
-                          ...(scorecard
-                            ? [{
-                                id: "download",
-                                label: "Download report",
-                                icon: <Download className="size-4" aria-hidden />,
-                                onSelect: () => onAction("download", room.id),
-                              }]
-                            : []),
-                          // Editing is open while the interview has not started;
-                          // an expired link the candidate never used is edited
-                          // from the same screen, where its window can be reset.
-                          ...((room.status === "scheduled" || room.status === "expired") && !scorecard
-                            ? [{
-                                id: "edit",
-                                label: "Edit interview",
-                                icon: <Pencil className="size-4" aria-hidden />,
-                                onSelect: () => onAction("edit", room.id),
-                              }]
-                            : []),
-                          {
-                            id: "delete",
-                            label: "Delete",
-                            icon: <Trash2 className="size-4" aria-hidden />,
-                            danger: true,
-                            separatorAfter: true,
-                            onSelect: () => onAction("delete", room.id),
-                          },
-                        ]}
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
+            : rows.map((summary) => (
+                <Row
+                  key={summary.room.id}
+                  summary={summary}
+                  selected={selected.has(summary.room.id)}
+                  onToggle={() => onToggleRow(summary.room.id)}
+                  onAction={onAction}
+                />
+              ))}
         </tbody>
       </table>
     </div>
   );
 }
 
-function SkeletonRow() {
+function Row({
+  summary,
+  selected,
+  onToggle,
+  onAction,
+}: {
+  summary: DashboardInterviewSummary;
+  selected: boolean;
+  onToggle: () => void;
+  onAction: ReportsTableProps["onAction"];
+}) {
+  const { room, scorecard } = summary;
+  const name = room.candidateName ?? "Unnamed candidate";
+  const status = room.status as InterviewStatus;
+  const open = () => onAction("view", room.id);
+
   return (
-    <tr className="border-b border-border last:border-b-0" aria-hidden>
-      <td className="px-4 py-4"><div className="size-4 animate-pulse rounded bg-background" /></td>
-      <td className="px-4 py-4">
+    <tr
+      onClick={open}
+      className={`group cursor-pointer transition-colors ${selected ? "bg-accent-soft" : "hover:bg-foreground/[0.025]"}`}
+    >
+      <td className="py-3.5 pl-5 pr-2" onClick={(event) => event.stopPropagation()}>
+        <Checkbox checked={selected} onChange={onToggle} label={`Select ${name}`} />
+      </td>
+      <td className="px-4 py-3.5">
         <div className="flex items-center gap-3">
-          <div className="size-10 animate-pulse rounded-full bg-background" />
-          <div className="grid gap-1.5">
-            <div className="h-3.5 w-28 animate-pulse rounded bg-background" />
-            <div className="h-3 w-40 animate-pulse rounded bg-background" />
+          <Avatar name={name} className="size-9 text-[13px]" />
+          <div className="min-w-0">
+            <p className="truncate font-medium text-foreground">{displayName(name)}</p>
+            {room.candidateEmail && <p className="truncate text-xs text-muted">{room.candidateEmail}</p>}
           </div>
         </div>
       </td>
-      <td className="px-4 py-4">
-        <div className="flex items-center gap-3">
-          <div className="size-9 animate-pulse rounded-full bg-background" />
-          <div className="h-3.5 w-20 animate-pulse rounded bg-background" />
+      <td className="max-w-[220px] px-4 py-3.5">
+        <p className="truncate">{room.roleTitle ?? room.title}</p>
+      </td>
+      <td className="whitespace-nowrap px-4 py-3.5">
+        <p title={new Date(room.createdAt).toLocaleString()}>{relativeDay(room.createdAt)}</p>
+        <p className="text-xs text-muted">
+          {formatTime(room.createdAt)}
+          {room.recruiterName ? `, by ${room.recruiterName}` : ""}
+        </p>
+      </td>
+      <td className="px-4 py-3.5">
+        <StatusBadge status={status} />
+      </td>
+      <td className="px-4 py-3.5">
+        <ScoreCell summary={summary} />
+      </td>
+      <td className="py-3.5 pr-5" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1">
+          <button
+            type="button"
+            onClick={open}
+            aria-label={`Open ${name}`}
+            className="grid size-8 place-items-center rounded-lg text-muted opacity-0 transition group-hover:opacity-100 hover:bg-foreground/[0.06] hover:text-foreground focus-visible:opacity-100"
+          >
+            <ArrowUpRight className="size-4" aria-hidden />
+          </button>
+          <Menu
+            label={`Actions for ${name}`}
+            align="end"
+            trigger={
+              <button
+                type="button"
+                aria-label={`Actions for ${name}`}
+                className="grid size-8 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <MoreHorizontal className="size-4" aria-hidden />
+              </button>
+            }
+            items={[
+              { id: "view", label: scorecard ? "Open report" : "Open", icon: <Eye className="size-4" aria-hidden />, onSelect: open },
+              ...(scorecard
+                ? [{ id: "download", label: "Download PDF", icon: <Download className="size-4" aria-hidden />, onSelect: () => onAction("download", room.id) }]
+                : []),
+              ...((status === "scheduled" || status === "expired") && !scorecard
+                ? [{ id: "edit", label: "Edit interview", icon: <Pencil className="size-4" aria-hidden />, onSelect: () => onAction("edit", room.id) }]
+                : []),
+              { id: "delete", label: "Delete", icon: <Trash2 className="size-4" aria-hidden />, danger: true, onSelect: () => onAction("delete", room.id) },
+            ]}
+          />
         </div>
       </td>
-      <td className="px-4 py-4"><div className="h-3.5 w-20 animate-pulse rounded bg-background" /></td>
-      <td className="px-4 py-4"><div className="h-3.5 w-24 animate-pulse rounded bg-background" /></td>
-      <td className="px-4 py-4"><div className="h-6 w-20 animate-pulse rounded-full bg-background" /></td>
-      <td className="px-4 py-4"><div className="ml-auto h-8 w-8 animate-pulse rounded-lg bg-background" /></td>
     </tr>
   );
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+function ScoreCell({ summary }: { summary: DashboardInterviewSummary }) {
+  const reduce = useReducedMotion();
+  const score = scoreOf(summary);
+  const cell = reportCell(summary);
+
+  if (score !== null) {
+    const tone = scoreTone(score);
+    return (
+      <div className="flex items-center gap-3">
+        <span className={`w-8 font-display text-xl leading-none tabular-nums ${tone.text}`}>{score}</span>
+        <span className="h-1.5 w-20 overflow-hidden rounded-full bg-foreground/[0.07]">
+          <motion.span
+            className={`block h-full rounded-full ${tone.bar}`}
+            initial={reduce ? false : { width: 0 }}
+            animate={{ width: `${score}%` }}
+            transition={{ duration: 0.8, ease: EASE_OUT, delay: 0.15 }}
+          />
+        </span>
+      </div>
+    );
+  }
+  if (cell.state === "ready") return <span className="text-sm text-muted">Report ready</span>;
+  if (cell.state === "processing") return <span className="text-shimmer text-sm font-medium">{summary.room.status === "completed" ? "Writing report" : cell.detail}</span>;
+  return <span className="text-muted">—</span>;
+}
+
+const Checkbox = function Checkbox({
+  ref,
+  checked,
+  onChange,
+  label,
+}: {
+  ref?: React.Ref<HTMLInputElement>;
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+}) {
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      aria-label={label}
+      className="size-4 cursor-pointer rounded border-border accent-[var(--accent)]"
+    />
+  );
+};
+
+function SkeletonRow() {
+  return (
+    <tr aria-hidden>
+      <td className="py-4 pl-5 pr-2"><div className="skeleton size-4 rounded" /></td>
+      <td className="px-4 py-4">
+        <div className="flex items-center gap-3">
+          <div className="skeleton size-9 rounded-full" />
+          <div className="grid gap-1.5">
+            <div className="skeleton h-3.5 w-28 rounded" />
+            <div className="skeleton h-3 w-40 rounded" />
+          </div>
+        </div>
+      </td>
+      <td className="px-4 py-4"><div className="skeleton h-3.5 w-32 rounded" /></td>
+      <td className="px-4 py-4"><div className="skeleton h-3.5 w-20 rounded" /></td>
+      <td className="px-4 py-4"><div className="skeleton h-6 w-24 rounded-full" /></td>
+      <td className="px-4 py-4"><div className="skeleton h-3.5 w-28 rounded" /></td>
+      <td className="py-4 pr-5"><div className="skeleton ml-auto size-8 rounded-lg" /></td>
+    </tr>
+  );
+}
+
+/** "PRANJUL GUPTA" reads as shouting in a list; show it in title case. */
+function displayName(name: string): string {
+  if (name !== name.toUpperCase() || !/[A-Z]/.test(name)) return name;
+  return name.toLowerCase().replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+}
+
+function relativeDay(iso: string): string {
+  const date = new Date(iso);
+  const today = new Date();
+  const startOf = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const days = Math.round((startOf(today) - startOf(date)) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return date.toLocaleDateString(undefined, { weekday: "long" });
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}),
+  });
 }
 
 function formatTime(iso: string): string {

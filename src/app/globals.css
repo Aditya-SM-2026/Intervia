@@ -16,7 +16,9 @@
   --color-candidate: var(--candidate);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-display: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display-face), Georgia, serif;
+  --color-gold: var(--gold);
+  --color-ink: var(--ink);
 }
 
 /*
@@ -32,6 +34,9 @@
   --accent: #2446d8;
   --accent-soft: rgba(36, 70, 216, 0.08);
   --candidate: #17976a;
+  /* Medhas Academy brand pair, used sparingly */
+  --gold: #b7861a;
+  --ink: #0b2a6b;
 }
 
 .dark {
@@ -43,6 +48,8 @@
   --accent: #4a72f5;
   --accent-soft: rgba(74, 114, 245, 0.14);
   --candidate: #6fd3a8;
+  --gold: #e2b44b;
+  --ink: #c9d6f5;
   color-scheme: dark;
 }
 
@@ -58,8 +65,7 @@ body {
 h1,
 h2,
 h3 {
-  font-family: var(--font-display);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.015em;
 }
 
 ::selection {
@@ -118,4 +124,86 @@ h3 {
   background: currentColor;
   transform: scaleY(0.05);
   will-change: transform;
+}
+
+/* ---------- Motion and surface utilities (redesign) ---------- */
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes text-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.animate-pop-in {
+  animation: pop-in 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: top right;
+}
+
+/* Skeleton block with a travelling highlight. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 7%, transparent), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+/* Text that a light sweeps across: used for "working on it" states. */
+.text-shimmer {
+  background: linear-gradient(
+      90deg,
+      var(--muted) 0%,
+      var(--muted) 40%,
+      var(--foreground) 50%,
+      var(--muted) 60%,
+      var(--muted) 100%
+    )
+    0 0 / 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: text-shimmer 2.2s linear infinite;
+}
+
+/* Page backdrop: a fine grid that fades out below the page header. */
+.bg-grid-fade {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--foreground) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--foreground) 5%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 30%, transparent 75%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after,
+  .text-shimmer,
+  .animate-pop-in {
+    animation: none;
+  }
 }
