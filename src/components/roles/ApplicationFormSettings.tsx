@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Check, ChevronDown, ChevronUp, Copy, Lock, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import type {
   ApplicationField,
   ApplicationFieldType,
@@ -13,9 +14,17 @@ import {
   suggestFieldId,
 } from "@/lib/roles/application.types";
 import { ApplicationForm } from "@/components/apply/ApplicationForm";
+import { Menu } from "@/components/dashboard/menu";
+import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
+import { Sheet } from "@/components/ui/Sheet";
+import { SegmentedTabs } from "@/components/ui/animated";
+import { Toast, type ToastMessage } from "@/components/ui/Toast";
 
 const inputClasses =
-  "h-9 w-full rounded-lg border border-border bg-surface px-2.5 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20";
+  "h-9 w-full rounded-lg border border-border bg-background/50 px-3 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/15";
+
+const ghostButton =
+  "inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-50";
 
 const TYPE_LABELS: Record<ApplicationFieldType, string> = {
   text: "Short answer",
@@ -29,18 +38,26 @@ const TYPE_LABELS: Record<ApplicationFieldType, string> = {
 /** Types a recruiter may choose for their own questions. */
 const CUSTOM_TYPES: ApplicationFieldType[] = ["text", "textarea", "number", "select", "yesno"];
 
-type Mode = "closed" | "edit" | "preview";
+type Panel = "questions" | "limits" | "preview";
 
 function cloneFields(fields: ApplicationField[]): ApplicationField[] {
   return fields.map((field) => ({ ...field, options: field.options ? [...field.options] : undefined }));
 }
 
+function formatMoment(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /**
- * The role's public application form: the shareable link, the full question
- * list the candidate sees, and an editor for it. Built-in fields are shown
- * alongside the recruiter's questions, can be relabelled, reordered or made
- * optional, and the essential ones are locked so an application always
- * carries a name, phone number, email and resume.
+ * The role's public application form: a compact card with the shareable
+ * link and its state, and a side sheet for the questions, the link limits
+ * and a preview of what applicants see. The essential built-in fields are
+ * locked so an application always carries a name, phone, email and resume.
  */
 export function ApplicationFormSettings({
   roleId,
@@ -55,16 +72,22 @@ export function ApplicationFormSettings({
   const [token, setToken] = useState<string>("");
   const [savedFields, setSavedFields] = useState<ApplicationField[]>([]);
   const [draft, setDraft] = useState<ApplicationField[]>([]);
-  const [mode, setMode] = useState<Mode>("closed");
-  const [returnAfterPreview, setReturnAfterPreview] = useState<Mode>("edit");
+  const [panel, setPanel] = useState<Panel | null>(null);
   const [status, setStatus] = useState<FormLinkStatus | null>(null);
   const [limitInput, setLimitInput] = useState("");
   const [hoursInput, setHoursInput] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmRotate, setConfirmRotate] = useState(false);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const dismissToast = useCallback(() => setToast(null), []);
+
+  const fail = (cause: unknown, fallback: string) =>
+    setToast({ tone: "error", message: cause instanceof Error ? cause.message : fallback });
 
   useEffect(() => {
     let cancelled = false;
@@ -81,23 +104,17 @@ export function ApplicationFormSettings({
           status?: FormLinkStatus;
           error?: { message?: string };
         };
-        if (!response.ok || !body.url) {
-          throw new Error(body.error?.message ?? "Could not prepare the form link.");
-        }
+        if (!response.ok || !body.url) throw new Error(body.error?.message ?? "Could not prepare the form link.");
         if (cancelled) return;
         setUrl(body.url);
         setToken(body.token ?? "");
         setSavedFields(body.fields ?? []);
         setDraft(body.fields ?? []);
         applySettings(body.status);
-        setError(null);
+        setLoadError(null);
       })
       .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(
-            cause instanceof Error ? cause.message : "Could not prepare the form link.",
-          );
-        }
+        if (!cancelled) setLoadError(cause instanceof Error ? cause.message : "Could not prepare the form link.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -118,51 +135,37 @@ export function ApplicationFormSettings({
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
-      setMessage("Form link copied. Share it with the college group.");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
     } catch {
-      setMessage(url);
+      setToast({ tone: "success", message: url });
     }
   }
 
   /** Saves the link's own limits: close after N applications or N hours. */
   async function saveSettings() {
     setSavingSettings(true);
-    setError(null);
     try {
       const response = await fetch(`/api/roles/${encodeURIComponent(roleId)}/form-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          settings: { maxApplications: limitInput, expiresAfterHours: hoursInput },
-        }),
+        body: JSON.stringify({ settings: { maxApplications: limitInput, expiresAfterHours: hoursInput } }),
       });
-      const body = (await response.json()) as {
-        url?: string;
-        status?: FormLinkStatus;
-        error?: { message?: string };
-      };
+      const body = (await response.json()) as { url?: string; status?: FormLinkStatus; error?: { message?: string } };
       if (!response.ok) throw new Error(body.error?.message ?? "Could not save the link limits.");
       if (body.url) setUrl(body.url);
       applySettings(body.status);
-      setMessage("Link limits saved.");
+      setToast({ tone: "success", message: "Limits saved." });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save the link limits.");
+      fail(cause, "Could not save the link limits.");
     } finally {
       setSavingSettings(false);
     }
   }
 
-  /**
-   * Issues a brand-new link. The current token stops working at once, so an
-   * old WhatsApp post cannot collect more applications.
-   */
+  /** A brand-new link. The current one stops working at once. */
   async function createNewLink() {
-    const confirmed = window.confirm(
-      "Create a new link? The link you have now stops working immediately, so anyone with the old one cannot apply. Applications already received are kept.",
-    );
-    if (!confirmed) return;
     setSaving(true);
-    setError(null);
     try {
       const response = await fetch(`/api/roles/${encodeURIComponent(roleId)}/form-link`, {
         method: "POST",
@@ -176,9 +179,7 @@ export function ApplicationFormSettings({
         status?: FormLinkStatus;
         error?: { message?: string };
       };
-      if (!response.ok || !body.url) {
-        throw new Error(body.error?.message ?? "Could not create a new link.");
-      }
+      if (!response.ok || !body.url) throw new Error(body.error?.message ?? "Could not create a new link.");
       setUrl(body.url);
       setToken(body.token ?? "");
       if (body.fields) {
@@ -186,49 +187,33 @@ export function ApplicationFormSettings({
         setDraft(body.fields);
       }
       applySettings(body.status);
-      setMode("closed");
-      setMessage("New link created. The previous link no longer works.");
+      setConfirmRotate(false);
+      setToast({ tone: "success", message: "New link created. The old link no longer works." });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not create a new link.");
+      fail(cause, "Could not create a new link.");
     } finally {
       setSaving(false);
     }
   }
 
-  function startEditing() {
-    setDraft(cloneFields(savedFields));
-    setMode("edit");
-    setError(null);
-    setMessage(null);
-  }
-
-  function startPreview() {
-    if (mode !== "edit") setDraft(cloneFields(savedFields));
-    setMode("preview");
-    setError(null);
-  }
-
-  function cancelEditing() {
-    setDraft(cloneFields(savedFields));
-    setMode("closed");
-    setError(null);
+  function openPanel(next: Panel) {
+    if (next === "questions" || panel === null) setDraft(cloneFields(savedFields));
+    setEditorError(null);
+    setPanel(next);
   }
 
   async function saveFields() {
     if (draft.some((field) => field.label.trim() === "")) {
-      setError("Every question needs a label.");
+      setEditorError("Every question needs a label.");
       return;
     }
-    const badSelect = draft.find(
-      (field) => field.type === "select" && (field.options ?? []).length === 0,
-    );
+    const badSelect = draft.find((field) => field.type === "select" && (field.options ?? []).length === 0);
     if (badSelect) {
-      setError(`The dropdown "${badSelect.label}" needs at least one choice.`);
+      setEditorError(`The dropdown “${badSelect.label}” needs at least one choice.`);
       return;
     }
-
     setSaving(true);
-    setError(null);
+    setEditorError(null);
     try {
       const response = await fetch(`/api/roles/${encodeURIComponent(roleId)}/form-link`, {
         method: "POST",
@@ -248,10 +233,10 @@ export function ApplicationFormSettings({
       if (body.url) setUrl(body.url);
       if (body.token) setToken(body.token);
       applySettings(body.status);
-      setMode("closed");
-      setMessage("Form saved. Candidates opening the link now see these questions.");
+      setPanel(null);
+      setToast({ tone: "success", message: "Questions saved. New applicants see them now." });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save the form.");
+      setEditorError(cause instanceof Error ? cause.message : "Could not save the form.");
     } finally {
       setSaving(false);
     }
@@ -259,61 +244,45 @@ export function ApplicationFormSettings({
 
   async function revoke() {
     setSaving(true);
-    setError(null);
     try {
-      const response = await fetch(`/api/roles/${encodeURIComponent(roleId)}/form-link`, {
-        method: "DELETE",
-      });
+      const response = await fetch(`/api/roles/${encodeURIComponent(roleId)}/form-link`, { method: "DELETE" });
       if (!response.ok) {
         const body = (await response.json()) as { error?: { message?: string } };
-        throw new Error(body.error?.message ?? "Could not turn the link off.");
+        throw new Error(body.error?.message ?? "Could not close the form.");
       }
-      setMessage("Form link turned off. Applications already received are kept.");
-      setStatus((current) =>
-        current ? { ...current, open: false, closedReason: "revoked" } : current,
-      );
+      setToast({ tone: "success", message: "Form closed. Applications already received are kept." });
+      setStatus((current) => (current ? { ...current, open: false, closedReason: "revoked" } : current));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not turn the link off.");
+      fail(cause, "Could not close the form.");
     } finally {
       setSaving(false);
     }
   }
 
-  /** Sharing again brings the same link back, so old copies keep working. */
+  /** Re-opening brings the same link back, so links already shared work again. */
   async function reEnable() {
     setSaving(true);
-    setError(null);
     try {
       const response = await fetch(`/api/roles/${encodeURIComponent(roleId)}/form-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reenable: true }),
       });
-      const body = (await response.json()) as {
-        url?: string;
-        status?: FormLinkStatus;
-        error?: { message?: string };
-      };
-      if (!response.ok || !body.url) throw new Error(body.error?.message ?? "Could not re-enable the link.");
+      const body = (await response.json()) as { url?: string; status?: FormLinkStatus; error?: { message?: string } };
+      if (!response.ok || !body.url) throw new Error(body.error?.message ?? "Could not reopen the form.");
       setUrl(body.url);
       applySettings(body.status);
-      setMessage("Form link is active again.");
+      setToast({ tone: "success", message: "Form reopened." });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not re-enable the link.");
+      fail(cause, "Could not reopen the form.");
     } finally {
       setSaving(false);
     }
   }
 
   function addField() {
-    const id = suggestFieldId(
-      "New question",
-      draft.map((field) => field.id),
-    );
-    setDraft((current) => [
-      ...current,
-      { id, label: "New question", type: "text", required: false },
-    ]);
+    const id = suggestFieldId("New question", draft.map((field) => field.id));
+    setDraft((current) => [...current, { id, label: "New question", type: "text", required: false }]);
   }
 
   /** Puts back a removable built-in field the recruiter took off the form. */
@@ -324,9 +293,7 @@ export function ApplicationFormSettings({
   }
 
   function updateField(index: number, patch: Partial<ApplicationField>) {
-    setDraft((current) =>
-      current.map((field, position) => (position === index ? { ...field, ...patch } : field)),
-    );
+    setDraft((current) => current.map((field, position) => (position === index ? { ...field, ...patch } : field)));
   }
 
   function removeField(index: number) {
@@ -343,344 +310,242 @@ export function ApplicationFormSettings({
     });
   }
 
-  const previewFields = mode === "edit" ? draft : savedFields;
   const missingOptionalBase = BASE_APPLICATION_FIELDS.filter(
     (field) =>
-      (OPTIONAL_BASE_FIELD_IDS as readonly string[]).includes(field.id) &&
-      !draft.some((item) => item.id === field.id),
+      (OPTIONAL_BASE_FIELD_IDS as readonly string[]).includes(field.id) && !draft.some((item) => item.id === field.id),
   );
   const questionCount = savedFields.length;
-
+  const isOpen = !status || status.open;
   const whatsappHref = url
-    ? `https://wa.me/?text=${encodeURIComponent(
-        `Applications are open for ${roleTitle}. Apply here: ${url}`,
-      )}`
+    ? `https://wa.me/?text=${encodeURIComponent(`Applications are open for ${roleTitle}. Apply here: ${url}`)}`
     : undefined;
 
+  const closedNote =
+    status && !status.open
+      ? status.closedReason === "limit"
+        ? "Closed: the application limit was reached."
+        : status.closedReason === "expired"
+          ? "Closed: the time limit was reached."
+          : "Closed by you."
+      : null;
+
   return (
-    <section
-      id="application-form"
-      className="mt-6 scroll-mt-24 rounded-lg border border-border bg-surface p-5"
-    >
-      <div className="flex flex-wrap items-center gap-3">
-        <h3 className="text-lg font-semibold">Application form</h3>
-        <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted">
-          {questionCount} question{questionCount === 1 ? "" : "s"}
-        </span>
-        <span className="grow" />
-        <button
-          type="button"
-          onClick={
-            mode === "preview"
-              ? () => setMode(returnAfterPreview)
-              : () => {
-                  setReturnAfterPreview(mode === "edit" ? "edit" : "closed");
-                  startPreview();
-                }
+    <section id="application-form" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-[15px] font-semibold">Application form</h2>
+          <p className="mt-0.5 text-sm text-muted">Share it with a college group. No account needed to apply.</p>
+        </div>
+        <Menu
+          label="Application form actions"
+          align="end"
+          trigger={
+            <button
+              type="button"
+              aria-label="Application form actions"
+              className="-mr-1.5 grid size-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
+            >
+              <MoreHorizontal className="size-4" aria-hidden />
+            </button>
           }
-          aria-expanded={mode === "preview"}
-          className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition hover:border-accent/50"
-        >
-          {mode === "preview" ? "Close preview" : "Preview"}
-        </button>
-        <button
-          type="button"
-          onClick={mode === "edit" ? cancelEditing : startEditing}
-          aria-expanded={mode === "edit"}
-          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/90"
-        >
-          {mode === "edit" ? "Close editor" : "Edit form"}
-        </button>
+          items={[
+            { id: "questions", label: "Edit questions", onSelect: () => openPanel("questions") },
+            { id: "limits", label: "Limits and link", onSelect: () => openPanel("limits") },
+            { id: "preview", label: "Preview as applicant", onSelect: () => openPanel("preview"), separatorAfter: true },
+            isOpen
+              ? { id: "close", label: "Close the form", onSelect: revoke, disabled: saving, danger: true }
+              : status?.closedReason === "revoked"
+                ? { id: "reopen", label: "Reopen the form", onSelect: reEnable, disabled: saving }
+                : { id: "limits2", label: "Change limits to reopen", onSelect: () => openPanel("limits") },
+          ]}
+        />
       </div>
 
-      <p className="mt-1 text-sm text-muted">
-        Share this link with a college group. Applicants fill in the questions below without an
-        account, and the application appears in the table below as Waiting.
-      </p>
-
       {loading ? (
-        <div aria-hidden className="mt-4 h-10 w-full animate-pulse rounded-lg bg-border/40" />
+        <div aria-hidden className="mt-4 space-y-2">
+          <div className="skeleton h-4 w-40 rounded" />
+          <div className="skeleton h-9 w-full rounded-lg" />
+        </div>
+      ) : loadError ? (
+        <p role="alert" className="mt-4 text-sm text-rose-600 dark:text-rose-400">
+          {loadError}
+        </p>
       ) : (
         <>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <input
-              readOnly
-              value={url ?? ""}
-              aria-label="Application form link"
-              className="h-9 w-full min-w-0 basis-full rounded-lg border border-border bg-background px-3 text-sm text-muted sm:w-auto sm:flex-1 sm:basis-0"
-            />
+          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            <span className={`inline-flex items-center gap-1.5 font-medium ${isOpen ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}>
+              <span className="relative flex size-2">
+                {isOpen && <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-50" />}
+                <span className={`relative inline-flex size-2 rounded-full ${isOpen ? "bg-emerald-500" : "bg-foreground/30"}`} />
+              </span>
+              {isOpen ? "Taking applications" : "Not taking applications"}
+            </span>
+            {status && (
+              <span className="text-muted">
+                <span className="font-medium tabular-nums text-foreground">{status.applicationsReceived}</span>
+                {status.maxApplications !== null ? ` of ${status.maxApplications}` : ""} received
+              </span>
+            )}
+          </div>
+          {(closedNote || status?.expiresAt) && (
+            <p className="mt-1 text-xs text-muted">
+              {closedNote ?? `Closes ${formatMoment(status!.expiresAt!)}`}
+            </p>
+          )}
+
+          <div className="mt-3 flex items-center gap-1 rounded-lg border border-border bg-background/50 p-1 pl-3">
+            <span className="min-w-0 flex-1 truncate text-sm text-muted" title={url ?? undefined}>
+              {url?.replace(/^https?:\/\//, "")}
+            </span>
             <button
               type="button"
               onClick={copy}
-              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/90"
+              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent px-2.5 text-xs font-medium text-white transition hover:bg-accent/90"
             >
-              Copy link
+              {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+              {copied ? "Copied" : "Copy"}
             </button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
             {whatsappHref && (
-              <a
-                href={whatsappHref}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition hover:border-accent/50"
-              >
+              <a href={whatsappHref} target="_blank" rel="noreferrer" className={ghostButton}>
                 Share on WhatsApp
               </a>
             )}
-            {(!status || status.open) && (
-              <button
-                type="button"
-                onClick={revoke}
-                disabled={saving}
-                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-muted transition hover:border-red-500/50 hover:text-red-600 disabled:opacity-60 dark:hover:text-red-400"
-              >
-                Turn off
-              </button>
-            )}
-            {status?.closedReason === "revoked" && (
-              <button
-                type="button"
-                onClick={reEnable}
-                disabled={saving}
-                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-accent transition hover:border-accent/50 disabled:opacity-60"
-              >
-                Re-enable
-              </button>
-            )}
+            <button type="button" onClick={() => openPanel("questions")} className={ghostButton}>
+              {questionCount} question{questionCount === 1 ? "" : "s"}
+            </button>
           </div>
+        </>
+      )}
 
-          {status && (
-            <div className="mt-3 rounded-lg border border-border bg-background p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                    status.open
-                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-                      : "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300"
-                  }`}
-                >
-                  {status.open ? "Open" : "Closed"}
-                </span>
-                <span className="text-sm">
-                  {status.applicationsReceived} application
-                  {status.applicationsReceived === 1 ? "" : "s"}
-                  {status.maxApplications !== null ? ` of ${status.maxApplications}` : ""} received
-                </span>
-                {!status.open && (
-                  <span className="text-sm text-muted">
-                    {status.closedReason === "limit"
-                      ? "The application limit was reached."
-                      : status.closedReason === "expired"
-                        ? "The time limit was reached."
-                        : "You turned this link off."}
-                  </span>
-                )}
-              </div>
-              {status.expiresAt && (
-                <p className="mt-1 text-xs text-muted">
-                  {status.closedReason === "expired" ? "Closed on" : "Closes on"}{" "}
-                  {new Date(status.expiresAt).toLocaleString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
-                </p>
-              )}
+      <Sheet
+        open={panel !== null}
+        onClose={() => setPanel(null)}
+        title="Application form"
+        description={`What applicants for ${roleTitle} fill in.`}
+        width="max-w-2xl"
+      >
+        <SegmentedTabs
+          id="form-panel"
+          label="Application form settings"
+          value={panel ?? "questions"}
+          onChange={(next) => openPanel(next)}
+          options={[
+            { value: "questions", label: "Questions", count: draft.length },
+            { value: "limits", label: "Limits and link" },
+            { value: "preview", label: "Preview" },
+          ]}
+        />
 
-              <div className="mt-3 flex flex-wrap items-end gap-2">
-                <label className="text-xs text-muted">
-                  <span className="mb-1 block">Maximum applications</span>
-                  <input
-                    inputMode="numeric"
-                    min={0}
-                    value={limitInput}
-                    onChange={(event) => setLimitInput(event.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="No limit"
-                    className={`${inputClasses} w-32`}
-                  />
-                </label>
-                <label className="text-xs text-muted">
-                  <span className="mb-1 block">Open for (hours)</span>
-                  <input
-                    inputMode="numeric"
-                    min={0}
-                    value={hoursInput}
-                    onChange={(event) => setHoursInput(event.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="No deadline"
-                    className={`${inputClasses} w-32`}
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={saveSettings}
-                  disabled={savingSettings || saving}
-                  className="h-9 rounded-md border border-border px-3 text-sm font-medium transition hover:border-accent/50 disabled:opacity-60"
-                >
-                  {savingSettings ? "Saving…" : "Save limits"}
-                </button>
-                <span className="grow" />
-                <button
-                  type="button"
-                  onClick={createNewLink}
-                  disabled={saving}
-                  className="h-9 rounded-md border border-accent/50 px-3 text-sm font-medium text-accent transition hover:bg-accent/5 disabled:opacity-60"
-                >
-                  Create new link
-                </button>
-              </div>
-              <p className="mt-1.5 text-xs text-muted">
-                Leave a box empty for no limit. A new link gets a fresh URL and a fresh count,
-                and the link you have now stops working for good.
-              </p>
-            </div>
-          )}
-
-          {message && (
-            <p role="status" className="mt-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">
-              {message}
+        {panel === "questions" && (
+          <div className="mt-5">
+            <p className="text-sm text-muted">
+              Applicants answer these in order. Name, phone, email and resume are always asked.
             </p>
-          )}
-          {error && (
-            <p role="alert" className="mt-3 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
-              {error}
-            </p>
-          )}
-
-          {mode === "edit" && (
-            <div className="mt-4 rounded-lg border border-border bg-background p-4">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <p className="text-xs uppercase tracking-wide text-muted">Questions in order</p>
-                <span className="text-xs text-muted">
-                  Built-in fields are marked; essential ones cannot be removed.
-                </span>
-              </div>
-
-              <ol className="mt-3 space-y-3">
-                {draft.map((field, index) => {
-                  const locked = field.system === true && isMandatoryBaseField(field.id);
-                  return (
-                    <li
-                      key={`${field.id}-${index}`}
-                      className="rounded-lg border border-border bg-surface p-3"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          aria-hidden
-                          className="grid size-6 shrink-0 place-items-center rounded-full bg-accent/10 text-xs font-semibold text-accent"
-                        >
-                          {index + 1}
-                        </span>
-                        <input
-                          value={field.label}
-                          onChange={(event) => updateField(index, { label: event.target.value })}
-                          aria-label={`Question ${index + 1} label`}
-                          className={`${inputClasses} min-w-0 flex-1 sm:min-w-[14rem]`}
-                        />
-                        {field.system && (
-                          <span className="rounded-full bg-background px-2 py-0.5 text-[11px] font-medium text-muted">
-                            Built-in
-                          </span>
-                        )}
-                        {field.required ? (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-                            Required
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-background px-2 py-0.5 text-[11px] font-medium text-muted">
-                            Optional
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {field.system ? (
-                          <span className="rounded-md border border-border px-2 py-1 text-xs text-muted">
-                            {TYPE_LABELS[field.type]}
-                          </span>
-                        ) : (
-                          <select
-                            value={field.type}
-                            onChange={(event) =>
-                              updateField(index, {
-                                type: event.target.value as ApplicationFieldType,
-                                options:
-                                  event.target.value === "select"
-                                    ? field.options?.length
-                                      ? field.options
-                                      : ["Option 1"]
-                                    : undefined,
-                              })
-                            }
-                            aria-label={`Question ${index + 1} type`}
-                            className="h-8 rounded-md border border-border bg-surface px-2 text-xs"
-                          >
-                            {CUSTOM_TYPES.map((value) => (
-                              <option key={value} value={value}>
-                                {TYPE_LABELS[value]}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-
-                        {locked ? (
-                          <span className="text-xs text-muted">Required (built-in)</span>
-                        ) : (
-                          <label className="flex items-center gap-1.5 text-xs text-muted">
-                            <input
-                              type="checkbox"
-                              checked={field.required}
-                              onChange={(event) =>
-                                updateField(index, { required: event.target.checked })
-                              }
-                            />
-                            Required
-                          </label>
-                        )}
-
-                        <span className="grow" />
-
+            <ol className="mt-4 space-y-2.5">
+              {draft.map((field, index) => {
+                const locked = field.system === true && isMandatoryBaseField(field.id);
+                return (
+                  <li key={`${field.id}-${index}`} className="rounded-xl border border-border bg-surface p-3.5">
+                    <div className="flex items-center gap-2">
+                      <span aria-hidden className="w-5 shrink-0 text-xs font-medium tabular-nums text-muted">
+                        {index + 1}
+                      </span>
+                      <input
+                        value={field.label}
+                        onChange={(event) => updateField(index, { label: event.target.value })}
+                        aria-label={`Question ${index + 1}`}
+                        className={`${inputClasses} min-w-0 flex-1 font-medium`}
+                      />
+                      <span className="flex shrink-0 items-center">
                         <button
                           type="button"
                           onClick={() => moveField(index, -1)}
                           disabled={index === 0}
                           aria-label={`Move question ${index + 1} up`}
-                          className="rounded border border-border px-2 py-1 text-xs transition hover:border-accent/50 disabled:opacity-40"
+                          className="grid size-8 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-30"
                         >
-                          ↑
+                          <ChevronUp className="size-4" aria-hidden />
                         </button>
                         <button
                           type="button"
                           onClick={() => moveField(index, 1)}
                           disabled={index === draft.length - 1}
                           aria-label={`Move question ${index + 1} down`}
-                          className="rounded border border-border px-2 py-1 text-xs transition hover:border-accent/50 disabled:opacity-40"
+                          className="grid size-8 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-30"
                         >
-                          ↓
+                          <ChevronDown className="size-4" aria-hidden />
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => removeField(index)}
-                          disabled={locked}
-                          title={
-                            locked
-                              ? "This field is needed to create and follow up on an application."
-                              : undefined
-                          }
-                          className="rounded border border-border px-2 py-1 text-xs text-red-600 transition hover:border-red-500/50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-red-400"
-                        >
-                          Delete
-                        </button>
-                      </div>
+                        {locked ? (
+                          <span title="Always asked" className="grid size-8 place-items-center text-muted/60">
+                            <Lock className="size-3.5" aria-hidden />
+                            <span className="sr-only">Always asked</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => removeField(index)}
+                            aria-label={`Remove question ${index + 1}`}
+                            className="grid size-8 place-items-center rounded-lg text-muted transition hover:bg-rose-500/10 hover:text-rose-600"
+                          >
+                            <Trash2 className="size-3.5" aria-hidden />
+                          </button>
+                        )}
+                      </span>
+                    </div>
 
+                    <div className="mt-2.5 flex flex-wrap items-center gap-3 pl-7">
+                      {field.system ? (
+                        <span className="text-xs text-muted">{TYPE_LABELS[field.type]}</span>
+                      ) : (
+                        <select
+                          value={field.type}
+                          onChange={(event) =>
+                            updateField(index, {
+                              type: event.target.value as ApplicationFieldType,
+                              options:
+                                event.target.value === "select"
+                                  ? field.options?.length
+                                    ? field.options
+                                    : ["Option 1"]
+                                  : undefined,
+                            })
+                          }
+                          aria-label={`Question ${index + 1} answer type`}
+                          className="h-8 rounded-lg border border-border bg-surface px-2 text-xs"
+                        >
+                          {CUSTOM_TYPES.map((value) => (
+                            <option key={value} value={value}>
+                              {TYPE_LABELS[value]}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {locked ? (
+                        <span className="text-xs text-muted">Required</span>
+                      ) : (
+                        <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+                          <input
+                            type="checkbox"
+                            checked={field.required}
+                            onChange={(event) => updateField(index, { required: event.target.checked })}
+                            className="accent-[var(--accent)]"
+                          />
+                          Required
+                        </label>
+                      )}
+                    </div>
+
+                    <div className="mt-2.5 grid gap-2 pl-7">
                       <input
                         value={field.hint ?? ""}
                         onChange={(event) => updateField(index, { hint: event.target.value })}
-                        placeholder="Description / helper text (optional)"
-                        aria-label={`Question ${index + 1} description`}
-                        className={`${inputClasses} mt-2`}
+                        placeholder="Help text under the question (optional)"
+                        aria-label={`Question ${index + 1} help text`}
+                        className={inputClasses}
                       />
-
                       {field.type === "select" && (
                         <input
                           value={(field.options ?? []).join(", ")}
@@ -692,70 +557,127 @@ export function ApplicationFormSettings({
                                 .filter(Boolean),
                             })
                           }
-                          placeholder="Choices separated by commas"
+                          placeholder="Choices, separated by commas"
                           aria-label={`Question ${index + 1} choices`}
-                          className={`${inputClasses} mt-2`}
+                          className={inputClasses}
                         />
                       )}
-                    </li>
-                  );
-                })}
-              </ol>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
 
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" onClick={addField} className={ghostButton}>
+                <Plus className="size-4 text-muted" aria-hidden />
+                Add a question
+              </button>
+              {missingOptionalBase.map((field) => (
                 <button
+                  key={field.id}
                   type="button"
-                  onClick={addField}
-                  className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition hover:border-accent/50"
+                  onClick={() => addBaseField(field.id)}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-dashed border-border px-3 text-sm text-muted transition hover:border-foreground/25 hover:text-foreground"
                 >
-                  Add question
+                  <Plus className="size-3.5" aria-hidden />
+                  {field.label}
                 </button>
-                {missingOptionalBase.map((field) => (
-                  <button
-                    key={field.id}
-                    type="button"
-                    onClick={() => addBaseField(field.id)}
-                    className="rounded-md border border-dashed border-border px-3 py-1.5 text-sm font-medium text-accent transition hover:border-accent/50"
-                  >
-                    Add {field.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
-                <button
-                  type="button"
-                  onClick={cancelEditing}
-                  disabled={saving}
-                  className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition hover:border-accent/50 disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={saveFields}
-                  disabled={saving}
-                  className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white transition hover:bg-accent/90 disabled:opacity-60"
-                >
-                  {saving ? "Saving…" : "Save form"}
-                </button>
-              </div>
+              ))}
             </div>
-          )}
 
-          {mode === "preview" && (
-            <div className="mt-4 rounded-lg border border-border bg-background p-3 sm:p-5">
-              <ApplicationForm
-                token={token}
-                roleTitle={roleTitle}
-                roleDescription={roleDescription}
-                fields={previewFields}
-                preview
-              />
+            {editorError && (
+              <p role="alert" className="mt-4 rounded-xl bg-rose-500/10 px-3.5 py-2.5 text-sm text-rose-700 dark:text-rose-300">
+                {editorError}
+              </p>
+            )}
+
+            <div className="sticky bottom-0 -mx-6 -mb-5 mt-5 flex justify-end gap-2 border-t border-border bg-surface px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setPanel(null)}
+                className="h-9 rounded-lg px-3.5 text-sm font-medium text-muted transition hover:bg-foreground/[0.05] hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveFields}
+                disabled={saving}
+                className="h-9 rounded-lg bg-accent px-4 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save questions"}
+              </button>
             </div>
-          )}
-        </>
-      )}
+          </div>
+        )}
+
+        {panel === "limits" && (
+          <div className="mt-5 grid gap-6">
+            <div>
+              <h3 className="text-sm font-semibold">Close the form automatically</h3>
+              <p className="mt-0.5 text-sm text-muted">Leave a box empty for no limit.</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="text-sm">
+                  <span className="mb-1.5 block text-muted">After this many applications</span>
+                  <input
+                    inputMode="numeric"
+                    value={limitInput}
+                    onChange={(event) => setLimitInput(event.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="No limit"
+                    className={inputClasses}
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1.5 block text-muted">After this many hours</span>
+                  <input
+                    inputMode="numeric"
+                    value={hoursInput}
+                    onChange={(event) => setHoursInput(event.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="No time limit"
+                    className={inputClasses}
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                onClick={saveSettings}
+                disabled={savingSettings || saving}
+                className="mt-3 h-9 rounded-lg bg-accent px-4 text-sm font-medium text-white transition hover:bg-accent/90 disabled:opacity-50"
+              >
+                {savingSettings ? "Saving…" : "Save limits"}
+              </button>
+            </div>
+
+            <div className="border-t border-border pt-5">
+              <h3 className="text-sm font-semibold">Start over with a new link</h3>
+              <p className="mt-0.5 max-w-prose text-sm text-muted">
+                The link you have shared stops working and the count starts again. Applications already received are kept.
+              </p>
+              <button type="button" onClick={() => setConfirmRotate(true)} disabled={saving} className={`${ghostButton} mt-3`}>
+                Create a new link
+              </button>
+            </div>
+          </div>
+        )}
+
+        {panel === "preview" && (
+          <div className="mt-5 rounded-2xl border border-border bg-background p-4 sm:p-6">
+            <ApplicationForm token={token} roleTitle={roleTitle} roleDescription={roleDescription} fields={draft} preview />
+          </div>
+        )}
+      </Sheet>
+
+      <ConfirmDialog
+        open={confirmRotate}
+        title="Create a new link?"
+        body="Anyone with the current link can no longer apply. Applications already received are kept."
+        confirmLabel="Create new link"
+        busy={saving}
+        onConfirm={createNewLink}
+        onCancel={() => setConfirmRotate(false)}
+      />
+      <Toast toast={toast} onDismiss={dismissToast} />
     </section>
   );
 }

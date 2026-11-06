@@ -128,7 +128,7 @@ export function Toolbar({
   );
 }
 
-function FilterMenu({
+export function FilterMenu({
   label,
   icon,
   value,

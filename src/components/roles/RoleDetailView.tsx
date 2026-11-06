@@ -1,79 +1,61 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowDown, ArrowUp, ArrowUpDown, Search } from "lucide-react";
-import type { HumanDecision, InterviewStatus } from "@/lib/interviews/interview.types";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  CalendarClock,
+  ChevronRight,
+  Download,
+  FileText,
+  MoreHorizontal,
+  Pencil,
+  ExternalLink,
+  Search,
+  SearchX,
+  UserPlus,
+  X,
+} from "lucide-react";
+import type { HumanDecision } from "@/lib/interviews/interview.types";
 import type {
   RoleCandidateSummary,
   RoleCandidatesResponse,
   RoleResponse,
-  RoleStatus,
   RoleSummary,
 } from "@/lib/roles/role.types";
-import {
-  compareByHirePriority,
-  deriveApplicationStage,
-  deriveHireStage,
-  HIRE_STAGE_LABELS,
-  HIRE_STAGE_STYLES,
-  type HireStage,
-} from "@/lib/roles/hire-stage";
-import { ApplicationFormSettings } from "@/components/roles/ApplicationFormSettings";
-import { Pagination } from "@/components/dashboard/Pagination";
-import {
-  compareCandidateRows,
-  type CandidateSortKey,
-  type SortState,
-} from "@/lib/roles/candidate-sort";
+import { compareByHirePriority, deriveApplicationStage, deriveHireStage, type HireStage } from "@/lib/roles/hire-stage";
+import { compareCandidateRows, type CandidateSortKey, type SortState } from "@/lib/roles/candidate-sort";
+import { countPipeline, PIPELINE_STEPS, scoreTone } from "@/lib/roles/pipeline";
 import type { ApplicationField } from "@/lib/roles/application.types";
+import { documentFacts } from "@/lib/text/document-blocks";
+import { ApplicationFormSettings } from "@/components/roles/ApplicationFormSettings";
+import { RoleFormSheet } from "@/components/roles/RoleFormSheet";
+import { Pagination } from "@/components/dashboard/Pagination";
+import { Menu } from "@/components/dashboard/menu";
+import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
+import { FilterMenu } from "@/components/dashboard/Toolbar";
+import { StatusBadge } from "@/components/dashboard/primitives";
+import { DocumentText } from "@/components/ui/DocumentText";
+import { Sheet } from "@/components/ui/Sheet";
+import { EASE_OUT } from "@/components/ui/animated";
+import { Toast, type ToastMessage } from "@/components/ui/Toast";
 
 /**
- * HR leaderboard for one role. Candidates are split into the two stages a
- * recruiter acts on — applications to review, and interviews to score — with
- * live counts, search, stage filters, sortable columns and pagination.
- * Every number and stage comes from the roles API; nothing is invented.
+ * One role: what it is (the job description, formatted), how to bring
+ * people in (the application form), and everyone in its pipeline, split
+ * into applications to review and interviews to decide on.
+ * Every number and stage comes from the roles API.
  */
-
-/**
- * Long job descriptions start collapsed to four lines with a Read more
- * toggle, so the candidate list stays the focus of the page.
- */
-function CollapsibleDescription({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false);
-  // Long enough descriptions are worth collapsing; anything shorter shows in full.
-  const collapsible = text.length > 280 || text.split("\n").length > 4;
-  return (
-    <div className="mt-2">
-      <p
-        className={`whitespace-pre-line text-sm text-muted ${
-          collapsible && !expanded ? "line-clamp-4" : ""
-        }`}
-      >
-        {text}
-      </p>
-      {collapsible && (
-        <button
-          type="button"
-          onClick={() => setExpanded((current) => !current)}
-          aria-expanded={expanded}
-          className="mt-1 text-sm font-medium text-accent hover:underline"
-        >
-          {expanded ? "Show less" : "Read more"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-const STATUS_LABELS: Record<RoleStatus, string> = { open: "Open", completed: "Completed" };
 
 const SUGGESTION_LABELS: Record<string, string> = {
   strong: "Strong",
   positive: "Positive",
   mixed: "Mixed",
   weak: "Weak",
-  insufficient: "Insufficient",
+  insufficient: "Not enough to judge",
 };
 
 const DECISION_LABELS: Record<HumanDecision["outcome"], string> = {
@@ -82,46 +64,42 @@ const DECISION_LABELS: Record<HumanDecision["outcome"], string> = {
   reject: "Rejected",
 };
 
-const INTERVIEW_STATUS_LABELS: Record<InterviewStatus, string> = {
-  scheduled: "Scheduled",
-  waiting: "In progress",
-  active: "In progress",
-  completed: "Completed",
-  expired: "Expired",
-  cancelled: "Cancelled",
+const DECISION_TEXT: Record<HumanDecision["outcome"], string> = {
+  advance: "text-emerald-600 dark:text-emerald-400",
+  hold: "text-amber-600 dark:text-amber-400",
+  reject: "text-rose-600 dark:text-rose-400",
 };
 
-const INTERVIEW_STATUS_STYLES: Record<InterviewStatus, string> = {
-  scheduled: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
-  waiting: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
-  active: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
-  completed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-  expired: "bg-border/60 text-muted",
-  cancelled: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
-};
+/** Facts lifted into the header, in this order. */
+const HEADER_FACTS = ["location", "employment type", "experience", "job type", "work mode"];
 
 const PAGE_SIZE = 25;
 
 type StageTab = "applications" | "interviews";
+type StatusFilter = "all" | "scheduled" | "in-progress" | "completed" | "cancelled";
+
+const STATUS_FILTERS = [
+  { value: "all", label: "Any status" },
+  { value: "scheduled", label: "Scheduled" },
+  { value: "in-progress", label: "In progress" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Expired or cancelled" },
+];
 
 function defaultSortFor(tab: StageTab): SortState {
-  return tab === "applications"
-    ? { key: "applied", direction: "desc" }
-    : { key: "interview", direction: "desc" };
+  return tab === "applications" ? { key: "applied", direction: "desc" } : { key: "interview", direction: "desc" };
 }
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function formatDay(iso: string): { day: string; time: string } {
+  const date = new Date(iso);
+  return {
+    day: date.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+    time: date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
+  };
 }
 
 function initials(name: string): string {
@@ -129,16 +107,13 @@ function initials(name: string): string {
   return (parts[0]?.[0] ?? "?").concat(parts[1]?.[0] ?? "").toUpperCase();
 }
 
-function scoreBadgeClass(score: number): string {
-  if (score >= 70) return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300";
-  if (score >= 50) return "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300";
-  return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300";
-}
-
 interface LeaderRow {
   candidate: RoleCandidateSummary;
   stage: HireStage;
 }
+
+const ghostButton =
+  "inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-50";
 
 function SortableHeader({
   label,
@@ -158,40 +133,149 @@ function SortableHeader({
     <th
       scope="col"
       aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
-      className={`px-3 py-2 ${className ?? ""}`}
+      className={`px-3 py-2.5 font-medium ${className ?? ""}`}
     >
       <button
         type="button"
         onClick={() => onSort(column)}
-        className="inline-flex items-center gap-1 uppercase tracking-wide transition hover:text-foreground"
-        aria-label={`Sort by ${label}, ${active && sort.direction === "asc" ? "descending" : "ascending"}`}
+        className={`inline-flex items-center gap-1 transition hover:text-foreground ${active ? "text-foreground" : ""}`}
       >
         {label}
         {active ? (
           sort.direction === "asc" ? (
-            <ArrowUp className="size-3.5" aria-hidden />
+            <ArrowUp className="size-3" aria-hidden />
           ) : (
-            <ArrowDown className="size-3.5" aria-hidden />
+            <ArrowDown className="size-3" aria-hidden />
           )
         ) : (
-          <ArrowUpDown className="size-3.5 opacity-50" aria-hidden />
+          <ArrowUpDown className="size-3 opacity-40" aria-hidden />
         )}
       </button>
     </th>
   );
 }
 
+function Person({ candidate, sub }: { candidate: RoleCandidateSummary; sub?: string | null }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <span
+        aria-hidden
+        className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/[0.06] text-[11px] font-semibold text-foreground/70"
+      >
+        {initials(candidate.candidateName ?? candidate.candidateEmail)}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
+        <span className="block truncate text-xs text-muted">{sub ?? candidate.candidateEmail}</span>
+      </span>
+    </div>
+  );
+}
+
+/** Animated tab underline, matching the report's section bar. */
+function StageTabs({
+  value,
+  onChange,
+  counts,
+}: {
+  value: StageTab;
+  onChange: (tab: StageTab) => void;
+  counts: { applied: number; interview: number };
+}) {
+  const tabs: { id: StageTab; label: string; count: number }[] = [
+    { id: "applications", label: "Applications", count: counts.applied },
+    { id: "interviews", label: "Interviews", count: counts.interview },
+  ];
+  return (
+    <div role="tablist" aria-label="Candidate stages" className="flex gap-6 border-b border-border">
+      {tabs.map((tab) => {
+        const active = tab.id === value;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(tab.id)}
+            className={`relative -mb-px flex items-center gap-2 pb-3 text-[15px] font-medium transition-colors ${
+              active ? "text-foreground" : "text-muted hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+            <span
+              className={`rounded-md px-1.5 text-xs tabular-nums ${active ? "bg-accent-soft text-accent" : "bg-foreground/[0.06]"}`}
+            >
+              {tab.count}
+            </span>
+            {active && (
+              <motion.span
+                layoutId="role-stage-underline"
+                className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-foreground"
+                transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
+              />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Where this role's candidates are, as one bar and a legend with counts. */
+function PipelineCard({ rows }: { rows: LeaderRow[] | null }) {
+  const reduce = useReducedMotion();
+  const counts = rows
+    ? countPipeline(rows.map((row) => ({ stage: row.stage, interviewed: row.candidate.interviews > 0 })))
+    : null;
+  const total = rows?.length ?? 0;
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5">
+      <h2 className="text-[15px] font-semibold">Pipeline</h2>
+      {counts === null ? (
+        <div className="skeleton mt-4 h-2 rounded-full" />
+      ) : total === 0 ? (
+        <p className="mt-1 text-sm text-muted">Nobody has applied or been invited yet.</p>
+      ) : (
+        <>
+          <div className="mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full bg-foreground/[0.05]">
+            {PIPELINE_STEPS.map(({ step, bar }) =>
+              counts[step] > 0 ? (
+                <motion.span
+                  key={step}
+                  className={`h-full ${bar}`}
+                  initial={reduce ? false : { width: 0 }}
+                  animate={{ width: `${(counts[step] / total) * 100}%` }}
+                  transition={{ duration: 0.8, delay: 0.2, ease: EASE_OUT }}
+                />
+              ) : null,
+            )}
+          </div>
+          <dl className="mt-4 grid gap-2 text-sm">
+            {PIPELINE_STEPS.map(({ step, label, dot }) => (
+              <div key={step} className="flex items-center justify-between gap-3">
+                <dt className="flex items-center gap-2 text-muted">
+                  <span aria-hidden className={`size-2 rounded-full ${dot}`} />
+                  {label}
+                </dt>
+                <dd className={`font-medium tabular-nums ${counts[step] === 0 ? "text-muted" : ""}`}>{counts[step]}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      )}
+    </section>
+  );
+}
+
 export function RoleDetailView({ roleId }: { roleId: string }) {
   const [role, setRole] = useState<RoleSummary | null>(null);
   const [candidates, setCandidates] = useState<RoleCandidateSummary[] | null>(null);
-  const [counts, setCounts] = useState<{ applied: number; interview: number }>({
-    applied: 0,
-    interview: 0,
-  });
-  const [error, setError] = useState<string | null>(null);
+  const [counts, setCounts] = useState<{ applied: number; interview: number }>({ applied: 0, interview: 0 });
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [cutoff, setCutoff] = useState("");
   const [cutoffApplied, setCutoffApplied] = useState<number | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
@@ -201,29 +285,28 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
 
   const [tab, setTab] = useState<StageTab>("applications");
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "scheduled" | "in-progress" | "completed" | "cancelled">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortState>(defaultSortFor("applications"));
   const [page, setPage] = useState(1);
+  const dismissToast = useCallback(() => setToast(null), []);
+
+  const fail = (cause: unknown, fallback: string) =>
+    setToast({ tone: "error", message: cause instanceof Error ? cause.message : fallback });
 
   function loadRole() {
     fetch(`/api/roles/${roleId}`)
       .then(async (response) => {
         const body = (await response.json()) as RoleResponse & { error?: { message?: string } };
-        if (!response.ok || !body.role) {
-          throw new Error(body.error?.message ?? "Could not load this role.");
-        }
+        if (!response.ok || !body.role) throw new Error(body.error?.message ?? "Could not load this role.");
         setRole(body.role);
-        setError(null);
+        setLoadError(null);
       })
-      .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : "Something went wrong.");
-      });
+      .catch((cause: unknown) => setLoadError(cause instanceof Error ? cause.message : "Could not load this role."));
   }
 
   /**
    * Loads every candidate row for the role, page by page, so search, sorting
-   * and pagination act on the whole list rather than one server page. Counts
-   * come from the API and cover the whole role even if this loop is capped.
+   * and pagination act on the whole list rather than one server page.
    */
   async function loadCandidates() {
     const collected: RoleCandidateSummary[] = [];
@@ -232,15 +315,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     let latestCounts: { applied: number; interview: number } | null = null;
     try {
       while (offset < total && offset < 2_000) {
-        const response = await fetch(
-          `/api/roles/${roleId}/candidates?limit=50&offset=${offset}`,
-        );
-        const body = (await response.json()) as RoleCandidatesResponse & {
-          error?: { message?: string };
-        };
-        if (!response.ok || !body.candidates) {
-          throw new Error(body.error?.message ?? "Could not load the candidates.");
-        }
+        const response = await fetch(`/api/roles/${roleId}/candidates?limit=50&offset=${offset}`);
+        const body = (await response.json()) as RoleCandidatesResponse & { error?: { message?: string } };
+        if (!response.ok || !body.candidates) throw new Error(body.error?.message ?? "Could not load the candidates.");
         collected.push(...body.candidates);
         total = body.total;
         latestCounts = body.counts ?? latestCounts;
@@ -254,9 +331,13 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
           interview: collected.filter((candidate) => candidate.interviews > 0).length,
         },
       );
-      setError(null);
+      // Deep link from elsewhere: /dashboard/roles/<id>#application-<applicationId>
+      const hash = typeof window !== "undefined" ? window.location.hash : "";
+      if (hash.startsWith("#application-") && hash !== "#application-form") {
+        setOpenApplication(decodeURIComponent(hash.slice("#application-".length)));
+      }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Something went wrong.");
+      fail(cause, "Could not load the candidates.");
     }
   }
 
@@ -274,45 +355,35 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   /** Labels for the role's questions, so answers read as sentences. */
   useEffect(() => {
     fetch(`/api/roles/${roleId}/form-link`)
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return (await response.json()) as { fields?: ApplicationField[] };
-      })
+      .then(async (response) => (response.ok ? ((await response.json()) as { fields?: ApplicationField[] }) : null))
       .then((body) => setFormFields(body?.fields ?? []))
       .catch(() => setFormFields([]));
   }, [roleId]);
 
-  /** Rejects or restores an application from the form. */
   async function setApplicationStage(applicationId: string, action: "reject" | "restore") {
     if (actionBusy) return;
     setActionBusy(true);
     try {
-      const response = await fetch(
-        `/api/roles/${roleId}/applications/${encodeURIComponent(applicationId)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
-        },
-      );
+      const response = await fetch(`/api/roles/${roleId}/applications/${encodeURIComponent(applicationId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
       const body = (await response.json()) as { error?: { message?: string } };
       if (!response.ok) throw new Error(body.error?.message ?? "Could not update the application.");
-      setNotice(
-        action === "reject"
-          ? "Application rejected. The applicant moves to the Rejected stage."
-          : "Application moved back to Waiting.",
-      );
+      setToast({ tone: "success", message: action === "reject" ? "Application rejected." : "Application moved back to waiting." });
+      setOpenApplication(null);
       loadCandidates();
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Something went wrong.");
+    } catch (cause) {
+      fail(cause, "Could not update the application.");
     } finally {
       setActionBusy(false);
     }
   }
 
-  /** Ranked rows: recruiter-set decisions first, then ready-to-advance, then by score. */
-  const rows = useMemo<LeaderRow[]>(() => {
-    if (candidates === null) return [];
+  /** Ranked rows: recruiter decisions first, then ready to advance, then by score. */
+  const rows = useMemo<LeaderRow[] | null>(() => {
+    if (candidates === null) return null;
     const ranked = candidates
       .map((candidate) => ({
         candidate,
@@ -332,20 +403,12 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
           { stage: b.stage, overallScore: b.candidate.overallScore },
         ),
       );
-    if (cutoffApplied === null) return ranked;
-    return ranked.filter(
-      (row) =>
-        row.candidate.interviews === 0 ||
-        row.candidate.overallScore === null ||
-        row.candidate.overallScore >= cutoffApplied,
-    );
+    return ranked;
   }, [candidates, cutoffApplied]);
 
-  const appliedRows = useMemo(() => rows.filter((row) => row.candidate.interviews === 0), [rows]);
-  const interviewRows = useMemo(() => rows.filter((row) => row.candidate.interviews > 0), [rows]);
-  const readyCount = interviewRows.filter(
-    (row) => row.stage === "ready-to-advance" || row.stage === "advanced",
-  ).length;
+  const appliedRows = useMemo(() => (rows ?? []).filter((row) => row.candidate.interviews === 0), [rows]);
+  const interviewRows = useMemo(() => (rows ?? []).filter((row) => row.candidate.interviews > 0), [rows]);
+  const advancedCount = interviewRows.filter((row) => row.stage === "advanced").length;
 
   const visibleRows = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -356,32 +419,27 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         const haystack = [
           candidate.candidateName ?? "",
           candidate.candidateEmail,
-          candidate.candidatePhone ?? "—",
-          candidate.candidateCollegeId ?? "—",
+          candidate.candidatePhone ?? "",
+          candidate.candidateCollegeId ?? "",
         ]
           .join(" ")
           .toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
-      if (tab === "interviews" && statusFilter !== "all") {
+      if (tab === "interviews") {
+        if (cutoffApplied !== null && candidate.overallScore !== null && candidate.overallScore < cutoffApplied) {
+          return false;
+        }
         const status = candidate.latestStatus;
         if (statusFilter === "scheduled" && status !== "scheduled") return false;
-        if (statusFilter === "in-progress" && status !== "waiting" && status !== "active") {
-          return false;
-        }
+        if (statusFilter === "in-progress" && status !== "waiting" && status !== "active") return false;
         if (statusFilter === "completed" && status !== "completed") return false;
-        if (
-          statusFilter === "cancelled" &&
-          status !== "cancelled" &&
-          status !== "expired"
-        ) {
-          return false;
-        }
+        if (statusFilter === "cancelled" && status !== "cancelled" && status !== "expired") return false;
       }
       return true;
     });
     return [...filtered].sort((a, b) => compareCandidateRows(a, b, sort));
-  }, [appliedRows, interviewRows, query, tab, statusFilter, sort]);
+  }, [appliedRows, interviewRows, query, tab, statusFilter, sort, cutoffApplied]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -397,31 +455,37 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
 
   function toggleSort(key: CandidateSortKey) {
     setSort((current) =>
-      current.key === key
-        ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
-        : { key, direction: "asc" },
+      current.key === key ? { key, direction: current.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" },
     );
     setPage(1);
   }
 
-  async function markCompleted() {
+  function clearFilters() {
+    setQuery("");
+    setStatusFilter("all");
+    setCutoffApplied(null);
+    setCutoff("");
+    setPage(1);
+  }
+
+  async function setRoleStatus(status: "open" | "completed") {
     if (actionBusy) return;
     setActionBusy(true);
     try {
       const response = await fetch(`/api/roles/${roleId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "completed" }),
+        body: JSON.stringify({ status }),
       });
       if (!response.ok) {
         const body = (await response.json()) as { error?: { message?: string } };
         throw new Error(body.error?.message ?? "Could not update the role.");
       }
       setConfirmingClose(false);
-      setNotice("Role marked as completed.");
-      await loadRole();
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Something went wrong.");
+      setToast({ tone: "success", message: status === "completed" ? "Role marked as completed." : "Role reopened." });
+      loadRole();
+    } catch (cause) {
+      fail(cause, "Could not update the role.");
     } finally {
       setActionBusy(false);
     }
@@ -444,16 +508,16 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       if (!response.ok) throw new Error(body.error?.message ?? "Could not record the decisions.");
       const okCount = body.decided?.length ?? 0;
       const failCount = body.failed?.length ?? 0;
-      setNotice(
+      setToast(
         failCount === 0
-          ? `${okCount} candidate${okCount === 1 ? "" : "s"} marked "${DECISION_LABELS[outcome]}".`
-          : `${okCount} marked "${DECISION_LABELS[outcome]}" · ${failCount} failed: ${body.failed?.[0]?.error ?? ""}`,
+          ? { tone: "success", message: `${okCount} candidate${okCount === 1 ? "" : "s"} marked ${DECISION_LABELS[outcome].toLowerCase()}.` }
+          : { tone: "error", message: `${okCount} saved, ${failCount} failed: ${body.failed?.[0]?.error ?? ""}` },
       );
       setSelected(new Set());
       setConfirmingDecision(null);
       loadCandidates();
-    } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Something went wrong.");
+    } catch (cause) {
+      fail(cause, "Could not record the decisions.");
     } finally {
       setActionBusy(false);
     }
@@ -468,8 +532,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     });
   }
 
-  const allSelected =
-    pageRows.length > 0 && pageRows.every((row) => selected.has(row.candidate.candidateId));
+  const allSelected = pageRows.length > 0 && pageRows.every((row) => selected.has(row.candidate.candidateId));
 
   function exportCsv() {
     const link = document.createElement("a");
@@ -480,14 +543,14 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     link.remove();
   }
 
-  if (error && role === null) {
+  if (loadError && role === null) {
     return (
-      <div>
-        <p role="alert" className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
-          {error}
+      <div className="py-16 text-center">
+        <p role="alert" className="text-sm text-rose-600 dark:text-rose-400">
+          {loadError}
         </p>
         <Link href="/dashboard/roles" className="mt-4 inline-block text-sm font-medium text-accent hover:underline">
-           ← Back to roles
+          Back to roles
         </Link>
       </div>
     );
@@ -495,599 +558,424 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
 
   if (role === null) {
     return (
-      <div aria-hidden className="space-y-4">
-        <div className="h-28 animate-pulse rounded-lg border border-border bg-surface" />
-        <div className="h-64 animate-pulse rounded-lg border border-border bg-surface" />
+      <div aria-hidden className="space-y-6 pt-10">
+        <div className="skeleton h-8 w-72 rounded-lg" />
+        <div className="skeleton h-20 rounded-2xl" />
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="skeleton h-80 rounded-2xl" />
+          <div className="skeleton h-80 rounded-2xl" />
+        </div>
       </div>
     );
   }
 
+  const facts = documentFacts(role.description);
+  const headerFacts = HEADER_FACTS.map((label) => facts.find((fact) => fact.label.toLowerCase() === label)).filter(
+    (fact): fact is { label: string; value: string } => Boolean(fact),
+  );
+  const inviteHref = `/recruiter?roleId=${encodeURIComponent(role.id)}`;
   const activeRows = tab === "applications" ? appliedRows : interviewRows;
+  const application = openApplication
+    ? (candidates ?? []).find((candidate) => candidate.applicationId === openApplication) ?? null
+    : null;
+
+  const figures = [
+    { label: "Applications", value: counts.applied, sub: "through the form" },
+    { label: "Interviews", value: counts.interview, sub: `${role.stats.pending} not finished` },
+    { label: "Finished", value: role.stats.completed, sub: "with a report" },
+    {
+      label: "Average score",
+      value: role.stats.avgOverallScore,
+      sub: "out of 100",
+      tone: role.stats.avgOverallScore !== null ? scoreTone(role.stats.avgOverallScore).text : "",
+    },
+    { label: "Advanced", value: advancedCount, sub: "by your decision" },
+  ];
 
   return (
-    <div>
-      <Link href="/dashboard/roles" className="text-sm font-medium text-accent hover:underline">
-         ← Back to roles
-      </Link>
+    <div className="pb-24">
+      {/* ------------------------------------------------------------ header */}
+      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 pt-8 text-sm text-muted">
+        <Link href="/dashboard/roles" className="transition hover:text-foreground">
+          Roles
+        </Link>
+        <ChevronRight className="size-3.5" aria-hidden />
+        <span className="truncate text-foreground/80">{role.title}</span>
+      </nav>
 
-      <div className="mt-3 rounded-lg border border-border bg-surface p-5">
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-2xl font-semibold">{role.title}</h2>
-          <span
-            className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
-              role.status === "open"
-                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                : "border-border bg-surface text-muted"
-            }`}
-          >
-            {STATUS_LABELS[role.status]}
-          </span>
-          <span className="grow" />
-          <Link
-            href={`/recruiter?roleId=${encodeURIComponent(role.id)}`}
-            className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-accent/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-          >
-            Add candidate
-          </Link>
-          {role.status === "open" && (
-            <button
-              type="button"
-              onClick={() => setConfirmingClose(true)}
-              className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition hover:border-accent/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-            >
-              Mark completed
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={exportCsv}
-            className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition hover:bg-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-          >
-            Export CSV
-          </button>
-        </div>
-        <CollapsibleDescription text={role.description} />
-        {role.skills.length > 0 && (
-          <p className="mt-2 flex flex-wrap gap-1">
-            {role.skills.map((skill) => (
-              <span key={skill} className="rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
-                {skill}
+      <header className="mt-3 flex flex-wrap items-start justify-between gap-4 pb-7">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">{role.title}</h1>
+            {role.status === "open" ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                <span aria-hidden className="size-1.5 rounded-full bg-emerald-500" />
+                Open
               </span>
-            ))}
-          </p>
-        )}
-        <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted">
-          {role.deadline && <span>Deadline {formatDate(role.deadline)}</span>}
-          <span>
-            <strong className="text-foreground">{role.stats.candidates}</strong> candidates ·{" "}
-            <strong className="text-foreground">{role.stats.completed}</strong> completed ·{" "}
-            <strong className="text-foreground">{role.stats.pending}</strong> pending
-          </span>
-          {role.stats.avgOverallScore !== null && (
-            <span>
-              Avg score <strong className="text-foreground">{role.stats.avgOverallScore}</strong>/100
-            </span>
-          )}
-          {cutoffApplied !== null && (
-            <span className="text-accent">
-              Shortlist cutoff ≥ {cutoffApplied}: <strong className="text-accent">{readyCount}</strong> ready
-            </span>
-          )}
-        </div>
-      </div>
-
-      <ApplicationFormSettings
-        roleId={roleId}
-        roleTitle={role.title}
-        roleDescription={role.description}
-      />
-
-      {notice && (
-        <p role="status" className="mt-4 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">
-          {notice}
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="mt-4 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
-
-      {confirmingClose && (
-        <div role="dialog" aria-label="Mark role completed?" className="mt-4 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
-          <p className="text-sm font-medium">Mark this role as completed?</p>
-          <p className="mt-1 text-sm text-muted">
-            The role stays readable and exportable; you can reopen it at any time.
-          </p>
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={markCompleted}
-              disabled={actionBusy}
-              className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-            >
-              {actionBusy ? "Saving…" : "Yes, mark completed"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmingClose(false)}
-              className="rounded-md border border-border px-3 py-1.5 text-sm font-medium"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ---------------------------------------------------------- candidates */}
-      <div className="mt-8">
-        <div
-          role="tablist"
-          aria-label="Candidate stages"
-          className="flex flex-wrap gap-1 border-b border-border"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "applications"}
-            aria-controls="applied-candidates"
-            onClick={() => selectTab("applications")}
-            className={`-mb-px rounded-t-lg border-b-2 px-4 py-2.5 text-sm font-medium transition ${
-              tab === "applications"
-                ? "border-accent text-accent"
-                : "border-transparent text-muted hover:text-foreground"
-            }`}
-          >
-            Applied Candidates ({counts.applied})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "interviews"}
-            aria-controls="interview-candidates"
-            onClick={() => selectTab("interviews")}
-            className={`-mb-px rounded-t-lg border-b-2 px-4 py-2.5 text-sm font-medium transition ${
-              tab === "interviews"
-                ? "border-accent text-accent"
-                : "border-transparent text-muted hover:text-foreground"
-            }`}
-          >
-            Interview Candidates ({counts.interview})
-          </button>
-        </div>
-
-        <div
-          id={tab === "applications" ? "applied-candidates" : "interview-candidates"}
-          role="tabpanel"
-          className="pt-4"
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="relative min-w-0 flex-1 sm:max-w-xs">
-              <span className="sr-only">Search candidates</span>
-              <Search
-                aria-hidden
-                className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
-              />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  setPage(1);
-                }}
-                placeholder="Search by name, email or phone"
-                className="h-9 w-full rounded-md border border-border bg-surface pl-8 pr-2.5 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
-              />
-            </label>
-
-            {tab === "interviews" && (
-              <>
-                <label className="flex items-center gap-2 text-xs text-muted">
-                  Status
-                  <select
-                    value={statusFilter}
-                    onChange={(event) => {
-                      setStatusFilter(event.target.value as typeof statusFilter);
-                      setPage(1);
-                    }}
-                    className="h-9 rounded-md border border-border bg-surface px-2 text-sm text-foreground"
-                  >
-                    <option value="all">All</option>
-                    <option value="scheduled">Scheduled</option>
-                    <option value="in-progress">In progress</option>
-                    <option value="completed">Completed</option>
-                    <option value="cancelled">Cancelled / expired</option>
-                  </select>
-                </label>
-
-                <label className="flex items-center gap-2 text-xs text-muted">
-                  Shortlist cutoff
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={cutoff}
-                    onChange={(event) => setCutoff(event.target.value)}
-                    placeholder="≥ score"
-                    aria-label="Shortlist score cutoff"
-                    className="w-20 rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const parsed = Number.parseInt(cutoff, 10);
-                      setCutoffApplied(
-                        Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 100) : null,
-                      );
-                      setSelected(new Set());
-                      setPage(1);
-                    }}
-                    className="rounded-md border border-border px-2 py-1 font-medium transition hover:border-accent/50"
-                  >
-                    Apply
-                  </button>
-                  {cutoffApplied !== null && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCutoffApplied(null);
-                        setCutoff("");
-                        setSelected(new Set());
-                        setPage(1);
-                      }}
-                      className="font-medium text-accent hover:underline"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </label>
-              </>
+            ) : (
+              <span className="rounded-full bg-foreground/[0.06] px-2.5 py-1 text-xs font-medium text-muted">Completed</span>
             )}
-
-            <span className="grow" />
-            <span className="text-xs text-muted">
-              {visibleRows.length} shown
-            </span>
           </div>
+          <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
+            {headerFacts.map((fact) => (
+              <span key={fact.label}>{fact.value}</span>
+            ))}
+            {role.deadline && (
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarClock className="size-3.5" aria-hidden />
+                Closes {formatDate(role.deadline)}
+              </span>
+            )}
+            <span>Created {formatDate(role.createdAt)}</span>
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setEditing(true)} className={ghostButton}>
+            <Pencil className="size-3.5 text-muted" aria-hidden />
+            Edit
+          </button>
+          <Link
+            href={inviteHref}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3.5 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90"
+          >
+            <UserPlus className="size-4" aria-hidden />
+            Invite a candidate
+          </Link>
+          <Menu
+            label="Role actions"
+            align="end"
+            trigger={
+              <button
+                type="button"
+                aria-label="More role actions"
+                className="grid size-9 place-items-center rounded-lg border border-border bg-surface text-muted transition hover:border-foreground/20 hover:text-foreground"
+              >
+                <MoreHorizontal className="size-4" aria-hidden />
+              </button>
+            }
+            items={[
+              { id: "export", label: "Download candidates (CSV)", icon: <Download className="size-4" aria-hidden />, onSelect: exportCsv },
+              role.status === "open"
+                ? { id: "complete", label: "Mark role as completed", onSelect: () => setConfirmingClose(true) }
+                : { id: "reopen", label: "Reopen role", onSelect: () => setRoleStatus("open") },
+            ]}
+          />
+        </div>
+      </header>
 
-          {selected.size > 0 && tab === "interviews" && (
-            <div role="toolbar" aria-label="Bulk decisions" className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 p-3">
-              <span className="text-sm font-medium">{selected.size} selected</span>
-              <span className="grow" />
-              <button
-                type="button"
-                disabled={actionBusy}
-                onClick={() => setConfirmingDecision("advance")}
-                className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
-              >
-                Advance
-              </button>
-              <button
-                type="button"
-                disabled={actionBusy}
-                onClick={() => setConfirmingDecision("hold")}
-                className="rounded-md border border-amber-500/60 px-3 py-1.5 text-sm font-medium text-amber-700 transition hover:bg-amber-500/10 disabled:opacity-60 dark:text-amber-300"
-              >
-                Hold
-              </button>
-              <button
-                type="button"
-                disabled={actionBusy}
-                onClick={() => setConfirmingDecision("reject")}
-                className="rounded-md border border-red-500/50 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-500/10 disabled:opacity-60 dark:text-red-400"
-              >
-                Reject
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelected(new Set())}
-                className="text-sm text-muted hover:underline"
-              >
-                Clear selection
-              </button>
-            </div>
+      {/* ------------------------------------------------------ key figures */}
+      <section
+        aria-label="Key figures"
+        className="grid grid-cols-2 overflow-hidden rounded-2xl border border-border bg-surface sm:grid-cols-3 lg:grid-cols-5"
+      >
+        {figures.map((item) => (
+          <div key={item.label} className="border-b border-r border-border px-5 py-4 last:border-r-0 lg:border-b-0">
+            <p className="text-xs font-medium text-muted">{item.label}</p>
+            <p className={`mt-1.5 text-2xl font-semibold leading-none tracking-[-0.02em] tabular-nums ${item.tone ?? ""}`}>
+              {item.value ?? "—"}
+            </p>
+            <p className="mt-1.5 text-xs text-muted">{item.sub}</p>
+          </div>
+        ))}
+      </section>
+
+      {/* ------------------------------------------- description + side panel */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+        <section className="rounded-2xl border border-border bg-surface px-6 py-6 sm:px-8">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold tracking-[-0.01em]">Job description</h2>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="text-sm font-medium text-muted transition hover:text-foreground"
+            >
+              Edit
+            </button>
+          </div>
+          {role.description.trim() ? (
+            <DocumentText
+              text={role.description}
+              collapsedHeight={420}
+              hideFactLabels={headerFacts.map((fact) => fact.label)}
+              className="mt-5"
+            />
+          ) : (
+            <p className="mt-3 text-sm text-muted">
+              No description yet.{" "}
+              <button type="button" onClick={() => setEditing(true)} className="font-medium text-accent hover:underline">
+                Add one
+              </button>{" "}
+              so interviews can be planned and scored against it.
+            </p>
           )}
-
-          {confirmingDecision !== null && (
-            <div role="dialog" aria-label="Confirm bulk decision" className="mt-3 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
-              <p className="text-sm font-medium">
-                {confirmingDecision === "advance" ? "Advance" : confirmingDecision === "hold" ? "Put on hold" : "Reject"}{" "}
-                {selected.size} candidate{selected.size === 1 ? "" : "s"}?
-              </p>
-              <p className="mt-1 text-sm text-muted">
-                The decision is recorded on each candidate&apos;s most recent interview and they move to the matching stage. You can change it later.
-              </p>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => applyDecision(confirmingDecision)}
-                  disabled={actionBusy}
-                  className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-                >
-                  {actionBusy ? "Recording…" : "Confirm"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmingDecision(null)}
-                  className="rounded-md border border-border px-3 py-1.5 text-sm font-medium"
-                >
-                  Cancel
-                </button>
+          {role.skills.length > 0 && (
+            <div className="mt-8 border-t border-border pt-5">
+              <h3 className="text-sm font-semibold">Skills the interview tests</h3>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {role.skills.map((skill) => (
+                  <span key={skill} className="rounded-md bg-foreground/[0.05] px-2 py-1 text-xs font-medium text-foreground/80">
+                    {skill}
+                  </span>
+                ))}
               </div>
             </div>
           )}
+        </section>
 
+        <aside className="grid gap-6 lg:sticky lg:top-20">
+          <ApplicationFormSettings roleId={roleId} roleTitle={role.title} roleDescription={role.description} />
+          <PipelineCard rows={rows} />
+        </aside>
+      </div>
+
+      {/* -------------------------------------------------------- candidates */}
+      <section className="mt-12" aria-label="Candidates">
+        <h2 className="mb-4 text-lg font-semibold tracking-[-0.01em]">Candidates</h2>
+        <StageTabs value={tab} onChange={selectTab} counts={counts} />
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 sm:max-w-xs">
+            <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Name, email or phone"
+              aria-label="Search candidates"
+              className="h-9 w-full rounded-lg border border-border bg-surface pl-9 pr-3 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:ring-4 focus:ring-accent/15"
+            />
+          </div>
+          {tab === "interviews" && (
+            <>
+              <FilterMenu
+                label="Interview status"
+                icon={<span aria-hidden className="block size-2 rounded-full bg-current" />}
+                value={statusFilter}
+                options={STATUS_FILTERS}
+                onChange={(value) => {
+                  setStatusFilter(value as StatusFilter);
+                  setPage(1);
+                }}
+              />
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const parsed = Number.parseInt(cutoff, 10);
+                  setCutoffApplied(Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 100) : null);
+                  setSelected(new Set());
+                  setPage(1);
+                }}
+                className="flex h-9 items-center rounded-lg border border-border bg-surface pl-3 text-sm focus-within:border-accent"
+              >
+                <label htmlFor="cutoff" className="text-muted">
+                  Score at least
+                </label>
+                <input
+                  id="cutoff"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={cutoff}
+                  onChange={(event) => setCutoff(event.target.value)}
+                  placeholder="—"
+                  className="w-12 bg-transparent px-2 text-sm font-medium tabular-nums outline-none"
+                />
+                <button type="submit" className="h-full border-l border-border px-3 font-medium transition hover:bg-foreground/[0.03]">
+                  Apply
+                </button>
+              </form>
+            </>
+          )}
+          {(query !== "" || statusFilter !== "all" || cutoffApplied !== null) && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted transition hover:bg-foreground/[0.05] hover:text-foreground"
+            >
+              <X className="size-3.5" aria-hidden />
+              Reset
+            </button>
+          )}
+          <span className="grow" />
+          <span className="text-sm tabular-nums text-muted">
+            {visibleRows.length} {visibleRows.length === 1 ? "person" : "people"}
+          </span>
+        </div>
+
+        <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-surface">
           {candidates === null ? (
-            <div aria-hidden className="mt-3 space-y-2">
+            <div aria-hidden className="divide-y divide-border">
               {[0, 1, 2].map((key) => (
-                <div key={key} className="h-14 animate-pulse rounded-lg border border-border bg-surface" />
+                <div key={key} className="flex items-center gap-3 px-5 py-4">
+                  <div className="skeleton size-8 rounded-full" />
+                  <div className="skeleton h-4 w-48 rounded" />
+                </div>
               ))}
             </div>
           ) : activeRows.length === 0 ? (
-            <div className="mt-3 rounded-lg border border-dashed border-border bg-surface p-8 text-center text-sm text-muted">
-              {tab === "applications" ? (
-                <>
-                  No applications yet. Share the application form link above and they will appear
-                  here as Waiting.{" "}
-                  <a href="#application-form" className="font-medium text-accent hover:underline">
-                    Go to the form
-                  </a>
-                </>
-              ) : (
-                <>
-                  No candidates have reached the interview stage yet. Schedule an interview from an
-                  application and it will appear here.
-                </>
+            <div className="grid place-items-center px-6 py-14 text-center">
+              <span className="grid size-11 place-items-center rounded-full bg-foreground/[0.05] text-muted">
+                {tab === "applications" ? <FileText className="size-5" aria-hidden /> : <UserPlus className="size-5" aria-hidden />}
+              </span>
+              <p className="mt-4 font-medium">{tab === "applications" ? "No applications yet" : "Nobody has been interviewed yet"}</p>
+              <p className="mt-1 max-w-sm text-sm text-muted">
+                {tab === "applications"
+                  ? "Share the application form link and applicants show up here."
+                  : "Invite a candidate, or schedule an interview from an application."}
+              </p>
+              {tab === "interviews" && (
+                <Link href={inviteHref} className="mt-4 text-sm font-medium text-accent hover:underline">
+                  Invite a candidate
+                </Link>
               )}
             </div>
           ) : visibleRows.length === 0 ? (
-            <div className="mt-3 rounded-lg border border-dashed border-border bg-surface p-8 text-center text-sm text-muted">
-              No candidates match the current search or filters.{" "}
-              <button
-                type="button"
-                onClick={() => {
-                  setQuery("");
-                  setStatusFilter("all");
-                  setCutoffApplied(null);
-                  setCutoff("");
-                  setPage(1);
-                }}
-                className="font-medium text-accent hover:underline"
-              >
-                Clear filters
+            <div className="grid place-items-center px-6 py-14 text-center">
+              <span className="grid size-11 place-items-center rounded-full bg-foreground/[0.05] text-muted">
+                <SearchX className="size-5" aria-hidden />
+              </span>
+              <p className="mt-4 font-medium">Nobody matches these filters</p>
+              <button type="button" onClick={clearFilters} className="mt-3 text-sm font-medium text-accent hover:underline">
+                Reset filters
               </button>
             </div>
           ) : tab === "applications" ? (
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[720px] border-separate border-spacing-y-1 text-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted">
-                    <SortableHeader label="Candidate" column="candidate" sort={sort} onSort={toggleSort} className="w-[38%]" />
+                  <tr className="border-b border-border text-xs text-muted">
+                    <SortableHeader label="Applicant" column="candidate" sort={sort} onSort={toggleSort} className="pl-5" />
                     <SortableHeader label="Applied" column="applied" sort={sort} onSort={toggleSort} />
-                    <th scope="col" className="px-3 py-2">Stage</th>
-                    <th scope="col" className="px-3 py-2">Decision</th>
-                    <th scope="col" className="px-3 py-2 text-right"><span className="sr-only">Open</span></th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">Phone</th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">Status</th>
+                    <th scope="col" className="w-12 px-3 py-2.5" />
                   </tr>
                 </thead>
-                <tbody>
-                  {pageRows.map(({ candidate, stage }) => {
-                    const expanded = openApplication === candidate.applicationId;
+                <tbody className="divide-y divide-border">
+                  {pageRows.map(({ candidate }) => {
+                    const applied = candidate.appliedAt ?? candidate.latestInterviewAt;
+                    const rejected = candidate.applicationStatus === "rejected";
                     return (
-                      <Fragment key={candidate.candidateId}>
-                        <tr className="rounded-lg bg-surface [&>td]:first:rounded-l-lg [&>td]:last:rounded-r-lg">
-                          <td className="px-3 py-2.5">
-                            <div className="flex items-center gap-2.5">
-                              <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
-                                {initials(candidate.candidateName ?? candidate.candidateEmail)}
-                              </span>
-                              <span>
-                                <span className="font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
-                                <span className="block text-xs text-muted">{candidate.candidateEmail}</span>
-                                {candidate.candidatePhone && (
-                                  <span className="block text-xs text-muted">{candidate.candidatePhone}</span>
-                                )}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="px-3 py-2.5 text-xs text-muted">
-                            {candidate.appliedAt ? formatDate(candidate.appliedAt) : formatDate(candidate.latestInterviewAt)}
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${HIRE_STAGE_STYLES[stage]}`}>
-                              {HIRE_STAGE_LABELS[stage]}
+                      <tr
+                        key={candidate.candidateId}
+                        onClick={() => setOpenApplication(candidate.applicationId ?? null)}
+                        className="cursor-pointer transition-colors hover:bg-foreground/[0.02]"
+                      >
+                        <td className="py-3 pl-5 pr-3">
+                          <Person candidate={candidate} />
+                        </td>
+                        <td className="px-3 py-3 tabular-nums">
+                          {formatDay(applied).day}
+                          <span className="block text-xs text-muted">{formatDay(applied).time}</span>
+                        </td>
+                        <td className="px-3 py-3 tabular-nums text-muted">{candidate.candidatePhone ?? "—"}</td>
+                        <td className="px-3 py-3">
+                          {rejected ? (
+                            <span className="text-sm font-medium text-rose-600 dark:text-rose-400">Rejected</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-sm">
+                              <span aria-hidden className="size-1.5 rounded-full bg-sky-500" />
+                              Waiting for review
                             </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-xs">
-                            {candidate.applicationStatus === "rejected" ? "Rejected" : <span className="text-muted">—</span>}
-                          </td>
-                          <td className="px-3 py-2.5 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setOpenApplication(expanded ? null : candidate.applicationId ?? null)}
-                              aria-expanded={expanded}
-                              className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-                            >
-                              {expanded ? "Close" : "Review application"}
-                            </button>
-                          </td>
-                        </tr>
-                        {expanded && candidate.applicationId && (
-                          <tr id={`application-${candidate.applicationId}`}>
-                            <td colSpan={5} className="rounded-lg bg-background px-4 py-4">
-                              <div className="grid gap-4 sm:grid-cols-2">
-                                <div>
-                                  <p className="text-xs uppercase tracking-wide text-muted">Applicant details</p>
-                                  <dl className="mt-2 space-y-1 text-sm">
-                                    <div className="flex gap-2">
-                                      <dt className="w-28 shrink-0 text-muted">Phone</dt>
-                                      <dd>{candidate.candidatePhone ?? "—"}</dd>
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <dt className="w-28 shrink-0 text-muted">College roll no.</dt>
-                                      <dd>{candidate.candidateCollegeId ?? "—"}</dd>
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <dt className="w-28 shrink-0 text-muted">Applied</dt>
-                                      <dd>{candidate.appliedAt ? formatDate(candidate.appliedAt) : "—"}</dd>
-                                    </div>
-                                    {Object.entries(candidate.answers ?? {}).map(([fieldId, value]) => (
-                                      <div key={fieldId} className="flex gap-2">
-                                        <dt className="w-28 shrink-0 text-muted">
-                                          {formFields.find((field) => field.id === fieldId)?.label ?? fieldId}
-                                        </dt>
-                                        <dd className="whitespace-pre-line">{value || "—"}</dd>
-                                      </div>
-                                    ))}
-                                  </dl>
-                                </div>
-                                <div className="flex flex-col gap-2 sm:items-end">
-                                  <a
-                                    href={`/api/roles/${roleId}/applications/${encodeURIComponent(candidate.applicationId)}/resume`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-accent transition hover:border-accent/50"
-                                  >
-                                    Open resume
-                                  </a>
-                                  <Link
-                                    href={`/recruiter?roleId=${encodeURIComponent(roleId)}&candidateName=${encodeURIComponent(candidate.candidateName ?? "")}&candidateEmail=${encodeURIComponent(candidate.candidateEmail)}`}
-                                    className="rounded-md bg-accent px-3 py-1.5 text-center text-sm font-medium text-white transition hover:bg-accent/90"
-                                  >
-                                    Schedule interview
-                                  </Link>
-                                  {candidate.applicationStatus === "rejected" ? (
-                                    <button
-                                      type="button"
-                                      disabled={actionBusy}
-                                      onClick={() => setApplicationStage(candidate.applicationId!, "restore")}
-                                      className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition hover:border-accent/50 disabled:opacity-60"
-                                    >
-                                      Move back to Waiting
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      disabled={actionBusy}
-                                      onClick={() => setApplicationStage(candidate.applicationId!, "reject")}
-                                      className="rounded-md border border-red-500/50 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-500/10 disabled:opacity-60 dark:text-red-400"
-                                    >
-                                      Reject application
-                                    </button>
-                                  )}
-                                  <p className="text-xs text-muted sm:text-right">
-                                    Reject when the resume does not match the role&apos;s requirements.
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <ChevronRight className="ml-auto size-4 text-muted" aria-hidden />
+                        </td>
+                      </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
           ) : (
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[880px] border-separate border-spacing-y-1 text-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-left text-sm">
                 <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted">
-                    <th scope="col" className="w-8 px-3 py-2">
+                  <tr className="border-b border-border text-xs text-muted">
+                    <th scope="col" className="w-10 py-2.5 pl-5">
                       <input
                         type="checkbox"
-                        aria-label="Select all candidates on this page"
+                        aria-label="Select everyone on this page"
                         checked={allSelected}
-                        onChange={() => {
-                          setSelected(
-                            allSelected
-                              ? new Set()
-                              : new Set(pageRows.map((row) => row.candidate.candidateId)),
-                          );
-                        }}
+                        onChange={() =>
+                          setSelected(allSelected ? new Set() : new Set(pageRows.map((row) => row.candidate.candidateId)))
+                        }
+                        className="size-4 cursor-pointer accent-[var(--accent)]"
                       />
                     </th>
                     <SortableHeader label="Candidate" column="candidate" sort={sort} onSort={toggleSort} />
-                    <SortableHeader label="Interview date" column="interview" sort={sort} onSort={toggleSort} />
+                    <SortableHeader label="Interview" column="interview" sort={sort} onSort={toggleSort} />
                     <SortableHeader label="Status" column="status" sort={sort} onSort={toggleSort} />
                     <SortableHeader label="Score" column="score" sort={sort} onSort={toggleSort} />
-                    <th scope="col" className="px-3 py-2">Evaluation</th>
-                    <th scope="col" className="px-3 py-2">Decision</th>
-                    <th scope="col" className="px-3 py-2 text-right"><span className="sr-only">Open</span></th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">Decision</th>
+                    <th scope="col" className="w-24 px-3 py-2.5" />
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-border">
                   {pageRows.map(({ candidate }) => {
-                    const status = candidate.latestStatus;
+                    const isSelected = selected.has(candidate.candidateId);
+                    const when = formatDay(candidate.scheduledAt ?? candidate.latestInterviewAt);
+                    const score = candidate.overallScore;
                     return (
                       <tr
                         key={candidate.candidateId}
-                        className={`rounded-lg bg-surface [&>td]:first:rounded-l-lg [&>td]:last:rounded-r-lg ${
-                          selected.has(candidate.candidateId) ? "ring-1 ring-accent/40" : ""
-                        }`}
+                        className={`transition-colors ${isSelected ? "bg-accent-soft/60" : "hover:bg-foreground/[0.02]"}`}
                       >
-                        <td className="px-3 py-2.5">
+                        <td className="py-3 pl-5">
                           <input
                             type="checkbox"
                             aria-label={`Select ${candidate.candidateName ?? candidate.candidateEmail}`}
-                            checked={selected.has(candidate.candidateId)}
+                            checked={isSelected}
                             onChange={() => toggle(candidate.candidateId)}
+                            className="size-4 cursor-pointer accent-[var(--accent)]"
                           />
                         </td>
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-2.5">
-                            <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
-                              {initials(candidate.candidateName ?? candidate.candidateEmail)}
-                            </span>
-                            <span>
-                              <span className="font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
-                              <span className="block text-xs text-muted">{candidate.candidateEmail}</span>
-                              {candidate.appliedAt && (
-                                <span className="block text-xs text-muted">Applied {formatDate(candidate.appliedAt)}</span>
-                              )}
-                            </span>
-                          </div>
+                        <td className="px-3 py-3">
+                          <Link href={`/dashboard/${candidate.latestInterviewId}`} className="block hover:text-accent">
+                            <Person candidate={candidate} />
+                          </Link>
                         </td>
-                        <td className="px-3 py-2.5 text-xs text-muted">
-                          {formatDateTime(candidate.scheduledAt ?? candidate.latestInterviewAt)}
-                          {candidate.completedAt && status === "completed" && (
-                            <span className="block">Ended {formatDate(candidate.completedAt)}</span>
-                          )}
+                        <td className="px-3 py-3 tabular-nums">
+                          {when.day}
+                          <span className="block text-xs text-muted">{when.time}</span>
                         </td>
-                        <td className="px-3 py-2.5">
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${INTERVIEW_STATUS_STYLES[status]}`}>
-                            {INTERVIEW_STATUS_LABELS[status]}
-                          </span>
+                        <td className="px-3 py-3">
+                          <StatusBadge status={candidate.latestStatus} />
                         </td>
-                        <td className="px-3 py-2.5">
-                          {candidate.overallScore === null ? (
+                        <td className="px-3 py-3">
+                          {score === null ? (
                             <span className="text-muted">—</span>
                           ) : (
-                            <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${scoreBadgeClass(candidate.overallScore)}`}>
-                              {candidate.overallScore}/100
-                            </span>
+                            <div className="flex items-center gap-2.5">
+                              <span className={`w-7 text-[15px] font-semibold tabular-nums ${scoreTone(score).text}`}>{score}</span>
+                              <span className="h-1 w-14 overflow-hidden rounded-full bg-foreground/[0.07]">
+                                <span className={`block h-full rounded-full ${scoreTone(score).bar}`} style={{ width: `${score}%` }} />
+                              </span>
+                            </div>
+                          )}
+                          {candidate.suggestion && (
+                            <span className="mt-0.5 block text-xs text-muted">{SUGGESTION_LABELS[candidate.suggestion]}</span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 text-xs">
-                          {candidate.suggestion ? (
-                            SUGGESTION_LABELS[candidate.suggestion]
-                          ) : (
-                            <span className="text-muted">Not scored</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 text-xs">
+                        <td className="px-3 py-3">
                           {candidate.decision ? (
-                            DECISION_LABELS[candidate.decision.outcome]
+                            <span className={`font-medium ${DECISION_TEXT[candidate.decision.outcome]}`}>
+                              {DECISION_LABELS[candidate.decision.outcome]}
+                            </span>
                           ) : (
-                            <span className="text-muted">—</span>
+                            <span className="text-muted">Not decided</span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 text-right">
+                        <td className="px-3 py-3 pr-5 text-right">
                           <Link
                             href={`/dashboard/${candidate.latestInterviewId}`}
-                            className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                            className="inline-flex h-8 items-center rounded-lg px-2.5 text-sm font-medium text-accent transition hover:bg-accent-soft"
                           >
-                            View report
+                            Report
                           </Link>
                         </td>
                       </tr>
@@ -1097,18 +985,185 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
               </table>
             </div>
           )}
-
-          {visibleRows.length > PAGE_SIZE && (
-            <Pagination
-              page={currentPage}
-              pageSize={PAGE_SIZE}
-              total={visibleRows.length}
-              onPage={setPage}
-            />
-          )}
         </div>
-      </div>
+
+        {visibleRows.length > PAGE_SIZE && (
+          <Pagination page={currentPage} pageSize={PAGE_SIZE} total={visibleRows.length} onPage={setPage} />
+        )}
+      </section>
+
+      {/* ------------------------------------------------ application review */}
+      <Sheet
+        open={application !== null}
+        onClose={() => setOpenApplication(null)}
+        title={application?.candidateName ?? "Application"}
+        description={application ? `Applied ${formatDate(application.appliedAt ?? application.latestInterviewAt)}` : undefined}
+        footer={
+          application?.applicationId ? (
+            <>
+              {application.applicationStatus === "rejected" ? (
+                <button
+                  type="button"
+                  disabled={actionBusy}
+                  onClick={() => setApplicationStage(application.applicationId!, "restore")}
+                  className={ghostButton}
+                >
+                  Move back to waiting
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={actionBusy}
+                  onClick={() => setApplicationStage(application.applicationId!, "reject")}
+                  className="inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium text-rose-600 transition hover:bg-rose-500/10 disabled:opacity-50 dark:text-rose-400"
+                >
+                  Reject
+                </button>
+              )}
+              <span className="grow" />
+              <Link
+                href={`/recruiter?roleId=${encodeURIComponent(roleId)}&candidateName=${encodeURIComponent(
+                  application.candidateName ?? "",
+                )}&candidateEmail=${encodeURIComponent(application.candidateEmail)}`}
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90"
+              >
+                Schedule an interview
+              </Link>
+            </>
+          ) : undefined
+        }
+      >
+        {application && (
+          <div className="grid gap-6">
+            <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-3 text-sm">
+              <dt className="text-muted">Email</dt>
+              <dd className="break-all font-medium">{application.candidateEmail}</dd>
+              <dt className="text-muted">Phone</dt>
+              <dd className="font-medium tabular-nums">{application.candidatePhone ?? "—"}</dd>
+              <dt className="text-muted">College roll no.</dt>
+              <dd className="font-medium">{application.candidateCollegeId ?? "—"}</dd>
+              <dt className="text-muted">Status</dt>
+              <dd className="font-medium">{application.applicationStatus === "rejected" ? "Rejected" : "Waiting for review"}</dd>
+            </dl>
+
+            {Object.keys(application.answers ?? {}).length > 0 && (
+              <div className="border-t border-border pt-5">
+                <h3 className="text-sm font-semibold">Answers</h3>
+                <dl className="mt-4 grid gap-4">
+                  {Object.entries(application.answers ?? {}).map(([fieldId, value]) => (
+                    <div key={fieldId}>
+                      <dt className="text-sm text-muted">{formFields.find((field) => field.id === fieldId)?.label ?? fieldId}</dt>
+                      <dd className="mt-1 whitespace-pre-line text-[15px] leading-6">{value || "—"}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+
+            {application.applicationId && (
+              <div className="border-t border-border pt-5">
+                <h3 className="text-sm font-semibold">Resume</h3>
+                <a
+                  href={`/api/roles/${roleId}/applications/${encodeURIComponent(application.applicationId)}/resume`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 flex items-center gap-3 rounded-xl border border-border p-3 transition hover:border-foreground/20 hover:bg-foreground/[0.02]"
+                >
+                  <span className="grid size-9 place-items-center rounded-lg bg-foreground/[0.05] text-muted">
+                    <FileText className="size-4" aria-hidden />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">Open the resume</span>
+                    <span className="block text-xs text-muted">Opens in a new tab</span>
+                  </span>
+                  <ExternalLink className="size-3.5 text-muted" aria-hidden />
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+      </Sheet>
+
+      {/* ------------------------------------------------------- bulk decide */}
+      <AnimatePresence>
+        {selected.size > 0 && tab === "interviews" && (
+          <motion.div
+            role="toolbar"
+            aria-label="Decide for the selected candidates"
+            initial={{ opacity: 0, y: 24, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 24, scale: 0.98 }}
+            transition={{ duration: 0.25, ease: EASE_OUT }}
+            className="fixed inset-x-0 bottom-6 z-40 mx-auto flex w-fit items-center gap-1 rounded-2xl border border-border bg-surface/95 p-1.5 pl-4 shadow-2xl shadow-black/15 backdrop-blur-xl dark:shadow-black/50"
+          >
+            <p className="pr-3 text-sm font-medium tabular-nums">{selected.size} selected</p>
+            <button
+              type="button"
+              onClick={() => setConfirmingDecision("advance")}
+              className="h-8 rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white transition hover:bg-emerald-700"
+            >
+              Advance
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingDecision("hold")}
+              className="h-8 rounded-lg px-3 text-sm font-medium text-amber-700 transition hover:bg-amber-500/10 dark:text-amber-300"
+            >
+              Hold
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingDecision("reject")}
+              className="h-8 rounded-lg px-3 text-sm font-medium text-rose-600 transition hover:bg-rose-500/10 dark:text-rose-400"
+            >
+              Reject
+            </button>
+            <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="h-8 rounded-lg px-3 text-sm text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
+            >
+              Clear
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <ConfirmDialog
+        open={confirmingDecision !== null}
+        title={`${confirmingDecision === "advance" ? "Advance" : confirmingDecision === "hold" ? "Put on hold" : "Reject"} ${
+          selected.size
+        } candidate${selected.size === 1 ? "" : "s"}?`}
+        body="The decision is saved on each person's latest interview. You can change it later from their report."
+        confirmLabel={actionBusy ? "Saving…" : "Confirm"}
+        busy={actionBusy}
+        onConfirm={() => confirmingDecision && applyDecision(confirmingDecision)}
+        onCancel={() => setConfirmingDecision(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmingClose}
+        title="Mark this role as completed?"
+        body="It stays readable and downloadable, and you can reopen it at any time."
+        confirmLabel="Mark completed"
+        busy={actionBusy}
+        onConfirm={() => setRoleStatus("completed")}
+        onCancel={() => setConfirmingClose(false)}
+      />
+
+      <RoleFormSheet
+        open={editing}
+        role={role}
+        onClose={() => setEditing(false)}
+        onSaved={(message) => {
+          setEditing(false);
+          setToast({ tone: "success", message });
+          loadRole();
+        }}
+      />
+
+      <Toast toast={toast} onDismiss={dismissToast} />
     </div>
   );
 }
-

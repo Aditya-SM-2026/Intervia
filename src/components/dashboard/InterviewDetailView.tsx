@@ -915,12 +915,6 @@ function OverallAssessment({
   );
 }
 
-const TONE_BAR: Record<Tone, string> = {
-  good: "bg-emerald-500",
-  warn: "bg-amber-500",
-  bad: "bg-rose-500",
-  muted: "bg-foreground/25",
-};
 
 const TONE_TEXT: Record<Tone, string> = {
   good: "text-emerald-700 dark:text-emerald-400",

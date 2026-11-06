@@ -1,31 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  ArrowUpDown,
-  Brain,
-  ChevronDown,
-  Clock3,
-  ClipboardList,
-  Code2,
-  Database,
-  ExternalLink,
-  FileBarChart,
-  FileText,
-  Filter,
-  Layers,
-  LayoutGrid,
-  List,
-  Search,
-  Settings,
-  Star,
-  Trash2,
-  Trophy,
-  UserPlus,
-  Users,
-} from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { ArrowUpDown, Briefcase, Layers, MoreHorizontal, Plus, Search, SearchX, Trash2, UserPlus, X } from "lucide-react";
 import type {
   RoleCandidateSummary,
   RoleCandidatesResponse,
@@ -33,349 +12,140 @@ import type {
   RoleSummary,
   RolesResponse,
 } from "@/lib/roles/role.types";
-import {
-  compareByHirePriority,
-  deriveApplicationStage,
-  deriveHireStage,
-  HIRE_STAGE_LABELS,
-  HIRE_STAGE_STYLES,
-  type HireStage,
-} from "@/lib/roles/hire-stage";
+import { deriveApplicationStage, deriveHireStage, type HireStage } from "@/lib/roles/hire-stage";
+import { countPipeline, PIPELINE_STEPS, scoreTone, type PipelineStep } from "@/lib/roles/pipeline";
+import { documentExcerpt } from "@/lib/text/document-blocks";
 import { Menu } from "@/components/dashboard/menu";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
+import { FilterMenu } from "@/components/dashboard/Toolbar";
+import { EASE_OUT, SegmentedTabs } from "@/components/ui/animated";
+import { Toast, type ToastMessage } from "@/components/ui/Toast";
+import { RoleFormSheet } from "./RoleFormSheet";
 
 /**
- * Roles workspace, built the way HR reads it:
- *  - summary cards from real role/interview aggregates (no invented trends),
- *  - search across roles and candidates, filters by role status and hire
- *    stage, and a sort,
- *  - card view (rich role cards with expandable candidate tables) and a
- *    compact list view for comparing many roles,
- *  - per-role actions: share an invite link (the existing invitation
- *    workflow, pre-filled) and manage the role; per-candidate: report and
- *    profile links only — no duplicated screens.
+ * Roles list. One row per role: what it is, where its candidates are in the
+ * pipeline, and how they scored. The row opens the role; everything else
+ * (invite, form link, edit, delete) sits in the row menu.
  * Data comes from GET /api/roles and GET /api/roles/[id]/candidates.
  */
 
-const STATUS_LABELS: Record<RoleStatus, string> = {
-  open: "Open",
-  completed: "Completed",
-};
-
-const STATUS_STYLES: Record<RoleStatus, string> = {
-  open: "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  completed: "border-border bg-surface text-muted",
-};
-
-/** Sorts offered in the toolbar; "Last updated" is the default. */
 const SORT_OPTIONS = [
-  { value: "updated", label: "Last updated" },
+  { value: "updated", label: "Recently updated" },
   { value: "candidates", label: "Most candidates" },
   { value: "score", label: "Highest average score" },
-] as const;
-type SortKey = (typeof SORT_OPTIONS)[number]["value"];
+];
+type SortKey = "updated" | "candidates" | "score";
 
-/** Deterministic role icon + colour so each card is visually distinct. */
-const ROLE_ICONS = [
-  { icon: Code2, classes: "bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400" },
-  { icon: Database, classes: "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400" },
-  { icon: Brain, classes: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400" },
-  { icon: Star, classes: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400" },
-  { icon: Users, classes: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-400" },
-  { icon: ClipboardList, classes: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400" },
+const STEP_FILTERS = [
+  { value: "", label: "Any stage" },
+  ...PIPELINE_STEPS.map(({ step, label }) => ({ value: step, label: `Has ${label.toLowerCase()}` })),
 ];
 
-function roleVisual(title: string) {
-  let hash = 0;
-  for (let index = 0; index < title.length; index++) hash = (hash * 31 + title.charCodeAt(index)) | 0;
-  const entry = ROLE_ICONS[Math.abs(hash) % ROLE_ICONS.length];
-  return { Icon: entry.icon, classes: entry.classes };
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
-
-function relativeDate(iso: string): string {
-  const days = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
-  if (days <= 0) return "today";
-  if (days === 1) return "1 day ago";
-  return `${days} days ago`;
-}
-
-function initials(name: string): string {
-  const parts = name.split(/[\s@._-]+/).filter(Boolean);
-  return (parts[0]?.[0] ?? "?").concat(parts[1]?.[0] ?? "").toUpperCase();
-}
-
-function scoreBadgeClass(score: number): string {
-  if (score >= 70) return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300";
-  if (score >= 50) return "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300";
-  return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300";
-}
-
 async function fetchRoles(): Promise<RoleSummary[]> {
-  const response = await fetch("/api/roles?");
+  const response = await fetch("/api/roles");
   const data = (await response.json()) as RolesResponse & { error?: { message?: string } };
-  if (!response.ok || !data.roles) {
-    throw new Error(data.error?.message ?? "Could not load the roles. Please try again.");
-  }
+  if (!response.ok || !data.roles) throw new Error(data.error?.message ?? "Could not load the roles.");
   return data.roles;
 }
 
 async function fetchCandidates(roleId: string): Promise<RoleCandidateSummary[]> {
   const response = await fetch(`/api/roles/${roleId}/candidates?limit=50&offset=0`);
   const data = (await response.json()) as RoleCandidatesResponse & { error?: { message?: string } };
-  if (!response.ok || !data.candidates) {
-    throw new Error(data.error?.message ?? "Could not load the candidates.");
-  }
+  if (!response.ok || !data.candidates) throw new Error(data.error?.message ?? "Could not load the candidates.");
   return data.candidates;
 }
 
-/**
- * Invite deep-link: the new-interview form opens with this role and its job
- * description already filled in. The id is sent so the interview is attached
- * to the role itself, not just matched on the title.
- */
-function inviteUrl(role: RoleSummary): string {
-  return `/recruiter?roleId=${encodeURIComponent(role.id)}`;
+function candidateStage(candidate: RoleCandidateSummary): HireStage {
+  return candidate.applicationStatus && candidate.interviews === 0
+    ? deriveApplicationStage(candidate.applicationStatus)
+    : deriveHireStage({
+        status: candidate.latestStatus,
+        overallScore: candidate.overallScore,
+        decision: candidate.decision?.outcome ?? null,
+        cutoff: null,
+      });
 }
 
-interface SummaryCardData {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  iconClasses: string;
-  cardClasses: string;
+function relativeDay(iso: string): string {
+  const days = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
+  if (days <= 0) return "Updated today";
+  if (days === 1) return "Updated yesterday";
+  if (days < 30) return `Updated ${days} days ago`;
+  return `Updated ${new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`;
 }
 
-function SummaryCard({ data }: { data: SummaryCardData }) {
-  return (
-    <div className={`rounded-2xl border border-border p-4 sm:p-5 ${data.cardClasses}`}>
-      <div className="flex items-center gap-3">
-        <span aria-hidden className={`grid size-10 shrink-0 place-items-center rounded-xl ${data.iconClasses}`}>
-          {data.icon}
-        </span>
-        <p className="text-sm font-medium">{data.label}</p>
-      </div>
-      <p className="mt-3 text-3xl font-semibold tracking-tight">{data.value}</p>
-    </div>
-  );
-}
-
-/** Candidate row stage, shared by both views. */
-function StageBadge({ stage }: { stage: HireStage }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${HIRE_STAGE_STYLES[stage]}`}>
-      <span aria-hidden className="size-1.5 rounded-full bg-current" />
-      {HIRE_STAGE_LABELS[stage]}
-    </span>
-  );
-}
-
-interface RankedCandidate {
-  candidate: RoleCandidateSummary;
-  stage: HireStage;
-}
-
-function rankCandidates(candidates: RoleCandidateSummary[]): RankedCandidate[] {
-  return candidates
-    .map((candidate) => ({
-      candidate,
-      stage: (
-        candidate.applicationStatus && candidate.interviews === 0
-          ? deriveApplicationStage(candidate.applicationStatus)
-          : deriveHireStage({
-              status: candidate.latestStatus,
-              overallScore: candidate.overallScore,
-              decision: candidate.decision?.outcome ?? null,
-              cutoff: null,
-            })
-      ) as HireStage,
-    }))
-    .sort((a, b) =>
-      compareByHirePriority(
-        { stage: a.stage, overallScore: a.candidate.overallScore },
-        { stage: b.stage, overallScore: b.candidate.overallScore },
-      ),
-    );
-}
-
-/** Expandable candidate table inside one role card. */
-function CandidateTable({
-  roleId,
-  candidates,
-  loading,
-  error,
+/** Stacked bar of where this role's candidates are. */
+function PipelineBar({
+  counts,
+  total,
+  index,
 }: {
-  roleId: string;
-  candidates: RoleCandidateSummary[] | null;
-  loading: boolean;
-  error: string | null;
+  counts: Record<PipelineStep, number> | null;
+  total: number;
+  index: number;
 }) {
-  const router = useRouter();
-  if (error) {
-    return <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>;
-  }
-  if (loading || candidates === null) {
-    return (
-      <div aria-hidden className="space-y-2">
-        <div className="h-11 animate-pulse rounded-md border border-border bg-background" />
-        <div className="h-11 animate-pulse rounded-md border border-border bg-background" />
-      </div>
-    );
-  }
-  const ranked = rankCandidates(candidates);
-  if (ranked.length === 0) {
-    return (
-      <p className="rounded-lg bg-background px-3 py-4 text-sm text-muted">
-        No candidates have interviewed for this role yet.
-      </p>
-    );
-  }
+  const reduce = useReducedMotion();
+  if (counts === null) return <div className="skeleton h-2 w-full rounded-full" />;
+  if (total === 0) return <p className="text-xs text-muted">No candidates yet</p>;
+  const summary = PIPELINE_STEPS.filter(({ step }) => counts[step] > 0)
+    .map(({ step, label }) => `${counts[step]} ${label.toLowerCase()}`)
+    .join(", ");
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-background text-left text-xs uppercase tracking-wide text-muted">
-            <th scope="col" className="px-4 py-2.5 font-medium">Candidate</th>
-            <th scope="col" className="px-4 py-2.5 font-medium">Score</th>
-            <th scope="col" className="px-4 py-2.5 font-medium">Stage</th>
-            <th scope="col" className="px-4 py-2.5 font-medium">Last interview</th>
-            <th scope="col" className="px-4 py-2.5 text-right font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ranked.map(({ candidate, stage }) => (
-            <tr key={candidate.candidateId} className="border-b border-border transition last:border-b-0 hover:bg-background">
-              <td className="px-4 py-3">
-                <div className="flex items-center gap-2.5">
-                  <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">
-                    {initials(candidate.candidateName ?? candidate.candidateEmail)}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
-                    <span className="block truncate text-xs text-muted">{candidate.candidateEmail}</span>
-                  </span>
-                </div>
-              </td>
-              <td className="px-4 py-3">
-                {candidate.overallScore === null ? (
-                  <span className="text-muted">—</span>
-                ) : (
-                  <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${scoreBadgeClass(candidate.overallScore)}`}>
-                    {candidate.overallScore}/100
-                  </span>
-                )}
-              </td>
-              <td className="px-4 py-3">
-                <StageBadge stage={stage} />
-              </td>
-              <td className="px-4 py-3 text-xs text-muted">
-                {candidate.interviews === 0 && candidate.appliedAt ? (
-                  <>
-                    Applied {formatDate(candidate.appliedAt)}
-                    <span className="block">{relativeDate(candidate.appliedAt)}</span>
-                  </>
-                ) : (
-                  <>
-                    {formatDate(candidate.latestInterviewAt)}
-                    <span className="block">{relativeDate(candidate.latestInterviewAt)}</span>
-                  </>
-                )}
-              </td>
-              <td className="px-4 py-3">
-                <div className="flex items-center justify-end gap-2">
-                  {candidate.interviews === 0 && candidate.applicationId ? (
-                    <Link
-                      href={`/dashboard/roles/${roleId}#application-${candidate.applicationId}`}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5"
-                    >
-                      Review application
-                      <ExternalLink className="size-3" aria-hidden />
-                    </Link>
-                  ) : (
-                    <>
-                      <Link
-                        href={`/dashboard/${candidate.latestInterviewId}`}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5"
-                      >
-                        View report
-                        <ExternalLink className="size-3" aria-hidden />
-                      </Link>
-                      <Menu
-                        label={`Actions for ${candidate.candidateName ?? candidate.candidateEmail}`}
-                        align="end"
-                        trigger={
-                          <button
-                            type="button"
-                            aria-label={`More actions for ${candidate.candidateName ?? candidate.candidateEmail}`}
-                            className="grid size-8 place-items-center rounded-lg border border-transparent text-muted transition hover:border-border hover:bg-background hover:text-foreground"
-                          >
-                            <span aria-hidden className="text-base leading-none">⋯</span>
-                          </button>
-                        }
-                        items={[
-                          {
-                            id: "profile",
-                            label: "Open candidate profile",
-                            onSelect: () => router.push(`/dashboard/roles/${roleId}/candidates/${encodeURIComponent(candidate.candidateId)}`),
-                          },
-                        ]}
-                      />
-                    </>
-                  )}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="min-w-0">
+      <div className="flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-foreground/[0.05]" role="img" aria-label={summary}>
+        {PIPELINE_STEPS.map(({ step, bar, label }) =>
+          counts[step] > 0 ? (
+            <motion.span
+              key={step}
+              title={`${counts[step]} ${label.toLowerCase()}`}
+              className={`h-full first:rounded-l-full last:rounded-r-full ${bar}`}
+              initial={reduce ? false : { width: 0 }}
+              animate={{ width: `${(counts[step] / total) * 100}%` }}
+              transition={{ duration: 0.7, delay: 0.15 + index * 0.05, ease: EASE_OUT }}
+            />
+          ) : null,
+        )}
+      </div>
+      <p className="mt-1.5 truncate text-xs text-muted">{summary}</p>
     </div>
   );
 }
 
-/** One role card in card view. */
-function RoleCard({
+function RoleRow({
   role,
-  candidates,
-  candidatesLoading,
-  candidatesError,
-  onToggle,
-  expanded,
-  onNotice,
-  onEdit,
+  index,
+  counts,
+  total,
   selected,
   onSelect,
+  onEdit,
   onDelete,
+  onToast,
 }: {
   role: RoleSummary;
-  candidates: RoleCandidateSummary[] | null;
-  candidatesLoading: boolean;
-  candidatesError: string | null;
-  onToggle: () => void;
-  expanded: boolean;
-  onNotice: (message: string) => void;
-  onEdit: () => void;
+  index: number;
+  counts: Record<PipelineStep, number> | null;
+  total: number;
   selected: boolean;
   onSelect: (selected: boolean) => void;
+  onEdit: () => void;
   onDelete: () => void;
+  onToast: (toast: ToastMessage) => void;
 }) {
   const router = useRouter();
-  const { Icon, classes } = roleVisual(role.title);
+  const href = `/dashboard/roles/${role.id}`;
+  const inviteHref = `/recruiter?roleId=${encodeURIComponent(role.id)}`;
+  const excerpt = role.description.trim() ? documentExcerpt(role.description, 150) : "";
+  const score = role.stats.avgOverallScore;
 
   function copyInvite() {
-    const url = `${window.location.origin}${inviteUrl(role)}`;
+    const url = `${window.location.origin}${inviteHref}`;
     void navigator.clipboard
       .writeText(url)
-      .then(() => onNotice("Invite link copied — it opens the interview form with this role pre-filled."))
-      .catch(() => onNotice(url));
+      .then(() => onToast({ tone: "success", message: "Invite link copied. It opens a new interview for this role." }))
+      .catch(() => onToast({ tone: "success", message: url }));
   }
 
-  /**
-   * The public application form link. It is created on first use and stays
-   * the same afterwards, so a group that already has it keeps working.
-   */
   function copyFormLink() {
     void fetch(`/api/roles/${encodeURIComponent(role.id)}/form-link`, {
       method: "POST",
@@ -384,417 +154,133 @@ function RoleCard({
     })
       .then(async (response) => {
         const body = (await response.json()) as { url?: string; error?: { message?: string } };
-        if (!response.ok || !body.url) {
-          throw new Error(body.error?.message ?? "Could not create the form link.");
-        }
+        if (!response.ok || !body.url) throw new Error(body.error?.message ?? "Could not create the form link.");
         try {
           await navigator.clipboard.writeText(body.url);
-          onNotice("Application form link copied — share it with the college group.");
+          onToast({ tone: "success", message: "Application form link copied." });
         } catch {
-          onNotice(body.url);
+          onToast({ tone: "success", message: body.url });
         }
       })
       .catch((cause: unknown) =>
-        onNotice(cause instanceof Error ? cause.message : "Could not create the form link."),
+        onToast({ tone: "error", message: cause instanceof Error ? cause.message : "Could not create the form link." }),
       );
   }
 
   return (
-    <div
-      className={`rounded-2xl border bg-surface transition hover:border-accent/40 hover:shadow-sm ${
-        selected ? "border-accent/60 ring-1 ring-accent/20" : "border-border"
+    <li
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest("a,button,input,[role='menu']")) return;
+        router.push(href);
+      }}
+      className={`group grid cursor-pointer grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 px-4 py-4 transition-colors sm:px-5 md:grid-cols-[1.25rem_minmax(0,1.5fr)_minmax(0,1fr)_5rem_7rem] ${
+        selected ? "bg-accent-soft/60" : "hover:bg-foreground/[0.02]"
       }`}
     >
-      <div className="p-4 sm:p-5">
-        <div className="flex items-start gap-4">
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={(event) => onSelect(event.target.checked)}
-            aria-label={`Select ${role.title}`}
-            className="mt-4 size-4 shrink-0 cursor-pointer accent-blue-600"
-          />
-          <span aria-hidden className={`grid size-12 shrink-0 place-items-center rounded-xl ${classes}`}>
-            <Icon className="size-6" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-lg font-semibold tracking-tight">{role.title}</h3>
-              <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[role.status]}`}>
-                {STATUS_LABELS[role.status]}
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={(event) => onSelect(event.target.checked)}
+        aria-label={`Select ${role.title}`}
+        className={`size-4 cursor-pointer accent-[var(--accent)] transition-opacity ${
+          selected ? "opacity-100" : "opacity-40 group-hover:opacity-100 focus-visible:opacity-100"
+        }`}
+      />
+
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Link href={href} className="truncate text-[15px] font-semibold tracking-[-0.01em] hover:text-accent">
+            {role.title}
+          </Link>
+          {role.status === "completed" ? (
+            <span className="shrink-0 rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[11px] font-medium text-muted">
+              Completed
+            </span>
+          ) : (
+            <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+              <span aria-hidden className="size-1.5 rounded-full bg-emerald-500" />
+              Open
+            </span>
+          )}
+          <span className="hidden shrink-0 text-xs text-muted lg:inline">{relativeDay(role.updatedAt)}</span>
+        </div>
+        {excerpt ? (
+          <p className="mt-1 line-clamp-1 text-sm text-muted">{excerpt}</p>
+        ) : (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="mt-1 text-sm text-muted underline decoration-dotted underline-offset-4 hover:text-foreground"
+          >
+            Add a job description
+          </button>
+        )}
+        {role.skills.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {role.skills.slice(0, 4).map((skill) => (
+              <span key={skill} className="rounded-md bg-foreground/[0.05] px-1.5 py-0.5 text-[11px] font-medium text-foreground/70">
+                {skill}
               </span>
-            </div>
-            {role.description.trim() ? (
-              <p className="mt-0.5 line-clamp-2 text-sm text-muted">{role.description}</p>
-            ) : (
-              <button
-                type="button"
-                onClick={onEdit}
-                className="mt-0.5 text-left text-sm text-muted underline decoration-dotted underline-offset-2 transition hover:text-foreground"
-              >
-                No job description yet. Add one
-              </button>
+            ))}
+            {role.skills.length > 4 && (
+              <span className="px-1 py-0.5 text-[11px] text-muted">+{role.skills.length - 4} more</span>
             )}
-            <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
-              <span className="inline-flex items-center gap-1.5">
-                <Users className="size-3.5" aria-hidden />
-                <strong className="font-semibold text-foreground">{role.stats.candidates}</strong>
-                {role.stats.candidates === 1 ? "candidate" : "candidates"}
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <ClipboardList className="size-3.5" aria-hidden />
-                <strong className="font-semibold text-foreground">{role.stats.interviews}</strong>
-                {role.stats.interviews === 1 ? "interview" : "interviews"}
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <Trophy className="size-3.5" aria-hidden />
-                <strong className="font-semibold text-foreground">{role.stats.completed}</strong> scored
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <Clock3 className="size-3.5" aria-hidden />
-                <strong className="font-semibold text-foreground">{role.stats.pending}</strong> pending
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <FileBarChart className="size-3.5" aria-hidden />
-                Avg score{" "}
-                <strong className="font-semibold text-foreground">
-                  {role.stats.avgOverallScore === null ? "—" : `${role.stats.avgOverallScore}/100`}
-                </strong>
-              </span>
-            </div>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-2">
-            <div className="flex items-center gap-2">
-              <span className="hidden text-xs text-muted sm:block">Created {formatDate(role.createdAt)}</span>
-              <Menu
-                label={`Role actions for ${role.title}`}
-                align="end"
-                trigger={
-                  <button
-                    type="button"
-                    aria-label={`Role actions for ${role.title}`}
-                    className="grid size-8 place-items-center rounded-lg border border-transparent text-muted transition hover:border-border hover:bg-background hover:text-foreground"
-                  >
-                    <span aria-hidden className="text-base leading-none">⋯</span>
-                  </button>
-                }
-                items={[
-                  {
-                    id: "edit",
-                    label: "Edit role",
-                    onSelect: onEdit,
-                  },
-                  {
-                    id: "manage",
-                    label: "Manage role",
-                    onSelect: () => router.push(`/dashboard/roles/${role.id}`),
-                  },
-                  { id: "share", label: "Copy invite link", onSelect: copyInvite },
-                  {
-                    id: "form",
-                    label: "Copy application form link",
-                    icon: <FileText className="size-4" aria-hidden />,
-                    onSelect: copyFormLink,
-                  },
-                  {
-                    id: "form-settings",
-                    label: "Application form settings",
-                    onSelect: () => router.push(`/dashboard/roles/${role.id}#application-form`),
-                    separatorAfter: true,
-                  },
-                  {
-                    id: "delete",
-                    label: "Delete role",
-                    icon: <Trash2 className="size-4" aria-hidden />,
-                    danger: true,
-                    onSelect: onDelete,
-                  },
-                ]}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Link
-                href={inviteUrl(role)}
-                className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-3.5 py-2 text-sm font-medium transition hover:bg-background"
-              >
-                <UserPlus className="size-4" aria-hidden />
-                Add candidate
-              </Link>
-              <Link
-                href={`/dashboard/roles/${role.id}`}
-                className="inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-sm font-medium text-white transition hover:opacity-90"
-              >
-                <Settings className="size-4" aria-hidden />
-                Manage role
-              </Link>
-              <button
-                type="button"
-                onClick={onToggle}
-                aria-expanded={expanded}
-                aria-label={expanded ? `Hide candidates for ${role.title}` : `Show candidates for ${role.title}`}
-                className="grid size-9 place-items-center rounded-xl border border-border text-muted transition hover:bg-background hover:text-foreground"
-              >
-                <ChevronDown className={`size-4 transition ${expanded ? "rotate-180" : ""}`} aria-hidden />
-              </button>
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
-      {expanded && (
-        <div className="border-t border-border p-4 sm:px-5">
-          <CandidateTable roleId={role.id} candidates={candidates} loading={candidatesLoading} error={candidatesError} />
-          <div className="mt-3 flex justify-end">
-            <Link
-              href={`/dashboard/roles/${role.id}`}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"
+      <div className="col-span-3 col-start-2 row-start-2 md:col-span-1 md:col-start-auto md:row-start-auto">
+        <PipelineBar counts={counts} total={total} index={index} />
+      </div>
+
+      <div className="hidden text-right md:block">
+        {score === null ? (
+          <span className="text-sm text-muted">—</span>
+        ) : (
+          <>
+            <span className={`text-lg font-semibold tabular-nums ${scoreTone(score).text}`}>{score}</span>
+            <span className="block text-[11px] text-muted">average</span>
+          </>
+        )}
+      </div>
+
+      <div className="col-start-3 row-start-1 flex items-center justify-end gap-1 md:col-start-auto">
+        <Link
+          href={inviteHref}
+          title="Send an interview for this role"
+          className="hidden h-8 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] sm:inline-flex"
+        >
+          <UserPlus className="size-3.5 text-muted" aria-hidden />
+          Invite
+        </Link>
+        <Menu
+          label={`Actions for ${role.title}`}
+          align="end"
+          trigger={
+            <button
+              type="button"
+              aria-label={`Actions for ${role.title}`}
+              className="grid size-8 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
             >
-              Open full role view
-              <ExternalLink className="size-3.5" aria-hidden />
-            </Link>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Compact comparison table for many roles. */
-function RolesListView({
-  roles,
-  selectedIds,
-  onSelect,
-  onSelectAll,
-  onDelete,
-}: {
-  roles: RoleSummary[];
-  selectedIds: ReadonlySet<string>;
-  onSelect: (roleId: string, selected: boolean) => void;
-  onSelectAll: (selected: boolean) => void;
-  onDelete: (role: RoleSummary) => void;
-}) {
-  const allSelected = roles.length > 0 && roles.every((role) => selectedIds.has(role.id));
-  return (
-    <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-background text-left text-xs uppercase tracking-wide text-muted">
-            <th scope="col" className="w-10 px-4 py-3 font-medium">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={(event) => onSelectAll(event.target.checked)}
-                aria-label="Select all roles"
-                className="size-4 cursor-pointer accent-blue-600"
-              />
-            </th>
-            <th scope="col" className="px-4 py-3 font-medium">Role</th>
-            <th scope="col" className="px-4 py-3 font-medium">Status</th>
-            <th scope="col" className="px-4 py-3 font-medium">Candidates</th>
-            <th scope="col" className="px-4 py-3 font-medium">Interviews</th>
-            <th scope="col" className="px-4 py-3 font-medium">Completed</th>
-            <th scope="col" className="px-4 py-3 font-medium">Avg score</th>
-            <th scope="col" className="px-4 py-3 font-medium">Updated</th>
-            <th scope="col" className="px-4 py-3 text-right font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {roles.map((role) => (
-            <tr key={role.id} className="border-b border-border transition last:border-b-0 hover:bg-background">
-              <td className="px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.has(role.id)}
-                  onChange={(event) => onSelect(role.id, event.target.checked)}
-                  aria-label={`Select ${role.title}`}
-                  className="size-4 cursor-pointer accent-blue-600"
-                />
-              </td>
-              <td className="px-4 py-3">
-                <div className="flex items-center gap-2.5">
-                  {(() => {
-                    const { Icon, classes } = roleVisual(role.title);
-                    return (
-                      <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-lg ${classes}`}>
-                        <Icon className="size-4" />
-                      </span>
-                    );
-                  })()}
-                  <Link href={`/dashboard/roles/${role.id}`} className="truncate font-medium hover:text-accent">
-                    {role.title}
-                  </Link>
-                </div>
-              </td>
-              <td className="px-4 py-3">
-                <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[role.status]}`}>
-                  {STATUS_LABELS[role.status]}
-                </span>
-              </td>
-              <td className="px-4 py-3 tabular-nums">{role.stats.candidates}</td>
-              <td className="px-4 py-3 tabular-nums">{role.stats.interviews}</td>
-              <td className="px-4 py-3 tabular-nums">
-                {role.stats.completed}
-                {role.stats.pending > 0 && <span className="text-muted"> · {role.stats.pending} pending</span>}
-              </td>
-              <td className="px-4 py-3 tabular-nums">
-                {role.stats.avgOverallScore === null ? "—" : `${role.stats.avgOverallScore}/100`}
-              </td>
-              <td className="px-4 py-3 text-xs text-muted">{formatDate(role.updatedAt)}</td>
-              <td className="px-4 py-3">
-                <div className="flex items-center justify-end gap-2">
-                  <Link
-                    href={`/dashboard/roles/${role.id}`}
-                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-accent transition hover:border-accent/50 hover:bg-accent/5"
-                  >
-                    Manage
-                  </Link>
-                  <Link
-                    href={inviteUrl(role)}
-                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium transition hover:bg-background"
-                  >
-                    Add candidate
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => onDelete(role)}
-                    aria-label={`Delete ${role.title}`}
-                    className="grid size-8 place-items-center rounded-lg border border-transparent text-muted transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-600"
-                  >
-                    <Trash2 className="size-3.5" aria-hidden />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/**
- * Summary cards (real aggregates) are parked for now — flip to true when we
- * want them back (e.g. once month-over-month trends have real data).
- */
-const SHOW_SUMMARY_CARDS = false;
-
-/** Inline edit form for one role, pre-filled with its current values. */
-function RoleEditForm({
-  role,
-  onSaved,
-  onCancel,
-}: {
-  role: RoleSummary;
-  onSaved: () => void;
-  onCancel: () => void;
-}) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function save(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (saving) return;
-    const data = new FormData(event.currentTarget);
-    const skills = String(data.get("skills") ?? "")
-      .split(",")
-      .map((skill) => skill.trim())
-      .filter((skill) => skill !== "");
-    const deadline = String(data.get("deadline") ?? "").trim();
-    setSaving(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/roles/${role.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        // Absent fields keep their value; we always send every editable field
-        // because the form shows them all. An empty deadline clears it.
-        body: JSON.stringify({
-          title: String(data.get("title") ?? ""),
-          description: String(data.get("description") ?? ""),
-          skills,
-          deadline: deadline === "" ? null : deadline,
-        }),
-      });
-      const body = (await response.json()) as { error?: { message?: string } };
-      if (!response.ok) {
-        throw new Error(body.error?.message ?? "Could not save the role.");
-      }
-      onSaved();
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Something went wrong.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <form onSubmit={save} className="rounded-2xl border border-accent/40 bg-surface p-5" aria-label={`Edit role ${role.title}`}>
-      <h3 className="mb-4 text-base font-semibold">Edit role</h3>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Role title *</span>
-          <input
-            name="title"
-            required
-            minLength={2}
-            maxLength={120}
-            defaultValue={role.title}
-            className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Hiring deadline (optional)</span>
-          <input
-            name="deadline"
-            type="date"
-            defaultValue={role.deadline ?? ""}
-            className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-          />
-        </label>
-        <label className="block text-sm sm:col-span-2">
-          <span className="mb-1 block font-medium">Job description *</span>
-          <textarea
-            name="description"
-            required
-            minLength={10}
-            maxLength={20000}
-            rows={4}
-            defaultValue={role.description}
-            className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-          />
-        </label>
-        <label className="block text-sm sm:col-span-2">
-          <span className="mb-1 block font-medium">Skills &amp; qualifications (comma-separated, optional)</span>
-          <input
-            name="skills"
-            defaultValue={role.skills.join(", ")}
-            placeholder="e.g. Go, PostgreSQL, Kubernetes"
-            className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-          />
-        </label>
+              <MoreHorizontal className="size-4" aria-hidden />
+            </button>
+          }
+          items={[
+            { id: "open", label: "Open role", onSelect: () => router.push(href) },
+            { id: "edit", label: "Edit role", onSelect: onEdit, separatorAfter: true },
+            { id: "invite", label: "Copy interview invite link", onSelect: copyInvite },
+            { id: "form", label: "Copy application form link", onSelect: copyFormLink, separatorAfter: true },
+            {
+              id: "delete",
+              label: "Delete role",
+              icon: <Trash2 className="size-4" aria-hidden />,
+              danger: true,
+              onSelect: onDelete,
+            },
+          ]}
+        />
       </div>
-      {error && (
-        <p role="alert" className="mt-3 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
-      <div className="mt-4 flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? "Saving…" : "Save changes"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border border-border px-4 py-2 text-sm font-medium transition hover:bg-background"
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
+    </li>
   );
 }
 
@@ -804,20 +290,15 @@ export function RolesView() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<RoleStatus | "">("");
-  const [stageFilter, setStageFilter] = useState<HireStage | "">("");
+  const [stepFilter, setStepFilter] = useState<PipelineStep | "">("");
   const [sortBy, setSortBy] = useState<SortKey>("updated");
-  const [view, setView] = useState<"card" | "list">("card");
-  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(new Set());
   const [candidatesByRole, setCandidatesByRole] = useState<Record<string, RoleCandidateSummary[] | null>>({});
-  const [candidateErrors, setCandidateErrors] = useState<Record<string, string>>({});
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<{ role: RoleSummary | null } | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const dismissToast = useCallback(() => setToast(null), []);
 
   function load() {
     fetchRoles()
@@ -825,176 +306,89 @@ export function RolesView() {
         setRoles(result);
         setError(null);
       })
-      .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : "Something went wrong.");
-      });
+      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Could not load the roles."));
   }
 
   useEffect(() => {
     load();
   }, []);
 
-  // Debounce the search box.
   useEffect(() => {
     const timer = setTimeout(() => setSearch(searchInput.trim()), 250);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // Load every role's candidates once: stage filtering and candidate search
-  // need them, and cards reuse the cache when expanded.
+  // Every role's candidates, for the pipeline bars, stage filter and search.
   useEffect(() => {
     if (roles === null) return;
     let cancelled = false;
     void Promise.allSettled(roles.map((role) => fetchCandidates(role.id))).then((results) => {
       if (cancelled) return;
       const next: Record<string, RoleCandidateSummary[] | null> = {};
-      const errors: Record<string, string> = {};
       results.forEach((result, index) => {
-        const id = roles[index].id;
-        if (result.status === "fulfilled") next[id] = result.value;
-        else {
-          next[id] = null;
-          errors[id] = "Could not load the candidates.";
-        }
+        next[roles[index].id] = result.status === "fulfilled" ? result.value : null;
       });
       setCandidatesByRole(next);
-      setCandidateErrors(errors);
     });
     return () => {
       cancelled = true;
     };
   }, [roles]);
 
-  /** One ranked list per role, memoised once candidates arrive. */
-  const rankedByRole = useMemo(() => {
-    const map: Record<string, RankedCandidate[]> = {};
+  const pipelineByRole = useMemo(() => {
+    const map: Record<string, Record<PipelineStep, number> | null> = {};
     for (const role of roles ?? []) {
       const candidates = candidatesByRole[role.id];
-      map[role.id] = candidates ? rankCandidates(candidates) : [];
+      map[role.id] = candidates
+        ? countPipeline(candidates.map((candidate) => ({ stage: candidateStage(candidate), interviewed: candidate.interviews > 0 })))
+        : candidates === null
+          ? countPipeline([])
+          : null;
     }
     return map;
   }, [roles, candidatesByRole]);
+
+  const statusCounts = useMemo(() => {
+    const list = roles ?? [];
+    return {
+      all: list.length,
+      open: list.filter((role) => role.status === "open").length,
+      completed: list.filter((role) => role.status === "completed").length,
+    };
+  }, [roles]);
 
   const filtered = useMemo(() => {
     let list = roles ?? [];
     const term = search.toLowerCase();
     if (term) {
-      list = list.filter((role) => {
-        const roleMatch =
+      list = list.filter(
+        (role) =>
           role.title.toLowerCase().includes(term) ||
           role.description.toLowerCase().includes(term) ||
-          role.skills.some((skill) => skill.toLowerCase().includes(term));
-        const candidateMatch = (rankedByRole[role.id] ?? []).some(
-          (row) =>
-            (row.candidate.candidateName ?? "").toLowerCase().includes(term) ||
-            row.candidate.candidateEmail.toLowerCase().includes(term),
-        );
-        return roleMatch || candidateMatch;
-      });
+          role.skills.some((skill) => skill.toLowerCase().includes(term)) ||
+          (candidatesByRole[role.id] ?? []).some(
+            (candidate) =>
+              (candidate.candidateName ?? "").toLowerCase().includes(term) ||
+              candidate.candidateEmail.toLowerCase().includes(term),
+          ),
+      );
     }
     if (statusFilter) list = list.filter((role) => role.status === statusFilter);
-    if (stageFilter) {
-      list = list.filter((role) => (rankedByRole[role.id] ?? []).some((row) => row.stage === stageFilter));
-    }
+    if (stepFilter) list = list.filter((role) => (pipelineByRole[role.id]?.[stepFilter] ?? 0) > 0);
     return [...list].sort((a, b) => {
       if (sortBy === "candidates") return b.stats.candidates - a.stats.candidates;
       if (sortBy === "score") return (b.stats.avgOverallScore ?? -1) - (a.stats.avgOverallScore ?? -1);
       return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
     });
-  }, [roles, search, statusFilter, stageFilter, sortBy, rankedByRole]);
+  }, [roles, search, statusFilter, stepFilter, sortBy, candidatesByRole, pipelineByRole]);
 
-  /** Summary cards from real aggregates across the (unfiltered) role list. */
-  const cards = useMemo<SummaryCardData[]>(() => {
-    const list = roles ?? [];
-    const totalRoles = list.length;
-    const totalCandidates = list.reduce((sum, role) => sum + role.stats.candidates, 0);
-    const completedInterviews = list.reduce((sum, role) => sum + role.stats.completed, 0);
-    const scoreSum = list.reduce((sum, role) => sum + (role.stats.avgOverallScore ?? 0) * role.stats.completed, 0);
-    const scoredCount = list.reduce((sum, role) => sum + role.stats.completed, 0);
-    const avgScore = scoredCount > 0 ? Math.round(scoreSum / scoredCount) : null;
-    return [
-      {
-        label: "Total roles",
-        value: String(totalRoles),
-        icon: <Users className="size-5" aria-hidden />,
-        iconClasses: "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400",
-        cardClasses: "bg-blue-50/60 dark:bg-blue-500/5",
-      },
-      {
-        label: "Total candidates",
-        value: String(totalCandidates),
-        icon: <ClipboardList className="size-5" aria-hidden />,
-        iconClasses: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400",
-        cardClasses: "bg-violet-50/60 dark:bg-violet-500/5",
-      },
-      {
-        label: "Completed interviews",
-        value: String(completedInterviews),
-        icon: <Trophy className="size-5" aria-hidden />,
-        iconClasses: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400",
-        cardClasses: "bg-emerald-50/60 dark:bg-emerald-500/5",
-      },
-      {
-        label: "Average score",
-        value: avgScore === null ? "—" : `${avgScore}/100`,
-        icon: <Star className="size-5" aria-hidden />,
-        iconClasses: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400",
-        cardClasses: "bg-amber-50/60 dark:bg-amber-500/5",
-      },
-    ];
-  }, [roles]);
+  const hasActiveFilters = search !== "" || statusFilter !== "" || stepFilter !== "";
 
-  function toggleExpanded(roleId: string) {
-    setExpandedIds((current) => {
-      const next = new Set(current);
-      if (next.has(roleId)) next.delete(roleId);
-      else next.add(roleId);
-      return next;
-    });
-  }
-
-  async function createRole(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitting) return; // no duplicate submissions
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const skills = String(data.get("skills") ?? "")
-      .split(",")
-      .map((skill) => skill.trim())
-      .filter((skill) => skill !== "");
-    const deadline = String(data.get("deadline") ?? "").trim();
-    setSubmitting(true);
-    setFormError(null);
-    try {
-      const response = await fetch("/api/roles", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: String(data.get("title") ?? ""),
-          description: String(data.get("description") ?? ""),
-          skills,
-          deadline: deadline === "" ? null : deadline,
-        }),
-      });
-      const body = (await response.json()) as { error?: { message?: string } };
-      if (!response.ok) {
-        throw new Error(body.error?.message ?? "Could not create the role.");
-      }
-      form.reset();
-      setShowForm(false);
-      // Make sure the new role is visible: an active search or filter would
-      // otherwise hide it, which reads as "the role did not appear".
-      setSearchInput("");
-      setSearch("");
-      setStatusFilter("");
-      setStageFilter("");
-      setNotice("Role created.");
-      await load();
-    } catch (createError) {
-      setFormError(createError instanceof Error ? createError.message : "Something went wrong.");
-    } finally {
-      setSubmitting(false);
-    }
+  function clearFilters() {
+    setSearchInput("");
+    setSearch("");
+    setStatusFilter("");
+    setStepFilter("");
   }
 
   function toggleSelected(roleId: string, selected: boolean) {
@@ -1004,11 +398,6 @@ export function RolesView() {
       else next.delete(roleId);
       return next;
     });
-  }
-
-  function askDelete(ids: string[]) {
-    setError(null);
-    setDeleteIds([...new Set(ids)]);
   }
 
   async function confirmDelete() {
@@ -1023,29 +412,20 @@ export function RolesView() {
       const body = (await response.json().catch(() => null)) as
         | { deleted?: number; interviews?: number; error?: { message?: string } }
         | null;
-      if (!response.ok) {
-        throw new Error(body?.error?.message ?? "Could not delete the roles.");
-      }
+      if (!response.ok) throw new Error(body?.error?.message ?? "Could not delete the roles.");
       const count = body?.deleted ?? deleteIds.length;
-      const removedInterviews = body?.interviews ?? 0;
-      setNotice(
-        count === 1
-          ? removedInterviews > 0
-            ? `Role deleted, along with ${removedInterviews} candidate interview${
-                removedInterviews === 1 ? "" : "s"
-              }.`
-            : "Role deleted."
-          : removedInterviews > 0
-            ? `${count} roles deleted, along with ${removedInterviews} candidate interview${
-                removedInterviews === 1 ? "" : "s"
-              }.`
-            : `${count} roles deleted.`,
-      );
+      const interviews = body?.interviews ?? 0;
+      const subject = count === 1 ? "Role deleted" : `${count} roles deleted`;
+      setToast({
+        tone: "success",
+        message:
+          interviews > 0 ? `${subject}, with ${interviews} interview${interviews === 1 ? "" : "s"}.` : `${subject}.`,
+      });
       setDeleteIds(null);
       setSelectedIds(new Set());
-      await load();
+      load();
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Something went wrong.");
+      setToast({ tone: "error", message: deleteError instanceof Error ? deleteError.message : "Could not delete the roles." });
     } finally {
       setDeleting(false);
     }
@@ -1053,344 +433,227 @@ export function RolesView() {
 
   const rolesToDelete = deleteIds ? (roles ?? []).filter((role) => deleteIds.includes(role.id)) : [];
   const interviewsToDelete = rolesToDelete.reduce((sum, role) => sum + role.stats.interviews, 0);
-
-  const candidatesReady = roles !== null && Object.keys(candidateErrors).length + Object.keys(candidatesByRole).length >= roles.length;
-  const hasActiveFilters = search !== "" || statusFilter !== "" || stageFilter !== "";
+  const single = deleteIds?.length === 1;
 
   return (
-    <div className="grid gap-5">
-      {/* Header row */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <>
+      <header className="flex flex-wrap items-end justify-between gap-4 pb-7 pt-9">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Roles</h1>
-          <p className="mt-1 text-muted">Manage your hiring roles, track candidates, and analyze interview results.</p>
+          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">Roles</h1>
+          <p className="mt-1.5 max-w-xl text-sm text-muted">
+            The jobs you are hiring for, and where each one&apos;s candidates are.
+          </p>
         </div>
         <button
           type="button"
-          onClick={() => {
-            setShowForm((open) => !open);
-            setFormError(null);
-          }}
-          aria-expanded={showForm}
-          className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+          onClick={() => setSheet({ role: null })}
+          className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3.5 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90"
         >
-          {showForm ? "Cancel" : "New role"}
+          <Plus className="size-4" aria-hidden />
+          New role
         </button>
+      </header>
+
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <SegmentedTabs
+          id="role-status"
+          label="Filter by role status"
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={[
+            { value: "", label: "All", count: statusCounts.all },
+            { value: "open", label: "Open", count: statusCounts.open },
+            { value: "completed", label: "Completed", count: statusCounts.completed },
+          ]}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 sm:flex-none">
+            <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+            <input
+              type="search"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Search roles, skills or candidates"
+              aria-label="Search roles, skills or candidates"
+              className="h-9 w-full rounded-lg border border-border bg-surface pl-9 pr-3 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:ring-4 focus:ring-accent/15 sm:w-72"
+            />
+          </div>
+          <FilterMenu
+            label="Pipeline stage"
+            icon={<Layers className="size-4" aria-hidden />}
+            value={stepFilter}
+            options={STEP_FILTERS}
+            onChange={(value) => setStepFilter(value as PipelineStep | "")}
+          />
+          <FilterMenu
+            label="Sort"
+            icon={<ArrowUpDown className="size-4" aria-hidden />}
+            value={sortBy}
+            options={SORT_OPTIONS}
+            onChange={(value) => setSortBy(value as SortKey)}
+          />
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted transition hover:bg-foreground/[0.05] hover:text-foreground"
+            >
+              <X className="size-3.5" aria-hidden />
+              Reset
+            </button>
+          )}
+        </div>
       </div>
 
-      {notice && (
-        <p role="status" className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-600 dark:text-emerald-400">
-          {notice}
+      {error && (
+        <p role="alert" className="mt-4 rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-300">
+          {error}
         </p>
       )}
 
-      {/* Summary cards (real aggregates) — parked; see SHOW_SUMMARY_CARDS. */}
-      {SHOW_SUMMARY_CARDS && (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {cards.map((card) => (
-            <SummaryCard key={card.label} data={card} />
-          ))}
-        </div>
-      )}
-
-      {/* Toolbar: search, filters, sort, view switch */}
-      <div className="flex flex-wrap items-center gap-2.5">
-        <div className="relative min-w-[220px] flex-1">
-          <Search aria-hidden className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
-          <input
-            type="search"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Search roles or candidates..."
-            aria-label="Search roles or candidates"
-            className="w-full rounded-xl border border-border bg-surface py-2.5 pl-10 pr-4 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:ring-2 focus:ring-accent/20"
-          />
-        </div>
-        <label className="relative">
-          <span className="sr-only">Filter by role status</span>
-          <Filter aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as RoleStatus | "")}
-            aria-label="Filter by role status"
-            className="cursor-pointer appearance-none rounded-xl border border-border bg-surface py-2.5 pl-9 pr-8 text-sm font-medium outline-none transition focus:border-accent"
-          >
-            <option value="">All statuses</option>
-            <option value="open">Open</option>
-            <option value="completed">Completed</option>
-          </select>
-          <ChevronDown aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
-        </label>
-        <label className="relative">
-          <span className="sr-only">Filter by interview stage</span>
-          <Layers aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
-          <select
-            value={stageFilter}
-            onChange={(event) => setStageFilter(event.target.value as HireStage | "")}
-            aria-label="Filter by interview stage"
-            className="cursor-pointer appearance-none rounded-xl border border-border bg-surface py-2.5 pl-9 pr-8 text-sm font-medium outline-none transition focus:border-accent"
-            disabled={!candidatesReady && (roles?.length ?? 0) > 0}
-          >
-            <option value="">All stages</option>
-            {Object.entries(HIRE_STAGE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
+      <section className="mt-4 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm shadow-black/[0.03]">
+        <div className="hidden grid-cols-[1.25rem_minmax(0,1.5fr)_minmax(0,1fr)_5rem_7rem] items-center gap-x-4 border-b border-border px-5 py-2.5 text-xs font-medium text-muted md:grid">
+          <span />
+          <span>Role</span>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            Candidates
+            {PIPELINE_STEPS.slice(0, 4).map(({ step, label, dot }) => (
+              <span key={step} className="inline-flex items-center gap-1 font-normal">
+                <span aria-hidden className={`size-1.5 rounded-full ${dot}`} />
                 {label}
-              </option>
+              </span>
             ))}
-          </select>
-          <ChevronDown aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
-        </label>
-        <label className="relative">
-          <span className="sr-only">Sort roles</span>
-          <ArrowUpDown aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
-          <select
-            value={sortBy}
-            onChange={(event) => setSortBy(event.target.value as SortKey)}
-            aria-label="Sort roles"
-            className="cursor-pointer appearance-none rounded-xl border border-border bg-surface py-2.5 pl-9 pr-8 text-sm font-medium outline-none transition focus:border-accent"
-          >
-            {SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <ChevronDown aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
-        </label>
-        {hasActiveFilters && (
-          <button
-            type="button"
-            onClick={() => {
-              setSearchInput("");
-              setStatusFilter("");
-              setStageFilter("");
-            }}
-            className="rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-medium transition hover:bg-background"
-          >
-            Clear filters
-          </button>
-        )}
-        <div className="grow" />
-        <div role="group" aria-label="View mode" className="flex items-center rounded-xl border border-border bg-surface p-1">
-          <button
-            type="button"
-            aria-pressed={view === "card"}
-            onClick={() => setView("card")}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-              view === "card" ? "bg-accent/10 text-accent" : "text-muted hover:text-foreground"
-            }`}
-          >
-            <LayoutGrid className="size-4" aria-hidden />
-            Card view
-          </button>
-          <button
-            type="button"
-            aria-pressed={view === "list"}
-            onClick={() => setView("list")}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-              view === "list" ? "bg-accent/10 text-accent" : "text-muted hover:text-foreground"
-            }`}
-          >
-            <List className="size-4" aria-hidden />
-            List view
-          </button>
+          </span>
+          <span className="text-right">Score</span>
+          <span />
         </div>
-      </div>
 
-      {selectedIds.size > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/40 bg-accent/5 px-4 py-3">
-          <p className="text-sm font-medium">
-            {selectedIds.size} role{selectedIds.size === 1 ? "" : "s"} selected
-          </p>
-          <div className="flex items-center gap-2">
+        {roles === null && !error ? (
+          <ul aria-hidden className="divide-y divide-border">
+            {[0, 1, 2, 3].map((key) => (
+              <li key={key} className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-6 px-5 py-5">
+                <div className="space-y-2">
+                  <div className="skeleton h-4 w-48 rounded" />
+                  <div className="skeleton h-3 w-80 max-w-full rounded" />
+                </div>
+                <div className="skeleton h-2 rounded-full" />
+              </li>
+            ))}
+          </ul>
+        ) : roles !== null && roles.length === 0 ? (
+          <div className="grid place-items-center px-6 py-16 text-center">
+            <span className="grid size-11 place-items-center rounded-full bg-foreground/[0.05] text-muted">
+              <Briefcase className="size-5" aria-hidden />
+            </span>
+            <p className="mt-4 font-medium">Add the first role you are hiring for</p>
+            <p className="mt-1 max-w-sm text-sm text-muted">
+              Paste its job description. Every interview for the role is planned and scored against it.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSheet({ role: null })}
+              className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3.5 text-sm font-medium text-white transition hover:bg-accent/90"
+            >
+              <Plus className="size-4" aria-hidden />
+              New role
+            </button>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="grid place-items-center px-6 py-16 text-center">
+            <span className="grid size-11 place-items-center rounded-full bg-foreground/[0.05] text-muted">
+              <SearchX className="size-5" aria-hidden />
+            </span>
+            <p className="mt-4 font-medium">No roles match these filters</p>
+            <button type="button" onClick={clearFilters} className="mt-3 text-sm font-medium text-accent hover:underline">
+              Reset filters
+            </button>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {filtered.map((role, index) => (
+              <RoleRow
+                key={role.id}
+                role={role}
+                index={index}
+                counts={pipelineByRole[role.id] ?? null}
+                total={candidatesByRole[role.id]?.length ?? 0}
+                selected={selectedIds.has(role.id)}
+                onSelect={(selected) => toggleSelected(role.id, selected)}
+                onEdit={() => setSheet({ role })}
+                onDelete={() => setDeleteIds([role.id])}
+                onToast={setToast}
+              />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <RoleFormSheet
+        open={sheet !== null}
+        role={sheet?.role ?? null}
+        onClose={() => setSheet(null)}
+        onSaved={(message) => {
+          const creating = sheet?.role == null;
+          setSheet(null);
+          if (creating) clearFilters();
+          setToast({ tone: "success", message });
+          load();
+        }}
+      />
+
+      <AnimatePresence>
+        {selectedIds.size > 0 && (
+          <motion.div
+            role="toolbar"
+            aria-label="Bulk actions"
+            initial={{ opacity: 0, y: 24, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 24, scale: 0.98 }}
+            transition={{ duration: 0.25, ease: EASE_OUT }}
+            className="fixed inset-x-0 bottom-6 z-40 mx-auto flex w-fit items-center gap-1 rounded-2xl border border-border bg-surface/95 p-1.5 pl-4 shadow-2xl shadow-black/15 backdrop-blur-xl dark:shadow-black/50"
+          >
+            <p className="pr-3 text-sm font-medium tabular-nums">{selectedIds.size} selected</p>
             <button
               type="button"
               onClick={() => setSelectedIds(new Set())}
-              className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium transition hover:bg-background"
+              className="h-8 rounded-lg px-3 text-sm text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
             >
               Clear
             </button>
             <button
               type="button"
-              onClick={() => askDelete([...selectedIds])}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-red-700"
+              onClick={() => setDeleteIds([...selectedIds])}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-rose-600 px-3 text-sm font-medium text-white transition hover:bg-rose-700"
             >
-              <Trash2 className="size-4" aria-hidden />
-              Delete selected
+              <Trash2 className="size-3.5" aria-hidden />
+              Delete
             </button>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {showForm && (
-        <form
-          onSubmit={createRole}
-          className="rounded-2xl border border-border bg-surface p-5"
-          aria-label="Create role"
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Role title *</span>
-              <input
-                name="title"
-                required
-                minLength={2}
-                maxLength={120}
-                placeholder="e.g. Senior Backend Engineer"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Hiring deadline (optional)</span>
-              <input
-                name="deadline"
-                type="date"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-              />
-            </label>
-            <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">Job description *</span>
-              <textarea
-                name="description"
-                required
-                minLength={10}
-                maxLength={20000}
-                rows={4}
-                placeholder="What the person will do, the team, and what success looks like."
-                className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-              />
-            </label>
-            <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">Skills &amp; qualifications (comma-separated, optional)</span>
-              <input
-                name="skills"
-                placeholder="e.g. Go, PostgreSQL, Kubernetes"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
-              />
-            </label>
-          </div>
-          {formError && (
-            <p role="alert" className="mt-3 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
-              {formError}
-            </p>
-          )}
-          <div className="mt-4 flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-            >
-              {submitting ? "Creating…" : "Create role"}
-            </button>
-            {submitting && <span className="text-sm text-muted">Saving…</span>}
-          </div>
-        </form>
-      )}
-
-      {error && (
-        <p role="alert" className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
-
-      {roles !== null && roles.length === 0 && (
-        <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
-          <p className="font-medium">No roles yet</p>
-          <p className="mt-1 text-sm text-muted">Create your first role, then invite candidates to interview for it.</p>
-        </div>
-      )}
-
-      {roles !== null && roles.length > 0 && filtered.length === 0 && (
-        <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center">
-          <p className="font-medium">No roles match your filters</p>
-          <p className="mt-1 text-sm text-muted">Try a different search term, status or stage.</p>
-        </div>
-      )}
-
-      {filtered.length > 0 && (
-        <>
-          {view === "card" ? (
-            <ul className="grid gap-4">
-              {filtered.map((role) => (
-                <li key={role.id} className="grid gap-4">
-                  {editingId === role.id ? (
-                    <RoleEditForm
-                      role={role}
-                      onSaved={() => {
-                        setEditingId(null);
-                        setNotice("Role updated.");
-                        load();
-                      }}
-                      onCancel={() => setEditingId(null)}
-                    />
-                  ) : (
-                    <RoleCard
-                      role={role}
-                      candidates={candidatesByRole[role.id] ?? null}
-                      candidatesLoading={!candidatesReady && candidatesByRole[role.id] === undefined}
-                      candidatesError={candidateErrors[role.id] ?? null}
-                      expanded={expandedIds.has(role.id)}
-                      onToggle={() => toggleExpanded(role.id)}
-                      onNotice={setNotice}
-                      onEdit={() => setEditingId(role.id)}
-                      selected={selectedIds.has(role.id)}
-                      onSelect={(selected) => toggleSelected(role.id, selected)}
-                      onDelete={() => askDelete([role.id])}
-                    />
-                  )}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <RolesListView
-              roles={filtered}
-              selectedIds={selectedIds}
-              onSelect={toggleSelected}
-              onSelectAll={(selected) =>
-                setSelectedIds(selected ? new Set(filtered.map((role) => role.id)) : new Set())
-              }
-              onDelete={(role) => askDelete([role.id])}
-            />
-          )}
-        </>
-      )}
+      <Toast toast={toast} onDismiss={dismissToast} />
 
       <ConfirmDialog
         open={deleteIds !== null}
-        title={
-          deleteIds && deleteIds.length === 1 ? "Delete this role?" : "Delete selected roles?"
-        }
+        title={single ? "Delete this role?" : `Delete ${deleteIds?.length ?? 0} roles?`}
         body={
-          <div className="space-y-2">
-            <p>
-              {deleteIds && deleteIds.length === 1
-                ? `"${rolesToDelete[0]?.title ?? "This role"}" will be removed from the roles page.`
-                : `${deleteIds?.length ?? 0} roles will be removed from the roles page.`}
-            </p>
-            <p>
-              {interviewsToDelete > 0
-                ? `${interviewsToDelete} candidate interview${
-                    interviewsToDelete === 1 ? "" : "s"
-                  } will also be deleted, including reports, recordings and video analyses. This cannot be undone.`
-                : "They have no candidates, so nothing else is removed."}
-            </p>
-          </div>
+          <p>
+            {single ? `“${rolesToDelete[0]?.title ?? "This role"}” is removed.` : "The selected roles are removed."}{" "}
+            {interviewsToDelete > 0
+              ? `${interviewsToDelete} interview${interviewsToDelete === 1 ? "" : "s"} go with ${
+                  single ? "it" : "them"
+                }, including reports and recordings. This cannot be undone.`
+              : "No interviews are affected."}
+          </p>
         }
-        confirmLabel={
-          interviewsToDelete > 0
-            ? deleteIds && deleteIds.length === 1
-              ? "Delete role and candidates"
-              : "Delete roles and candidates"
-            : deleteIds && deleteIds.length === 1
-              ? "Delete role"
-              : "Delete roles"
-        }
+        confirmLabel={interviewsToDelete > 0 ? "Delete with interviews" : single ? "Delete role" : "Delete roles"}
         busy={deleting}
         onConfirm={confirmDelete}
         onCancel={() => {
           if (!deleting) setDeleteIds(null);
         }}
       />
-    </div>
+    </>
   );
 }
