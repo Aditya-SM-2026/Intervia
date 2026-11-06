@@ -4,16 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
+  ArrowUp,
   ArrowUpRight,
-  Bot,
   CheckCircle2,
-  ChevronDown,
   History,
   Loader2,
-  MessageSquare,
   Plus,
-  Quote,
-  Send,
   Sparkles,
   Trash2,
   X,
@@ -48,11 +44,6 @@ const SUGGESTIONS = [
   "Who scored highest in this role?",
 ];
 
-const CONFIDENCE_STYLE: Record<string, string> = {
-  high: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900",
-  medium: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900",
-  low: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
-};
 
 export function CandidateAssistant({
   roomId,
@@ -204,7 +195,6 @@ export function CandidateAssistant({
   }
 
   async function deleteConversation(id: string) {
-    if (!window.confirm("Delete this conversation? This cannot be undone.")) return;
     const response = await fetch(`/api/dashboard/interviews/${roomId}/assistant/${id}`, {
       method: "DELETE",
     });
@@ -219,111 +209,123 @@ export function CandidateAssistant({
     }
   }
 
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+
   return (
     <>
       {open && (
         <button
           type="button"
-          aria-label="Close assistant"
+          aria-label="Close Ask AI"
           onClick={onClose}
-          className="fixed inset-x-0 bottom-0 top-16 z-30 bg-slate-950/30 backdrop-blur-[2px] xl:hidden"
+          className="fixed inset-x-0 bottom-0 top-16 z-30 bg-black/25 backdrop-blur-[2px] xl:hidden"
         />
       )}
 
       <aside
-        aria-label="Candidate AI assistant"
-        className={`fixed bottom-0 right-0 top-16 z-40 w-full flex-col overflow-hidden border-l border-slate-200/90 bg-white shadow-2xl transition-transform duration-300 dark:border-border dark:bg-surface sm:w-[480px] xl:sticky xl:bottom-auto xl:right-auto xl:top-20 xl:z-10 xl:h-[calc(100dvh-6rem)] xl:w-[380px] xl:shrink-0 xl:translate-x-0 xl:rounded-2xl xl:border xl:shadow-[0_1px_3px_rgba(0,0,0,0.04)] ${
-          open ? "flex translate-x-0" : "hidden translate-x-full pointer-events-none"
+        aria-label="Ask AI about this candidate"
+        className={`fixed bottom-0 right-0 top-16 z-40 w-full flex-col overflow-hidden border-l border-border bg-surface shadow-2xl shadow-black/15 sm:w-[460px] xl:sticky xl:bottom-auto xl:right-auto xl:top-20 xl:z-10 xl:h-[calc(100dvh-6rem)] xl:w-[400px] xl:shrink-0 xl:rounded-2xl xl:border xl:shadow-sm xl:shadow-black/[0.03] ${
+          open ? "flex animate-pop-in" : "hidden"
         }`}
         aria-hidden={!open}
         inert={!open}
       >
         {/* Header */}
-        <div className="border-b border-slate-200/80 bg-gradient-to-br from-blue-50 via-white to-white px-5 pb-4 pt-5 dark:border-border dark:from-blue-950/30 dark:via-surface dark:to-surface">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-blue-600 text-white shadow-sm">
-                <Sparkles className="size-5" />
-              </span>
-              <div>
-                <h2 className="text-base font-bold tracking-tight text-slate-900 dark:text-foreground">
-                  Candidate assistant
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-muted">
-                  Evidence from {candidateName || "this candidate"}&apos;s resume and interview.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close assistant"
-              className="grid size-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-900 dark:border-border dark:bg-surface dark:text-slate-300"
-            >
-              <X className="size-4" />
-            </button>
+        <div className="relative flex items-center gap-3 border-b border-border px-4 py-3">
+          <Sparkles className="size-4 shrink-0 text-accent" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold">Ask AI</h2>
+            <p className="truncate text-xs text-muted">About {candidateName || "this candidate"}, with sources</p>
           </div>
-
-          <div className="mt-3 flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={startNewChat}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-xs transition hover:border-blue-300 hover:text-blue-700 dark:border-border dark:bg-surface dark:text-slate-200"
-            >
-              <Plus className="size-3.5" />
-              New chat
-            </button>
-            <button
-              type="button"
-              onClick={() => setHistoryOpen((value) => !value)}
-              aria-expanded={historyOpen}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-xs transition hover:border-blue-300 hover:text-blue-700 dark:border-border dark:bg-surface dark:text-slate-200"
-            >
-              <History className="size-3.5" />
-              History
-              {conversations.length > 0 && (
-                <span className="rounded-full bg-blue-50 px-1.5 text-[10px] font-bold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
-                  {conversations.length}
-                </span>
-              )}
-              <ChevronDown className={`size-3 transition ${historyOpen ? "rotate-180" : ""}`} />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={startNewChat}
+            title="New chat"
+            aria-label="New chat"
+            className="grid size-8 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
+          >
+            <Plus className="size-4" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((value) => !value)}
+            aria-expanded={historyOpen}
+            title="Earlier chats"
+            aria-label="Earlier chats"
+            className={`relative grid size-8 place-items-center rounded-lg transition hover:bg-foreground/[0.06] hover:text-foreground ${
+              historyOpen ? "bg-foreground/[0.06] text-foreground" : "text-muted"
+            }`}
+          >
+            <History className="size-4" aria-hidden />
+            {conversations.length > 0 && (
+              <span className="absolute right-1 top-1 size-1.5 rounded-full bg-accent" aria-hidden />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close Ask AI"
+            className="grid size-8 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
+          >
+            <X className="size-4" aria-hidden />
+          </button>
 
           {historyOpen && (
-            <div className="mt-2 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm dark:border-border dark:bg-surface">
+            <div className="animate-pop-in absolute inset-x-3 top-[calc(100%+6px)] z-20 max-h-72 overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-xl shadow-black/10">
+              <p className="px-2.5 pb-1 pt-2 text-xs font-medium text-muted">Earlier chats</p>
               {conversations.length === 0 ? (
-                <p className="px-2 py-3 text-xs text-slate-500 dark:text-muted">
-                  No saved conversations yet.
-                </p>
+                <p className="px-2.5 pb-3 pt-1 text-sm text-muted">Nothing yet. Questions you ask are saved here.</p>
               ) : (
                 conversations.map((conversation) => (
                   <div
                     key={conversation.id}
-                    className={`group flex items-center gap-1 rounded-lg px-1 ${
-                      conversation.id === conversationId ? "bg-blue-50 dark:bg-blue-950/40" : ""
+                    className={`group flex items-center gap-1 rounded-lg ${
+                      conversation.id === conversationId ? "bg-accent-soft" : "hover:bg-foreground/[0.04]"
                     }`}
                   >
-                    <button
-                      type="button"
-                      onClick={() => void openConversation(conversation.id)}
-                      className="min-w-0 flex-1 rounded-lg px-2 py-2 text-left"
-                    >
-                      <span className="block truncate text-xs font-semibold text-slate-800 dark:text-slate-100">
-                        {conversation.title}
-                      </span>
-                      <span className="mt-0.5 block text-[10px] text-slate-400">
-                        {formatRelative(conversation.updatedAt)}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void deleteConversation(conversation.id)}
-                      aria-label={`Delete ${conversation.title}`}
-                      className="grid size-7 shrink-0 place-items-center rounded-md text-slate-400 opacity-100 transition hover:bg-rose-50 hover:text-rose-600 sm:opacity-0 sm:group-hover:opacity-100"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
+                    {pendingDelete === conversation.id ? (
+                      <div className="flex flex-1 items-center justify-between gap-2 px-2.5 py-2 text-sm">
+                        <span>Delete this chat?</span>
+                        <span className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setPendingDelete(null)}
+                            className="rounded-md px-2 py-1 text-xs text-muted hover:bg-foreground/[0.06]"
+                          >
+                            Keep
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPendingDelete(null);
+                              void deleteConversation(conversation.id);
+                            }}
+                            className="rounded-md bg-rose-600 px-2 py-1 text-xs font-medium text-white hover:bg-rose-700"
+                          >
+                            Delete
+                          </button>
+                        </span>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void openConversation(conversation.id)}
+                          className="min-w-0 flex-1 px-2.5 py-2 text-left"
+                        >
+                          <span className="block truncate text-sm font-medium">{conversation.title}</span>
+                          <span className="block text-xs text-muted">{formatRelative(conversation.updatedAt)}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPendingDelete(conversation.id)}
+                          aria-label={`Delete ${conversation.title}`}
+                          className="mr-1 grid size-7 shrink-0 place-items-center rounded-md text-muted opacity-100 transition hover:bg-rose-500/10 hover:text-rose-600 sm:opacity-0 sm:group-hover:opacity-100"
+                        >
+                          <Trash2 className="size-3.5" aria-hidden />
+                        </button>
+                      </>
+                    )}
                   </div>
                 ))
               )}
@@ -332,39 +334,33 @@ export function CandidateAssistant({
         </div>
 
         {/* Messages */}
-        <div ref={messagesRef} className="flex-1 overflow-y-auto px-4 py-4">
+        <div ref={messagesRef} className="flex-1 overflow-y-auto px-4 py-5">
           {messages.length === 0 && !loading && !error ? (
-            <div className="grid gap-4">
-              <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 dark:border-blue-900/60 dark:bg-blue-950/20">
-                <p className="flex items-center gap-2 text-xs font-bold text-blue-800 dark:text-blue-200">
-                  <MessageSquare className="size-4" />
-                  Ask anything about this candidate
-                </p>
-                <p className="mt-2 text-xs leading-relaxed text-blue-900/80 dark:text-blue-100/80">
-                  I answer only from {candidateName || "this candidate"}&apos;s report, transcript,
-                  resume and scores, with clickable evidence for every answer.
-                </p>
-              </div>
-              <div className="grid gap-2">
+            <div className="flex h-full flex-col justify-end">
+              <p className="text-[15px] font-medium">What do you want to know about {candidateName || "this candidate"}?</p>
+              <p className="mt-1 text-sm leading-6 text-muted">
+                Answers come only from their resume, interview and scores, and every claim links to where it came from.
+              </p>
+              <div className="mt-5 divide-y divide-border overflow-hidden rounded-xl border border-border">
                 {SUGGESTIONS.map((suggestion) => (
                   <button
                     key={suggestion}
                     type="button"
                     onClick={() => void sendQuestion(suggestion)}
-                    className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-medium text-slate-700 shadow-xs transition hover:border-blue-300 hover:text-blue-700 dark:border-border dark:bg-surface dark:text-slate-200"
+                    className="group flex w-full items-center justify-between gap-3 px-3.5 py-3 text-left text-sm transition hover:bg-foreground/[0.03]"
                   >
                     <span>{suggestion}</span>
-                    <ArrowUpRight className="size-3.5 shrink-0 text-slate-400" />
+                    <ArrowUpRight className="size-3.5 shrink-0 text-muted transition group-hover:text-accent" aria-hidden />
                   </button>
                 ))}
               </div>
             </div>
           ) : (
-            <div className="grid gap-4">
+            <div className="grid gap-6">
               {messages.map((message) =>
                 message.role === "user" ? (
                   <div key={message.id} className="flex justify-end">
-                    <div className="max-w-[85%] rounded-2xl rounded-br-md bg-blue-600 px-3.5 py-2.5 text-sm leading-relaxed text-white shadow-sm">
+                    <div className="max-w-[85%] rounded-2xl rounded-br-md bg-foreground/[0.06] px-3.5 py-2.5 text-sm leading-6">
                       {message.content}
                     </div>
                   </div>
@@ -379,24 +375,24 @@ export function CandidateAssistant({
                 ),
               )}
               {loading && (
-                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-500 dark:border-border dark:bg-slate-900/40 dark:text-muted">
-                  <Loader2 className="size-3.5 animate-spin text-blue-600" />
-                  Reading the report and checking quotes...
-                </div>
+                <p className="text-shimmer flex items-center gap-2 text-sm">
+                  <Sparkles className="size-3.5 text-accent" aria-hidden />
+                  Reading the interview and checking quotes…
+                </p>
               )}
               {error && (
-                <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">
-                  <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
-                  <span>{error}</span>
-                </div>
+                <p role="alert" className="flex items-start gap-2 text-sm text-rose-600 dark:text-rose-400">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  {error}
+                </p>
               )}
             </div>
           )}
         </div>
 
         {/* Composer */}
-        <div className="border-t border-slate-200/80 bg-white p-3 dark:border-border dark:bg-surface">
-          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-2 shadow-xs transition focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-500/15 dark:border-border dark:bg-slate-900/40 dark:focus-within:border-blue-500/70">
+        <div className="p-3 pt-0">
+          <div className="rounded-2xl border border-border bg-background/60 p-1.5 transition focus-within:border-accent focus-within:bg-surface focus-within:ring-4 focus-within:ring-accent/10">
             <textarea
               ref={inputRef}
               value={input}
@@ -409,21 +405,19 @@ export function CandidateAssistant({
               }}
               rows={2}
               maxLength={600}
-              placeholder="Ask about this candidate, or compare them with someone..."
-              className="max-h-32 min-h-10 w-full resize-none bg-transparent px-1.5 py-1 text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-foreground"
+              placeholder="Ask about this candidate, or compare them with someone"
+              className="max-h-32 min-h-11 w-full resize-none bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted"
             />
-            <div className="flex items-center justify-between gap-2 px-1">
-              <span className="text-[10px] text-slate-400">
-                Enter sends. Shift + Enter adds a line.
-              </span>
+            <div className="flex items-center justify-between gap-2 pl-2.5">
+              <span className="text-[11px] text-muted">Enter to send, Shift + Enter for a new line</span>
               <button
                 type="button"
                 onClick={() => void sendQuestion(input)}
                 disabled={loading || input.trim().length < 2}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Send"
+                className="grid size-8 place-items-center rounded-xl bg-accent text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-foreground/15"
               >
-                {loading ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
-                Ask
+                {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ArrowUp className="size-4" aria-hidden />}
               </button>
             </div>
           </div>
@@ -446,27 +440,13 @@ function AssistantMessageCard({
 }) {
   const answer = message.answer;
   return (
-    <div className="flex items-start gap-2.5">
-      <div className="size-8 shrink-0 rounded-full bg-gradient-to-br from-sky-500 to-blue-600 p-[1.5px] shadow-sm">
-        <div className="flex h-full w-full items-center justify-center rounded-full bg-white dark:bg-slate-900">
-          <Bot className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-        </div>
-      </div>
-      <div className="min-w-0 max-w-[calc(100%-2.5rem)] rounded-2xl rounded-tl-md bg-slate-50 px-4 py-3 text-slate-800 ring-1 ring-slate-200/80 dark:bg-slate-800/80 dark:text-slate-100 dark:ring-slate-700/80">
-        {answer ? (
-          <AnswerBody
-            answer={answer}
-            onJumpToTurn={onJumpToTurn}
-            onJumpToSection={onJumpToSection}
-            onFollowUp={onFollowUp}
-          />
-        ) : (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
-        )}
-        <p className="mt-2.5 text-[10px] text-slate-400 dark:text-slate-500">
-          {formatTime(message.createdAt)}
-        </p>
-      </div>
+    <div className="min-w-0 text-sm leading-6 text-foreground/90">
+      {answer ? (
+        <AnswerBody answer={answer} onJumpToTurn={onJumpToTurn} onJumpToSection={onJumpToSection} onFollowUp={onFollowUp} />
+      ) : (
+        <p className="whitespace-pre-wrap">{message.content}</p>
+      )}
+      <p className="mt-2 text-[11px] text-muted">{formatTime(message.createdAt)}</p>
     </div>
   );
 }
@@ -482,24 +462,12 @@ function AnswerBody({
   onJumpToSection?: JumpToSection;
   onFollowUp: (question: string) => void;
 }) {
-  if (answer.kind === "general") {
-    return <GeneralAnswerCard answer={answer} />;
-  }
+  if (answer.kind === "general") return <GeneralAnswerCard answer={answer} />;
   if (answer.kind === "candidate") {
-    return (
-      <CandidateAnswerCard
-        answer={answer}
-        onJumpToTurn={onJumpToTurn}
-        onJumpToSection={onJumpToSection}
-      />
-    );
+    return <CandidateAnswerCard answer={answer} onJumpToTurn={onJumpToTurn} onJumpToSection={onJumpToSection} />;
   }
-  if (answer.kind === "comparison") {
-    return <ComparisonAnswerCard answer={answer} onJumpToTurn={onJumpToTurn} />;
-  }
-  if (answer.kind === "portfolio") {
-    return <PortfolioAnswerCard answer={answer} />;
-  }
+  if (answer.kind === "comparison") return <ComparisonAnswerCard answer={answer} onJumpToTurn={onJumpToTurn} />;
+  if (answer.kind === "portfolio") return <PortfolioAnswerCard answer={answer} />;
   return <NoticeAnswerCard answer={answer} onFollowUp={onFollowUp} />;
 }
 
@@ -512,26 +480,12 @@ function CandidateAnswerCard({
   onJumpToTurn?: (seq: number) => void;
   onJumpToSection?: JumpToSection;
 }) {
-  const citations =
-    answer.citations && answer.citations.length > 0
-      ? answer.citations
-      : legacyCitations(answer);
-
+  const citations = answer.citations && answer.citations.length > 0 ? answer.citations : legacyCitations(answer);
   return (
-    <div className="grid gap-2.5">
-      <AnswerText
-        text={answer.assessment}
-        citations={citations}
-        onJumpToTurn={onJumpToTurn}
-        onJumpToSection={onJumpToSection}
-      />
-
+    <div className="grid gap-3">
+      <AnswerText text={answer.assessment} citations={citations} onJumpToTurn={onJumpToTurn} onJumpToSection={onJumpToSection} />
       {citations.length > 0 && (
-        <CitationSources
-          citations={citations}
-          onJumpToTurn={onJumpToTurn}
-          onJumpToSection={onJumpToSection}
-        />
+        <CitationSources citations={citations} onJumpToTurn={onJumpToTurn} onJumpToSection={onJumpToSection} />
       )}
     </div>
   );
@@ -551,16 +505,13 @@ function AnswerText({
   const byIndex = new Map(citations.map((citation) => [citation.index, citation]));
   const parts = text.split(/(\[\d+\])/g);
   return (
-    <p className="whitespace-pre-line text-sm leading-relaxed">
+    <p className="whitespace-pre-line">
       {parts.map((part, index) => {
         const match = /^\[(\d+)\]$/.exec(part);
         if (!match) return <span key={`text-${index}`}>{part}</span>;
         const citation = byIndex.get(Number(match[1]));
         if (!citation) return null;
-        const target =
-          citation.kind === "transcript"
-            ? citation.turnSeq !== undefined
-            : Boolean(citation.sectionId);
+        const target = citation.kind === "transcript" ? citation.turnSeq !== undefined : Boolean(citation.sectionId);
         return (
           <button
             key={`cite-${index}`}
@@ -568,7 +519,7 @@ function AnswerText({
             disabled={!target}
             onClick={() => jumpCitation(citation, onJumpToTurn, onJumpToSection)}
             title={citation.quote || citation.label}
-            className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-100 px-1 align-[0.15em] text-[10px] font-semibold text-blue-700 transition hover:bg-blue-200 disabled:cursor-default dark:bg-blue-950/60 dark:text-blue-300"
+            className="mx-0.5 inline-grid h-[18px] min-w-[18px] place-items-center rounded-md bg-accent-soft px-1 align-[0.1em] text-[10px] font-semibold tabular-nums text-accent transition hover:bg-accent hover:text-white disabled:cursor-default"
           >
             {citation.index}
           </button>
@@ -588,35 +539,35 @@ function CitationSources({
   onJumpToSection?: JumpToSection;
 }) {
   return (
-    <div className="grid gap-1.5">
-      <p className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-        <Quote className="size-3" />
-        Evidence
-      </p>
-      <div className="flex flex-wrap gap-1.5">
+    <div>
+      <p className="text-xs font-medium text-muted">Sources</p>
+      <ol className="mt-1.5 divide-y divide-border rounded-xl border border-border">
         {citations.map((citation) => {
-          const target =
-            citation.kind === "transcript"
-              ? citation.turnSeq !== undefined
-              : Boolean(citation.sectionId);
+          const target = citation.kind === "transcript" ? citation.turnSeq !== undefined : Boolean(citation.sectionId);
+          const where = citation.kind === "transcript" ? `Answer at turn ${citation.turnSeq}` : citation.label;
           return (
-            <button
-              key={`${citation.kind}-${citation.index}`}
-              type="button"
-              disabled={!target}
-              onClick={() => jumpCitation(citation, onJumpToTurn, onJumpToSection)}
-              title={citation.quote || citation.note || citation.label}
-              className="inline-flex max-w-[280px] items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50/80 py-1 pl-1 pr-2.5 text-[10px] font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-default dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300"
-            >
-              <span className="grid size-4 shrink-0 place-items-center rounded-full bg-white text-[9px] font-bold text-blue-700 shadow-sm dark:bg-slate-900 dark:text-blue-300">
-                {citation.index}
-              </span>
-              <span className="truncate">{citationCapsuleText(citation)}</span>
-              {target && <ArrowUpRight className="size-3 shrink-0 opacity-70" />}
-            </button>
+            <li key={`${citation.kind}-${citation.index}`}>
+              <button
+                type="button"
+                disabled={!target}
+                onClick={() => jumpCitation(citation, onJumpToTurn, onJumpToSection)}
+                className="group flex w-full items-start gap-2.5 px-3 py-2 text-left transition hover:bg-foreground/[0.03] disabled:cursor-default"
+              >
+                <span className="mt-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-md bg-foreground/[0.06] text-[10px] font-semibold tabular-nums">
+                  {citation.index}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-medium group-hover:text-accent">{where}</span>
+                  {citation.quote && (
+                    <span className="mt-0.5 line-clamp-2 block text-xs text-muted">“{citationSnippet(citation.quote, 160)}”</span>
+                  )}
+                </span>
+                {target && <ArrowUpRight className="mt-0.5 size-3.5 shrink-0 text-muted group-hover:text-accent" aria-hidden />}
+              </button>
+            </li>
           );
         })}
-      </div>
+      </ol>
     </div>
   );
 }
@@ -627,21 +578,7 @@ function citationSnippet(quote: string | undefined, limit: number): string {
   return text.length > limit ? `${text.slice(0, limit).trimEnd()}…` : text;
 }
 
-function citationCapsuleText(citation: AssistantCitation): string {
-  const prefix =
-    citation.kind === "transcript" ? `Turn ${citation.turnSeq}` : citation.label;
-  const snippet = citationSnippet(
-    citation.quote,
-    citation.kind === "transcript" ? 52 : 46,
-  );
-  return snippet ? `${prefix} · “${snippet}”` : prefix;
-}
-
-function jumpCitation(
-  citation: AssistantCitation,
-  onTurn?: (turn: number) => void,
-  onSection?: JumpToSection,
-) {
+function jumpCitation(citation: AssistantCitation, onTurn?: (turn: number) => void, onSection?: JumpToSection) {
   if (citation.kind === "transcript") {
     if (citation.turnSeq !== undefined) onTurn?.(citation.turnSeq);
     return;
@@ -676,11 +613,9 @@ function legacyCitations(answer: AssistantCandidateAnswer): AssistantCitation[] 
 
 function GeneralAnswerCard({ answer }: { answer: AssistantGeneralAnswer }) {
   return (
-    <div className="grid gap-2">
-      <span className="w-fit rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-        General knowledge
-      </span>
-      <p className="text-sm leading-relaxed">{answer.answer}</p>
+    <div className="grid gap-1.5">
+      <p className="text-xs text-muted">General knowledge, not from this interview</p>
+      <p>{answer.answer}</p>
     </div>
   );
 }
@@ -693,90 +628,55 @@ function ComparisonAnswerCard({
   onJumpToTurn?: (seq: number) => void;
 }) {
   return (
-    <div className="grid gap-3">
-      <p className="whitespace-pre-line text-sm leading-relaxed text-slate-800 dark:text-slate-100">{answer.assessment}</p>
-      <div className="grid gap-2">
+    <div className="grid gap-4">
+      <p className="whitespace-pre-line">{answer.assessment}</p>
+      <div className="divide-y divide-border rounded-xl border border-border">
         {answer.candidates.map((candidate) => (
-          <div
-            key={candidate.roomId}
-            className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 dark:border-border dark:bg-slate-900/30"
-          >
-            <div className="flex items-start justify-between gap-2">
+          <div key={candidate.roomId} className="p-3.5">
+            <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-xs font-bold text-slate-900 dark:text-foreground">{candidate.name}</p>
-                <p className="truncate text-[10px] text-slate-500 dark:text-muted">{candidate.role}</p>
+                <p className="truncate font-medium">{candidate.name}</p>
+                <p className="truncate text-xs text-muted">{candidate.role}</p>
               </div>
-              <ScorePill value={candidate.metrics.overall} />
+              <Score value={candidate.metrics.overall} large />
             </div>
-            <p className="mt-2 text-xs leading-relaxed text-slate-700 dark:text-slate-200">
-              {candidate.assessment}
-            </p>
-            <div className="mt-2 grid grid-cols-3 gap-1.5">
-              <MiniMetric label="Answers" value={candidate.metrics.answers} />
-              <MiniMetric label="Resume" value={candidate.metrics.resume} />
-              <MiniMetric label="Authenticity" value={candidate.metrics.authenticity} />
-            </div>
-            {candidate.resumeEvidence.length > 0 && (
-              <div className="mt-2 rounded-lg border border-sky-200 bg-sky-50/60 px-2 py-1.5 dark:border-sky-900 dark:bg-sky-950/20">
-                <p className="text-[9px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-300">
-                  Resume claim
-                </p>
-                <p className="mt-0.5 text-[10px] italic leading-relaxed text-slate-700 dark:text-slate-200">
-                  &ldquo;{candidate.resumeEvidence[0].quote}&rdquo;
-                </p>
-              </div>
-            )}
-            {candidate.interviewEvidence.length > 0 && (
-              <div className="mt-2 grid gap-1.5">
-                {candidate.interviewEvidence.slice(0, 2).map((item) => (
-                  <EvidenceBlockRow
-                    key={`${candidate.roomId}-${item.turnSeq}`}
-                    turnSeq={item.turnSeq}
-                    quote={item.quote}
-                    note={item.note}
-                    onJump={onJumpToTurn}
-                  />
-                ))}
-              </div>
-            )}
+            <dl className="mt-2.5 grid grid-cols-3 gap-2 text-xs">
+              <Metric label="Answers" value={candidate.metrics.answers} />
+              <Metric label="Resume" value={candidate.metrics.resume} />
+              <Metric label="Originality" value={candidate.metrics.authenticity} />
+            </dl>
+            <p className="mt-2.5 text-[13px] leading-5 text-foreground/80">{candidate.assessment}</p>
+            {candidate.interviewEvidence.slice(0, 2).map((item) => (
+              <button
+                key={`${candidate.roomId}-${item.turnSeq}`}
+                type="button"
+                onClick={() => onJumpToTurn?.(item.turnSeq)}
+                className="mt-2 block w-full border-l-2 border-border pl-2.5 text-left text-xs text-muted transition hover:border-accent hover:text-foreground"
+              >
+                “{citationSnippet(item.quote, 140)}”
+              </button>
+            ))}
           </div>
         ))}
       </div>
-
       {answer.dimensions.length > 0 && (
-        <div className="grid gap-1.5">
+        <ul className="grid gap-1.5 text-[13px]">
           {answer.dimensions.map((dimension) => {
             const leader = answer.candidates.find((candidate) => candidate.roomId === dimension.leaderRoomId);
             return (
-              <div key={dimension.label} className="flex items-start gap-2 text-[11px]">
-                <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-blue-600" />
-                <p className="text-slate-600 dark:text-slate-300">
-                  <span className="font-semibold text-slate-800 dark:text-slate-100">{dimension.label}:</span>{" "}
-                  {dimension.note}
-                  {leader ? ` (${leader.name})` : ""}
-                </p>
-              </div>
+              <li key={dimension.label} className="flex gap-2">
+                <CheckCircle2 className="mt-1 size-3.5 shrink-0 text-accent" aria-hidden />
+                <span>
+                  <span className="font-medium">{dimension.label}:</span> {dimension.note}
+                  {leader ? <span className="text-muted"> ({leader.name})</span> : null}
+                </span>
+              </li>
             );
           })}
-        </div>
-      )}
-
-      {answer.verdict && (
-        <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium leading-relaxed text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
-          {answer.verdict}
-        </p>
-      )}
-      <ConfidencePill confidence={answer.confidence} reason={answer.confidenceReason} />
-      {answer.caveats.length > 0 && (
-        <ul className="grid gap-1 text-[10px] text-slate-500 dark:text-muted">
-          {answer.caveats.map((caveat) => (
-            <li key={caveat} className="flex gap-1.5">
-              <span className="text-slate-400">•</span>
-              <span>{caveat}</span>
-            </li>
-          ))}
         </ul>
       )}
+      {answer.verdict && <p className="border-l-2 border-accent pl-3 font-medium">{answer.verdict}</p>}
+      <Confidence confidence={answer.confidence} reason={answer.confidenceReason} caveats={answer.caveats} />
     </div>
   );
 }
@@ -784,59 +684,39 @@ function ComparisonAnswerCard({
 function PortfolioAnswerCard({ answer }: { answer: AssistantPortfolioAnswer }) {
   return (
     <div className="grid gap-3">
-      <p className="whitespace-pre-line text-sm leading-relaxed text-slate-800 dark:text-slate-100">{answer.answer}</p>
-      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-        <span>{answer.metricLabel}</span>
-        {answer.role && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600 dark:bg-slate-800 dark:text-slate-300">{answer.role}</span>}
-      </div>
-      <div className="grid gap-1.5">
-        {answer.rows.map((row, index) => (
-          <Link
-            key={row.roomId}
-            href={`/dashboard/${row.roomId}`}
-            className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-2.5 py-2 shadow-xs transition hover:border-blue-300 hover:bg-blue-50/40 dark:border-border dark:bg-surface"
-          >
-            <span className="grid size-6 shrink-0 place-items-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              {index + 1}
-            </span>
-            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-blue-50 text-[10px] font-bold uppercase text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
-              {initials(row.name)}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-semibold text-slate-900 dark:text-foreground">{row.name}</span>
-              <span className="block truncate text-[10px] text-slate-500 dark:text-muted">{row.role}</span>
-            </span>
-            <span className="text-right">
-              <span className="block text-xs font-bold tabular-nums text-slate-900 dark:text-foreground">
-                {row.metricValue === null ? "–" : Math.round(row.metricValue)}
-              </span>
-              <span className="block text-[9px] text-slate-400">overall {row.overall === null ? "–" : Math.round(row.overall)}</span>
-            </span>
-          </Link>
-        ))}
-      </div>
-      <ConfidencePill confidence={answer.confidence} reason={answer.confidenceReason} />
-      {answer.caveats.length > 0 && (
-        <ul className="grid gap-1 text-[10px] text-slate-500 dark:text-muted">
-          {answer.caveats.map((caveat) => (
-            <li key={caveat}>• {caveat}</li>
+      <p className="whitespace-pre-line">{answer.answer}</p>
+      <div>
+        <p className="text-xs text-muted">
+          {answer.metricLabel}
+          {answer.role ? ` for ${answer.role}` : ""}
+        </p>
+        <ol className="mt-1.5 divide-y divide-border rounded-xl border border-border">
+          {answer.rows.map((row, index) => (
+            <li key={row.roomId}>
+              <Link
+                href={`/dashboard/${row.roomId}`}
+                className="flex items-center gap-3 px-3 py-2.5 transition hover:bg-foreground/[0.03]"
+              >
+                <span className="w-4 text-xs tabular-nums text-muted">{index + 1}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{row.name}</span>
+                  <span className="block truncate text-xs text-muted">{row.role}</span>
+                </span>
+                <Score value={row.metricValue} />
+              </Link>
+            </li>
           ))}
-        </ul>
-      )}
+        </ol>
+      </div>
+      <Confidence confidence={answer.confidence} reason={answer.confidenceReason} caveats={answer.caveats} />
     </div>
   );
 }
 
-function NoticeAnswerCard({
-  answer,
-  onFollowUp,
-}: {
-  answer: AssistantNoticeAnswer;
-  onFollowUp: (question: string) => void;
-}) {
+function NoticeAnswerCard({ answer, onFollowUp }: { answer: AssistantNoticeAnswer; onFollowUp: (question: string) => void }) {
   return (
-    <div className="grid gap-2">
-      <p className="whitespace-pre-line text-sm leading-relaxed text-slate-800 dark:text-slate-100">{answer.message}</p>
+    <div className="grid gap-2.5">
+      <p className="whitespace-pre-line">{answer.message}</p>
       {answer.options.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {answer.options.map((option) => (
@@ -844,7 +724,7 @@ function NoticeAnswerCard({
               key={option}
               type="button"
               onClick={() => onFollowUp(option.split(" (")[0])}
-              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-700 transition hover:border-blue-300 hover:text-blue-700 dark:border-border dark:bg-slate-900/40 dark:text-slate-200"
+              className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium transition hover:border-accent/40 hover:text-accent"
             >
               {option}
             </button>
@@ -855,77 +735,45 @@ function NoticeAnswerCard({
   );
 }
 
-function EvidenceBlockRow({
-  turnSeq,
-  quote,
-  note,
-  onJump,
-}: {
-  turnSeq: number;
-  quote: string;
-  note: string;
-  onJump?: (seq: number) => void;
-}) {
+const CONFIDENCE_DOT: Record<string, string> = {
+  high: "bg-emerald-500",
+  medium: "bg-amber-500",
+  low: "bg-foreground/30",
+};
+
+function Confidence({ confidence, reason, caveats }: { confidence: string; reason: string; caveats: string[] }) {
   return (
-    <div className="rounded-lg bg-white/80 p-2 dark:bg-slate-900/40">
-      <p className="flex gap-1.5 text-[11px] italic leading-relaxed text-slate-700 dark:text-slate-200">
-        <Quote className="mt-0.5 size-3 shrink-0 text-slate-400" />
-        <span>&ldquo;{quote}&rdquo;</span>
+    <div className="text-xs text-muted">
+      <p className="flex items-center gap-1.5">
+        <span aria-hidden className={`size-1.5 rounded-full ${CONFIDENCE_DOT[confidence] ?? CONFIDENCE_DOT.low}`} />
+        <span className="font-medium capitalize text-foreground/80">{confidence} confidence</span>
+        {reason && <span className="truncate">— {reason}</span>}
       </p>
-      <div className="mt-1 flex items-center justify-between gap-2 pl-[18px]">
-        <p className="text-[10px] text-slate-500 dark:text-muted">{note}</p>
-        <button
-          type="button"
-          onClick={() => onJump?.(turnSeq)}
-          className="shrink-0 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 transition hover:border-blue-300 hover:text-blue-700 dark:border-border dark:bg-surface dark:text-slate-300"
-        >
-          Turn {turnSeq}
-        </button>
-      </div>
+      {caveats.length > 0 && (
+        <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+          {caveats.map((caveat) => (
+            <li key={caveat}>{caveat}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
-function ConfidencePill({ confidence, reason }: { confidence: string; reason: string }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${CONFIDENCE_STYLE[confidence] ?? CONFIDENCE_STYLE.low}`}>
-        {confidence} confidence
-      </span>
-      {reason && <span className="text-[10px] text-slate-500 dark:text-muted">{reason}</span>}
-    </div>
-  );
-}
-
-function ScorePill({ value }: { value: number | null }) {
-  if (value === null) {
-    return <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-300">no score</span>;
-  }
+function Score({ value, large = false }: { value: number | null; large?: boolean }) {
+  if (value === null) return <span className="text-xs text-muted">No score</span>;
   const tone =
-    value >= 75 ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-      : value >= 50 ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
-        : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300";
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums ${tone}`}>{Math.round(value)}</span>;
+    value >= 70 ? "text-emerald-600 dark:text-emerald-400" : value >= 50 ? "text-amber-600 dark:text-amber-400" : "text-rose-600 dark:text-rose-400";
+  return <span className={`font-semibold tabular-nums ${large ? "text-lg" : "text-sm"} ${tone}`}>{Math.round(value)}</span>;
 }
 
-function MiniMetric({ label, value }: { label: string; value: number | null }) {
+function Metric({ label, value }: { label: string; value: number | null }) {
   return (
-    <div className="rounded-lg bg-white px-1.5 py-1 text-center dark:bg-slate-900/50">
-      <p className="text-[9px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="text-[11px] font-bold tabular-nums text-slate-800 dark:text-slate-100">
-        {value === null ? "–" : Math.round(value)}
-      </p>
+    <div>
+      <dt className="text-muted">{label}</dt>
+      <dd className="font-semibold tabular-nums">{value === null ? "–" : Math.round(value)}</dd>
     </div>
   );
-}
-
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
 }
 
 function formatTime(value: string): string {
