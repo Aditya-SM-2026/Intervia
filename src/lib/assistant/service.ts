@@ -33,6 +33,7 @@ import {
   renderCandidateRecord,
   renderHistory,
   renderResume,
+  renderScorecard,
   renderTranscript,
   type CandidateEvidence,
 } from "./context";
@@ -178,9 +179,9 @@ const SYSTEM_RULES = [
   "A transcript marked as a relevance-filtered selection is not the full interview. Only judge missing evidence within the shown turns and the report's stated gaps; never claim the rest of the interview lacked a topic.",
   "Do not infer age, gender, ethnicity, nationality, religion, health, disability or any other protected characteristic.",
   "Only discuss job-relevant evidence. Existing numeric scores must come from the supplied report; do not change them.",
-  "When asked for a skill score, use an official custom parameter if the report has one; otherwise estimate 0-100 from the report, resume and transcript evidence and set basis to \"estimate\". Always return the skill name in estimatedSkill, even when the report has an official score; the server marks it as official. Use this scale: 0-39 not evident, 40-59 basic, 60-74 working, 75-89 strong, 90-100 expert. Use at least two supporting citations and a short rationale.",
-  "Quotes must be copied verbatim, character for character, from the supplied resume or from the numbered candidate turn.",
-  "Every factual claim drawn from the report, resume or transcript must have a citation. Citation numbers must match the order of the citations array. Put [1], [2] and so on inline in the answer. If there is no citation, do not use a bracket marker.",
+  "When asked for a skill score, use an official custom parameter if the report has one; otherwise give an evidence-based 0-100 score from the report, resume and transcript and set basis to \"estimate\" internally. In the answer, write the score as `AI 72/100 (working level, evidence-based)` and never call it an estimate or general knowledge. Always return the skill name in estimatedSkill, even when the report has an official score; the server marks it as official. Use this scale: 0-39 not evident, 40-59 basic, 60-74 working, 75-89 strong, 90-100 expert. Use at least two supporting citations and a short rationale.",
+  "Quotes must be copied verbatim, character for character, from the supplied report, resume or numbered candidate turn.",
+  "Every factual claim drawn from the report, resume or transcript must have a citation. Citation numbers must match the order of the citations array. Put [1], [2] and so on inline in the answer. Each citation must point to the exact sentence or score in the report, or the exact transcript turn or resume line, never just a section. If there is no exact quote, do not use a bracket marker.",
   "Reply with a single JSON object only.",
 ].join("\n");
 
@@ -191,12 +192,12 @@ const CITATION_SECTIONS = [
 
 const CANDIDATE_ANSWER_SHAPE = [
   "{",
-  '  "basis": "report|inferred|general|estimate",',
-  '  "answer": "1-3 short sentences, max 60 words, with [1] markers where relevant",',
+  '  "basis": "report|inferred|estimate",',
+  '  "answer": "1-2 short sentences, max 45 words, with [1] markers where relevant",',
   '  "citations": [',
   '    { "source": "transcript", "turnSeq": 12, "quote": "verbatim candidate words", "note": "what it shows" },',
   '    { "source": "resume", "quote": "verbatim resume text", "note": "what it shows" },',
-  '    { "source": "report", "sectionId": "answers", "note": "what this report section shows" }',
+  '    { "source": "report", "sectionId": "answers", "quote": "verbatim report text", "note": "what this exact report line shows" }',
   "  ],",
   '  "estimatedSkill": null,',
   '  "confidence": "high|medium|low",',
@@ -358,7 +359,9 @@ async function answerCandidate(
     "",
     CITATION_SECTIONS,
     "The report facts above are authoritative. Search them first, then the transcript and resume.",
-    "If the question asks for a score in a named skill, use the report's custom parameter if it exists; otherwise estimate it from the evidence. If the skill is not mentioned anywhere in the resume, report or transcript, score it 0.",
+    "When the question asks for a skill score, use the report's custom parameter if it exists; otherwise give an evidence-based score from the evidence. Start with `Skill: score/100 (level, evidence-based)` and then one short evidence sentence. If the skill is not mentioned in the resume or candidate answers, score it 0.",
+    "Do not label the answer as estimated, inferred or general knowledge. Those modes are internal only.",
+    "For every report citation, copy the exact sentence or score into quote and set the matching sectionId. Never cite a section without the exact report text.",
     "Do not answer general knowledge questions. If the question is unrelated to this candidate, say it is not part of their report.",
     "",
     "<conversation>",
@@ -700,7 +703,13 @@ function verifyCandidateAnswer(
         "Official custom parameter score from the report.",
     };
     basis = "report";
-    answerText = `The report gives ${official.skill} an official score of ${score}/100.`;
+    answerText = withScoreLine(
+      answerText,
+      official.skill,
+      score,
+      scoreBand(score),
+      true,
+    );
     confidence = "high";
     if (!citations.some((citation) => citation.sectionId === "custom")) {
       citations.push({
@@ -726,8 +735,8 @@ function verifyCandidateAnswer(
       rationale: `No ${requestedSkillLabel} experience appears in the candidate's resume or interview answers.`,
     };
     basis = "estimate";
-    answerText = `No ${requestedSkillLabel} experience appears in the candidate's resume or interview answers, so the evidence-based score is 0/100.`;
-    missing = `No ${requestedSkillLabel} evidence was found.`;
+    answerText = `${requestedSkillLabel} 0/100 (not mentioned in the resume or interview answers).`;
+    missing = null;
     confidence = "high";
     citations.splice(0, citations.length);
     resumeItems.splice(0, resumeItems.length);
@@ -751,11 +760,18 @@ function verifyCandidateAnswer(
         official: false,
         rationale:
           raw.estimatedSkill.rationale.trim() ||
-          "Estimated from the interview and resume evidence.",
+          "Based on the interview and resume evidence.",
       };
       confidence = raw.estimatedSkill.confidence;
       basis = "estimate";
       missing = null;
+      answerText = withScoreLine(
+        answerText,
+        estimate.skill,
+        estimate.score,
+        estimate.band,
+        estimate.official,
+      );
     }
   } else if (wantsSkillScore && raw.basis === "estimate") {
     answerText =
@@ -816,6 +832,9 @@ function verifyCitations(
 ): CitationVerification {
   const bySeq = new Map(evidence.turns.map((turn) => [turn.seq, turn]));
   const resumeHaystack = normalize(evidence.resumeText);
+  const reportHaystack = evidence.scorecard
+    ? normalize(renderScorecard(evidence.scorecard, 60_000))
+    : "";
   const kept: AssistantCitation[] = [];
   const mapping = new Map<number, number>();
   const seen = new Set<string>();
@@ -858,13 +877,17 @@ function verifyCitations(
         };
       }
     } else if (item.sectionId) {
-      citation = {
-        index: 0,
-        kind: "report",
-        label: REPORT_SECTION_LABELS[item.sectionId],
-        sectionId: item.sectionId,
-        note: item.note.trim(),
-      };
+      const quote = item.quote.trim();
+      if (quote.length >= 8 && reportHaystack.includes(normalize(quote))) {
+        citation = {
+          index: 0,
+          kind: "report",
+          label: REPORT_SECTION_LABELS[item.sectionId],
+          sectionId: item.sectionId,
+          quote,
+          note: item.note.trim() || "Report evidence.",
+        };
+      }
     }
 
     if (!citation) {
@@ -1076,6 +1099,24 @@ function scoreBand(score: number): string {
   if (score >= 60) return "Working knowledge";
   if (score >= 40) return "Basic";
   return "Not demonstrated";
+}
+
+function withScoreLine(
+  answer: string,
+  skill: string,
+  score: number,
+  band: string,
+  official: boolean,
+): string {
+  const text = answer
+    .replace(/^there is no official[^.]*[.:]\s*/i, "")
+    .replace(/^there is no official[^.]*?estimate:\s*/i, "")
+    .replace(/\bthis is an? (?:estimated?|inferred|general[- ]knowledge)(?: score| answer)?:\s*/gi, "")
+    .replace(/^(?:estimated?|inferred|general[- ]knowledge)(?: score| answer)?:\s*/i, "")
+    .trim();
+  if (new RegExp(`\\b${score}\\s*/\\s*100\\b`).test(text)) return text;
+  const qualifier = official ? "official report score" : "evidence-based";
+  return `${skill} ${score}/100 (${band.toLowerCase()}, ${qualifier}). ${text}`.trim();
 }
 
 function verifyComparisonAnswer(

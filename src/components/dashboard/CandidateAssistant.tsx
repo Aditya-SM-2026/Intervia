@@ -28,8 +28,9 @@ import type {
   AssistantMessage,
   AssistantNoticeAnswer,
   AssistantPortfolioAnswer,
-  AssistantSkillEstimate,
 } from "@/lib/interviews/assistant.types";
+
+type JumpToSection = (sectionId: string, quote?: string) => void;
 
 interface CandidateAssistantProps {
   roomId: string;
@@ -37,7 +38,7 @@ interface CandidateAssistantProps {
   open: boolean;
   onClose: () => void;
   onJumpToTurn?: (seq: number) => void;
-  onJumpToReportSection?: (sectionId: string) => void;
+  onJumpToReportSection?: JumpToSection;
 }
 
 const SUGGESTIONS = [
@@ -51,13 +52,6 @@ const CONFIDENCE_STYLE: Record<string, string> = {
   high: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900",
   medium: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900",
   low: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
-};
-
-const BASIS_LABEL: Record<string, string> = {
-  report: "From the report",
-  inferred: "Inferred from the interview",
-  general: "General knowledge",
-  estimate: "Estimated score",
 };
 
 export function CandidateAssistant({
@@ -447,7 +441,7 @@ function AssistantMessageCard({
 }: {
   message: AssistantMessage;
   onJumpToTurn?: (seq: number) => void;
-  onJumpToSection?: (sectionId: string) => void;
+  onJumpToSection?: JumpToSection;
   onFollowUp: (question: string) => void;
 }) {
   const answer = message.answer;
@@ -485,7 +479,7 @@ function AnswerBody({
 }: {
   answer: AssistantAnswer;
   onJumpToTurn?: (seq: number) => void;
-  onJumpToSection?: (sectionId: string) => void;
+  onJumpToSection?: JumpToSection;
   onFollowUp: (question: string) => void;
 }) {
   if (answer.kind === "general") {
@@ -497,7 +491,6 @@ function AnswerBody({
         answer={answer}
         onJumpToTurn={onJumpToTurn}
         onJumpToSection={onJumpToSection}
-        onFollowUp={onFollowUp}
       />
     );
   }
@@ -514,36 +507,18 @@ function CandidateAnswerCard({
   answer,
   onJumpToTurn,
   onJumpToSection,
-  onFollowUp,
 }: {
   answer: AssistantCandidateAnswer;
   onJumpToTurn?: (seq: number) => void;
-  onJumpToSection?: (sectionId: string) => void;
-  onFollowUp: (question: string) => void;
+  onJumpToSection?: JumpToSection;
 }) {
   const citations =
     answer.citations && answer.citations.length > 0
       ? answer.citations
       : legacyCitations(answer);
-  const basis = answer.basis ?? "report";
 
   return (
-    <div className="grid gap-3">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <BasisBadge basis={basis} />
-        {answer.estimatedSkill && (
-          <span
-            className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
-              answer.estimatedSkill.official
-                ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"
-                : "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
-            }`}
-          >
-            {answer.estimatedSkill.official ? "Report score" : "Estimate"}
-          </span>
-        )}
-      </div>
-
+    <div className="grid gap-2.5">
       <AnswerText
         text={answer.assessment}
         citations={citations}
@@ -551,39 +526,12 @@ function CandidateAnswerCard({
         onJumpToSection={onJumpToSection}
       />
 
-      {answer.estimatedSkill && (
-        <EstimatedSkillCard estimate={answer.estimatedSkill} onJumpToSection={onJumpToSection} />
-      )}
-
       {citations.length > 0 && (
         <CitationSources
           citations={citations}
           onJumpToTurn={onJumpToTurn}
           onJumpToSection={onJumpToSection}
         />
-      )}
-
-      {answer.missingEvidence && (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-          {answer.missingEvidence}
-        </p>
-      )}
-
-      <ConfidencePill confidence={answer.confidence} reason={answer.confidenceReason} />
-
-      {answer.followUps.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {answer.followUps.map((question) => (
-            <button
-              key={question}
-              type="button"
-              onClick={() => onFollowUp(question)}
-              className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300"
-            >
-              {question}
-            </button>
-          ))}
-        </div>
       )}
     </div>
   );
@@ -598,7 +546,7 @@ function AnswerText({
   text: string;
   citations: AssistantCitation[];
   onJumpToTurn?: (seq: number) => void;
-  onJumpToSection?: (sectionId: string) => void;
+  onJumpToSection?: JumpToSection;
 }) {
   const byIndex = new Map(citations.map((citation) => [citation.index, citation]));
   const parts = text.split(/(\[\d+\])/g);
@@ -630,72 +578,6 @@ function AnswerText({
   );
 }
 
-function BasisBadge({ basis }: { basis: string }) {
-  const tone =
-    basis === "inferred"
-      ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-      : basis === "general"
-        ? "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-        : basis === "estimate"
-          ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300"
-          : "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300";
-  return (
-    <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${tone}`}>
-      {BASIS_LABEL[basis] ?? "From the report"}
-    </span>
-  );
-}
-
-function EstimatedSkillCard({
-  estimate,
-  onJumpToSection,
-}: {
-  estimate: AssistantSkillEstimate;
-  onJumpToSection?: (sectionId: string) => void;
-}) {
-  const tone = estimate.official
-    ? "border-blue-200 bg-blue-50/70 dark:border-blue-900 dark:bg-blue-950/25"
-    : "border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/25";
-  return (
-    <div className={`rounded-xl border p-3 ${tone}`}>
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            {estimate.official ? "Official report score" : "Estimated skill score"}
-          </p>
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{estimate.skill}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-2xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
-            {estimate.score}
-            <span className="text-xs font-medium text-slate-400">/100</span>
-          </p>
-          <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">{estimate.band}</p>
-        </div>
-      </div>
-      <p className="mt-2 text-xs leading-relaxed text-slate-700 dark:text-slate-200">
-        {estimate.rationale}
-      </p>
-      <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
-        {estimate.official
-          ? "This comes from the report's scored custom parameters."
-          : "Estimated from the interview and resume evidence, not an official report score."}
-      </p>
-      <div className="mt-2 flex gap-1.5">
-        {estimate.official && (
-          <button
-            type="button"
-            onClick={() => onJumpToSection?.("custom")}
-            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[9px] font-semibold text-slate-600 transition hover:border-blue-300 hover:text-blue-700 dark:border-border dark:bg-surface dark:text-slate-300"
-          >
-            View score details
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function CitationSources({
   citations,
   onJumpToTurn,
@@ -703,7 +585,7 @@ function CitationSources({
 }: {
   citations: AssistantCitation[];
   onJumpToTurn?: (seq: number) => void;
-  onJumpToSection?: (sectionId: string) => void;
+  onJumpToSection?: JumpToSection;
 }) {
   return (
     <div className="grid gap-1.5">
@@ -724,12 +606,12 @@ function CitationSources({
               disabled={!target}
               onClick={() => jumpCitation(citation, onJumpToTurn, onJumpToSection)}
               title={citation.quote || citation.note || citation.label}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50/80 py-1 pl-1 pr-2.5 text-[10px] font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-default dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300"
+              className="inline-flex max-w-[280px] items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50/80 py-1 pl-1 pr-2.5 text-[10px] font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-default dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300"
             >
               <span className="grid size-4 shrink-0 place-items-center rounded-full bg-white text-[9px] font-bold text-blue-700 shadow-sm dark:bg-slate-900 dark:text-blue-300">
                 {citation.index}
               </span>
-              <span className="truncate">{citation.label}</span>
+              <span className="truncate">{citationCapsuleText(citation)}</span>
               {target && <ArrowUpRight className="size-3 shrink-0 opacity-70" />}
             </button>
           );
@@ -739,16 +621,32 @@ function CitationSources({
   );
 }
 
+function citationSnippet(quote: string | undefined, limit: number): string {
+  const text = quote?.trim().replace(/\s+/g, " ");
+  if (!text) return "";
+  return text.length > limit ? `${text.slice(0, limit).trimEnd()}…` : text;
+}
+
+function citationCapsuleText(citation: AssistantCitation): string {
+  const prefix =
+    citation.kind === "transcript" ? `Turn ${citation.turnSeq}` : citation.label;
+  const snippet = citationSnippet(
+    citation.quote,
+    citation.kind === "transcript" ? 52 : 46,
+  );
+  return snippet ? `${prefix} · “${snippet}”` : prefix;
+}
+
 function jumpCitation(
   citation: AssistantCitation,
   onTurn?: (turn: number) => void,
-  onSection?: (section: string) => void,
+  onSection?: JumpToSection,
 ) {
   if (citation.kind === "transcript") {
     if (citation.turnSeq !== undefined) onTurn?.(citation.turnSeq);
     return;
   }
-  if (citation.sectionId) onSection?.(citation.sectionId);
+  if (citation.sectionId) onSection?.(citation.sectionId, citation.quote);
 }
 
 function legacyCitations(answer: AssistantCandidateAnswer): AssistantCitation[] {

@@ -530,15 +530,39 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
     }, 1800);
   }
 
-  /** Scrolls to a report section cited by the assistant and flashes it. */
-  function jumpToReportSection(sectionId: string) {
+  /** Finds the smallest rendered element that contains the cited report quote. */
+  function findReportQuoteElement(root: HTMLElement, quote: string): HTMLElement | null {
+    const needle = quote.replace(/\s+/g, " ").trim().toLowerCase();
+    if (needle.length < 8) return null;
+    let best: HTMLElement | null = null;
+    let bestLength = Number.POSITIVE_INFINITY;
+    for (const element of root.querySelectorAll<HTMLElement>(
+      "p, li, td, th, span, strong, em, div",
+    )) {
+      const text = (element.textContent ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+      if (!text.includes(needle)) continue;
+      if (text.length < bestLength) {
+        best = element;
+        bestLength = text.length;
+      }
+    }
+    return best;
+  }
+
+  /** Scrolls to the exact report evidence cited by the assistant and flashes it. */
+  function jumpToReportSection(sectionId: string, quote?: string) {
     const section = document.getElementById(sectionId);
     if (!section) return;
-    section.scrollIntoView({ behavior: "smooth", block: "start" });
+    const exact = quote ? findReportQuoteElement(section, quote) : null;
+    const target = exact ?? section;
+    target.scrollIntoView({
+      behavior: "smooth",
+      block: exact ? "center" : "start",
+    });
     if (window.innerWidth < 640) setAssistantOpen(false);
-    section.classList.add("ring-2", "ring-blue-400", "ring-offset-2");
+    target.classList.add("ring-2", "ring-blue-400", "ring-offset-2");
     window.setTimeout(() => {
-      section.classList.remove("ring-2", "ring-blue-400", "ring-offset-2");
+      target.classList.remove("ring-2", "ring-blue-400", "ring-offset-2");
     }, 1800);
   }
 
