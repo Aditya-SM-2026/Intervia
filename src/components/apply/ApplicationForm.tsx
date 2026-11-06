@@ -1,10 +1,13 @@
 "use client";
 
+import { Check, ChevronDown, FileText, Upload } from "lucide-react";
+import { DocumentText } from "@/components/ui/DocumentText";
+
 import { useId, useRef, useState } from "react";
 import type { ApplicationField } from "@/lib/roles/application.types";
 
 const inputClasses =
-  "h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm text-foreground outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20";
+  "h-11 w-full rounded-xl border border-border bg-background/50 px-3.5 text-[15px] text-foreground outline-none transition placeholder:text-muted/70 focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/15 sm:text-sm";
 
 const labelClasses = "mb-1.5 block text-sm font-medium";
 
@@ -89,12 +92,10 @@ export function ApplicationForm({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [resume, setResume] = useState<File | null>(null);
   const [consent, setConsent] = useState(false);
-  const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
 
-  const descriptionIsLong = roleDescription.length > 320 || roleDescription.split("\n").length > 5;
 
   const byId = (id: string) => fields.find((field) => field.id === id && field.system);
   const nameField = byId("name");
@@ -180,12 +181,12 @@ export function ApplicationForm({
 
   if (done) {
     return (
-      <div className="mt-4 rounded-2xl border border-border bg-surface p-6 text-center sm:p-8">
+      <div className="mt-6 rounded-2xl border border-border bg-surface p-8 text-center shadow-sm shadow-black/[0.03] sm:p-10">
         <span
           aria-hidden
-          className="mx-auto grid size-12 place-items-center rounded-full bg-emerald-500/10 text-2xl text-emerald-600 dark:text-emerald-400"
+          className="mx-auto grid size-12 place-items-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
         >
-          ✓
+          <Check className="size-6" />
         </span>
         <h1 className="mt-4 text-xl font-semibold">Application sent</h1>
         <p className="mt-2 text-sm text-muted">
@@ -201,39 +202,28 @@ export function ApplicationForm({
     <form
       onSubmit={handleSubmit}
       noValidate
-      className={`mt-4 rounded-2xl border border-border bg-surface p-5 sm:p-7 ${
-        preview ? "ring-1 ring-accent/20" : ""
-      }`}
+      className={preview ? "" : "mt-6 rounded-2xl border border-border bg-surface p-5 shadow-sm shadow-black/[0.03] sm:p-8"}
     >
       {preview && (
-        <p className="mb-4 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2 text-xs font-medium text-accent">
-          Preview only. This is the form candidates see; nothing you type here is sent.
+        <p className="mb-5 rounded-lg bg-accent-soft px-3 py-2 text-xs font-medium text-accent">
+          Preview. This is what applicants see; nothing typed here is sent.
         </p>
       )}
-      <h1 className="text-2xl font-semibold tracking-tight">Apply for {roleTitle}</h1>
+      <p className="text-sm text-muted">Application</p>
+      <h1 className="mt-0.5 text-[26px] font-semibold leading-tight tracking-[-0.02em]">{roleTitle}</h1>
       {roleDescription.trim() !== "" && (
-        <div className="mt-2">
-          <p
-            className={`whitespace-pre-line text-sm text-muted ${
-              descriptionIsLong && !descriptionOpen ? "line-clamp-4" : ""
-            }`}
-          >
-            {roleDescription}
-          </p>
-          {descriptionIsLong && (
-            <button
-              type="button"
-              onClick={() => setDescriptionOpen((current) => !current)}
-              aria-expanded={descriptionOpen}
-              className="mt-1 text-sm font-medium text-accent hover:underline"
-            >
-              {descriptionOpen ? "Show less" : "Read the full description"}
-            </button>
-          )}
-        </div>
+        <details className="group mt-4 rounded-xl border border-border">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium">
+            About the role
+            <ChevronDown className="size-4 text-muted transition group-open:rotate-180" aria-hidden />
+          </summary>
+          <div className="max-h-[28rem] overflow-y-auto border-t border-border px-4 py-4">
+            <DocumentText text={roleDescription} />
+          </div>
+        </details>
       )}
 
-      <div className="mt-6 space-y-4">
+      <div className="mt-7 space-y-5">
         {fields.map((field) => {
           if (field.system) {
             switch (field.id) {
@@ -344,12 +334,12 @@ export function ApplicationForm({
                       }}
                     />
                     {resume ? (
-                      <div className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 text-sm">
+                      <div className="flex items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm">
                         <span
                           aria-hidden
-                          className="grid size-8 shrink-0 place-items-center rounded-md bg-accent/10 text-[11px] font-bold text-accent"
+                          className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent"
                         >
-                          FILE
+                          <FileText className="size-4" />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">{resume.name}</span>
@@ -369,9 +359,10 @@ export function ApplicationForm({
                     ) : (
                       <label
                         htmlFor={`${formId}-resume`}
-                        className="flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm transition hover:border-accent hover:bg-accent/5"
+                        className="flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm transition hover:border-foreground/30 hover:bg-foreground/[0.02]"
                       >
-                        <span className="font-medium text-accent">Choose a file</span>
+                        <Upload className="size-5 text-muted" aria-hidden />
+                        <span className="font-medium text-accent">Choose your resume</span>
                         <span className="text-muted">PDF, DOC or DOCX up to 10 MB</span>
                       </label>
                     )}
@@ -394,7 +385,7 @@ export function ApplicationForm({
               {field.type === "textarea" ? (
                 <textarea
                   id={id}
-                  className="min-h-24 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  className="min-h-28 w-full rounded-xl border border-border bg-background/50 px-3.5 py-3 text-[15px] leading-6 outline-none transition placeholder:text-muted/70 focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/15 sm:text-sm"
                   value={answers[field.id] ?? ""}
                   onChange={(event) => setAnswer(field.id, event.target.value)}
                   required={field.required}
@@ -415,17 +406,25 @@ export function ApplicationForm({
                   ))}
                 </select>
               ) : field.type === "yesno" ? (
-                <select
-                  id={id}
-                  className={inputClasses}
-                  value={answers[field.id] ?? ""}
-                  onChange={(event) => setAnswer(field.id, event.target.value)}
-                  required={field.required}
-                >
-                  <option value="">Choose…</option>
-                  <option value="Yes">Yes</option>
-                  <option value="No">No</option>
-                </select>
+                <div id={id} role="radiogroup" aria-label={field.label} className="grid grid-cols-2 gap-2">
+                  {["Yes", "No"].map((option) => {
+                    const active = answers[field.id] === option;
+                    return (
+                      <button
+                        key={option}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => setAnswer(field.id, option)}
+                        className={`h-11 rounded-xl border text-sm font-medium transition ${
+                          active ? "border-accent bg-accent-soft text-accent" : "border-border hover:border-foreground/25"
+                        }`}
+                      >
+                        {option}
+                      </button>
+                    );
+                  })}
+                </div>
               ) : (
                 <input
                   id={id}
@@ -445,7 +444,7 @@ export function ApplicationForm({
             type="checkbox"
             checked={consent}
             onChange={(event) => setConsent(event.target.checked)}
-            className="mt-0.5 size-4 shrink-0"
+            className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
           />
           <span>
             I agree to my details and resume being stored for this role and used to assess my
@@ -457,7 +456,7 @@ export function ApplicationForm({
       {error && (
         <p
           role="alert"
-          className="mt-4 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400"
+          className="mt-5 rounded-xl bg-rose-500/10 px-3.5 py-2.5 text-sm text-rose-700 dark:text-rose-300"
         >
           {error}
         </p>
@@ -466,7 +465,7 @@ export function ApplicationForm({
       <button
         type="submit"
         disabled={submitting || preview}
-        className="mt-5 h-11 w-full rounded-lg bg-accent text-sm font-semibold text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        className="mt-6 h-12 w-full rounded-xl bg-accent text-[15px] font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         {preview ? "Preview only" : submitting ? "Sending…" : "Send application"}
       </button>
