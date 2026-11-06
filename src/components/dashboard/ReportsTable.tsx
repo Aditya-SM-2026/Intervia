@@ -247,7 +247,7 @@ function ScoreCell({ summary }: { summary: DashboardInterviewSummary }) {
     const tone = scoreTone(score);
     return (
       <div className="flex items-center gap-3">
-        <span className={`w-8 font-display text-xl leading-none tabular-nums ${tone.text}`}>{score}</span>
+        <span className={`w-7 text-sm font-semibold ${tone.text}`}>{score}</span>
         <span className="h-1.5 w-20 overflow-hidden rounded-full bg-foreground/[0.07]">
           <motion.span
             className={`block h-full rounded-full ${tone.bar}`}

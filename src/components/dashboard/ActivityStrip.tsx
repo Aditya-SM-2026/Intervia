@@ -166,7 +166,7 @@ function Figure({
     <div className="flex flex-col justify-center gap-1 border-border px-6 py-5 sm:border-r sm:last:border-r-0 lg:border-b lg:border-r-0 lg:last:border-b-0">
       <p className="text-sm text-muted">{label}</p>
       <div className="flex items-baseline gap-3">
-        <NumberTicker value={value} suffix={suffix} className="font-display text-[2.6rem] leading-none tracking-tight text-foreground" />
+        <NumberTicker value={value} suffix={suffix} className="text-[28px] font-semibold leading-none tracking-[-0.02em] text-foreground" />
         {trend !== null && trend !== 0 && (
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -193,7 +193,7 @@ function AwaitingFigure({ analytics }: { analytics: DashboardAnalytics }) {
     <div className="flex flex-col justify-center gap-2 px-6 py-5">
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-sm text-muted">Waiting for a report</p>
-        <span className="font-display text-2xl leading-none text-foreground tabular-nums">{analytics.awaitingAnalysis}</span>
+        <span className="text-xl font-semibold leading-none text-foreground">{analytics.awaitingAnalysis}</span>
       </div>
       {items.length === 0 ? (
         <p className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400">

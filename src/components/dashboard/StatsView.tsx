@@ -14,13 +14,6 @@ const RANGE_TABS: { value: StatsRange; label: string }[] = [
   { value: "all", label: "All time" },
 ];
 
-const RANGE_PHRASE: Record<StatsRange, string> = {
-  "30": "In the last 30 days",
-  "90": "In the last 90 days",
-  "365": "In the last 12 months",
-  all: "Since you started",
-};
-
 export function StatsView() {
   const [range, setRange] = useState<StatsRange>("90");
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -53,12 +46,10 @@ export function StatsView() {
 
   return (
     <div className="grid gap-10">
-      <header className="flex flex-wrap items-end justify-between gap-6 pt-10 sm:pt-12">
+      <header className="flex flex-wrap items-end justify-between gap-6 pt-9">
         <div className="max-w-2xl">
-          <h1 className="font-display text-4xl font-normal tracking-tight sm:text-[2.75rem]">Stats</h1>
-          <p className="mt-2 text-[15px] leading-relaxed text-muted">
-            {stats ? <Summary stats={stats} /> : "How hiring is going across every role."}
-          </p>
+          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] text-foreground">Stats</h1>
+          <p className="mt-1.5 text-sm text-muted">Hiring across every role, with AI cost.</p>
         </div>
         <SegmentedTabs id="stats-range" label="Time range" options={RANGE_TABS} value={range} onChange={setRange} />
       </header>
@@ -79,7 +70,8 @@ export function StatsView() {
       ) : !stats ? (
         <StatsSkeleton />
       ) : (
-        <div className={`grid gap-10 transition-opacity duration-300 ${loading ? "opacity-50" : ""}`}>
+        <div className={`grid gap-8 transition-opacity duration-300 ${loading ? "opacity-50" : ""}`}>
+          <KpiStrip stats={stats} />
           <Funnel stats={stats} key={`funnel-${stats.range}`} />
 
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
@@ -109,17 +101,32 @@ export function StatsView() {
   );
 }
 
-function Summary({ stats }: { stats: DashboardStats }) {
+function KpiStrip({ stats }: { stats: DashboardStats }) {
   const { totals } = stats;
-  if (totals.interviews === 0 && totals.applications === 0) return <>{RANGE_PHRASE[stats.range]}, nothing has happened yet.</>;
+  const items = [
+    { label: "Interviews", value: totals.interviews.toLocaleString(), sub: `${totals.roles} ${totals.roles === 1 ? "role" : "roles"}` },
+    { label: "Finished", value: totals.completed.toLocaleString(), sub: totals.interviews ? `${Math.round((totals.completed / totals.interviews) * 100)}% of sent` : "—" },
+    { label: "Average score", value: totals.avgScore !== null ? String(totals.avgScore) : "—", sub: "out of 100" },
+    { label: "Time interviewed", value: formatHours(totals.minutesInterviewed), sub: totals.avgMinutes !== null ? `${totals.avgMinutes} min average` : "—" },
+    { label: "AI cost", value: formatUsd(stats.cost.totalUsd), sub: stats.cost.perInterviewUsd !== null ? `${formatUsd(stats.cost.perInterviewUsd)} per interview` : "—" },
+  ];
   return (
-    <>
-      {RANGE_PHRASE[stats.range]}, {plural(totals.interviews, "interview")} across {plural(totals.roles, "role")}.{" "}
-      {totals.completed} finished
-      {totals.avgScore !== null ? <>, with an average score of {totals.avgScore}</> : null}
-      {totals.minutesInterviewed > 0 ? <>, over {formatMinutes(totals.minutesInterviewed)} of conversation</> : null}.
-    </>
+    <section aria-label="Key figures" className="grid grid-cols-2 overflow-hidden rounded-2xl border border-border bg-surface sm:grid-cols-3 lg:grid-cols-5">
+      {items.map((item) => (
+        <div key={item.label} className="border-b border-r border-border px-5 py-4 last:border-r-0 lg:border-b-0">
+          <p className="text-xs font-medium text-muted">{item.label}</p>
+          <p className="mt-1.5 text-2xl font-semibold leading-none tracking-[-0.02em]">{item.value}</p>
+          <p className="mt-1.5 text-xs text-muted">{item.sub}</p>
+        </div>
+      ))}
+    </section>
   );
+}
+
+function formatHours(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
 /* ---------- Funnel: the page's one animated moment ---------- */
@@ -158,7 +165,7 @@ function Funnel({ stats }: { stats: DashboardStats }) {
                 />
               </div>
               <span className="flex items-baseline justify-end gap-2">
-                <NumberTicker value={step.value} className="font-display text-2xl leading-none" />
+                <NumberTicker value={step.value} className="text-lg font-semibold leading-none" />
                 <span className="w-12 text-right text-xs text-muted tabular-nums">{conversion !== null ? `${conversion}%` : ""}</span>
               </span>
             </li>
@@ -337,7 +344,7 @@ function CostSection({ stats }: { stats: DashboardStats }) {
       <div>
         <h2 className="text-sm font-medium">AI cost</h2>
         <p className="mt-0.5 text-sm text-muted">Estimated from recorded usage at list prices</p>
-        <p className="mt-6 font-display text-5xl leading-none tracking-tight">{formatUsd(cost.totalUsd)}</p>
+        <p className="mt-5 text-[32px] font-semibold leading-none tracking-[-0.02em]">{formatUsd(cost.totalUsd)}</p>
         <div className="mt-6 h-2.5 overflow-hidden rounded-full bg-gold/30">
           <div className="h-full rounded-full bg-accent" style={{ width: `${voiceShare}%` }} />
         </div>
@@ -456,13 +463,6 @@ function StatsSkeleton() {
 function plural(count: number, word: string): string {
   if (word === "person") return `${count} ${count === 1 ? "person" : "people"}`;
   return `${count} ${word}${count === 1 ? "" : "s"}`;
-}
-
-function formatMinutes(minutes: number): string {
-  if (minutes < 60) return plural(minutes, "minute");
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest ? `${hours}\u00a0h ${rest}\u00a0min` : plural(hours, "hour");
 }
 
 function formatUsd(value: number): string {
