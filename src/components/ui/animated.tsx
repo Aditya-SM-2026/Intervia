@@ -52,7 +52,13 @@ export function NumberTicker({
       ease: EASE_OUT,
       onUpdate: (latest) => setDisplay(Math.round(latest)),
     });
-    return () => controls.stop();
+    // Animation frames pause in background tabs; land on the real figure
+    // regardless, so a number is never left half-counted.
+    const settle = setTimeout(() => setDisplay(value), duration * 1000 + 150);
+    return () => {
+      controls.stop();
+      clearTimeout(settle);
+    };
   }, [inView, value, reduce, duration]);
 
   return (

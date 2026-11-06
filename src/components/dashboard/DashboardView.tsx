@@ -82,7 +82,7 @@ export function DashboardView() {
     };
   }, [searchInput]);
 
-  const hasActiveFilters = search !== "" || status !== "" || range !== "all" || role !== "";
+  const hasActiveFilters = search !== "" || status !== "" || range !== DEFAULT_RANGE || role !== "";
 
   // Any filter change resets to the first page and clears page-scoped
   // selection (adjusted during render when the filter combination changes).
@@ -194,7 +194,7 @@ export function DashboardView() {
     setSearch("");
     setStatus("");
     setRole("");
-    setRange("all");
+    setRange(DEFAULT_RANGE);
   }
 
   /** Page adjustment when a page loses every row; returns the page to load. */
