@@ -78,6 +78,13 @@ h3 {
   outline-offset: 2px;
 }
 
+/* Text fields draw their own focus border and ring; the outline would double it. */
+textarea:focus-visible,
+select:focus-visible,
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visible {
+  outline: none;
+}
+
 /*
  * The live interview room is a stage of its own, the same in light and dark
  * mode: a calm, dark call window. Overriding the theme variables here restyles

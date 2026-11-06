@@ -244,7 +244,7 @@ function RoleRow({
         )}
       </div>
 
-      <div className="col-start-3 row-start-1 flex items-center justify-end gap-1 md:col-start-auto">
+      <div className="col-start-3 row-start-1 flex items-center justify-end gap-1 md:col-start-auto md:row-start-auto">
         <Link
           href={inviteHref}
           title="Send an interview for this role"

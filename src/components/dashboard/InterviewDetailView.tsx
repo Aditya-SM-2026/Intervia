@@ -1208,7 +1208,7 @@ function AnswerQualityTable({
             <thead>
               <tr className="border-b border-border text-xs font-medium text-muted">
                 <th className="w-12 px-4 py-3 text-center">#</th>
-                <th className="px-3 py-2.5">Question</th>
+                <th className="w-[34%] px-3 py-2.5">Question</th>
                 <th className="w-20 px-4 py-3 text-center">Score</th>
                 <th className="px-3 py-2.5">Key feedback</th>
                 <th className="w-40 px-4 py-3 text-right">Recording</th>

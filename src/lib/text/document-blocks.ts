@@ -16,7 +16,7 @@ const BULLET = /^[-•*·▪◦–—>]\s+(.+)$/;
 const NUMBERED = /^(\d{1,2})[.)]\s+(.+)$/;
 const FACT = /^([A-Za-z][A-Za-z0-9 /&()'’.-]{1,32}):\s+(.{1,160})$/;
 
-function isHeading(line: string, next: string | undefined): boolean {
+function isHeading(line: string, next: string | undefined, previous: string | undefined): boolean {
   if (line.length > 64) return false;
   if (/[.!?,;]$/.test(line)) return false;
   if (line.endsWith(":")) return true;
@@ -25,6 +25,9 @@ function isHeading(line: string, next: string | undefined): boolean {
   if (next === undefined || next.trim() === "") return false;
   const words = line.split(/\s+/);
   if (words.length > 8) return false;
+  // A short line standing alone after a break ("About the role") is a heading
+  // even in sentence case.
+  if ((previous === undefined || previous === "") && words.length <= 5 && line.length <= 40) return true;
   const capitalised = words.filter((word) => /^[A-Z0-9(&]/.test(word)).length;
   return capitalised / words.length >= 0.5 || line === line.toUpperCase();
 }
@@ -80,7 +83,7 @@ export function parseDocument(raw: string): DocumentBlock[] {
       else blocks.push({ kind: "facts", items: [item] });
       continue;
     }
-    if (paragraph.length === 0 && isHeading(line, lines[index + 1])) {
+    if (paragraph.length === 0 && isHeading(line, lines[index + 1], lines[index - 1])) {
       blocks.push({ kind: "heading", text: tidyHeading(line) });
       continue;
     }
