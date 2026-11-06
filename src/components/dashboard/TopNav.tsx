@@ -20,6 +20,7 @@ import { useTheme } from "./theme";
 const NAV_LINKS = [
   { href: "/dashboard", label: "Interviews" },
   { href: "/dashboard/roles", label: "Roles" },
+  { href: "/dashboard/stats", label: "Stats" },
 ] as const;
 
 /**
@@ -27,13 +28,15 @@ const NAV_LINKS = [
  * belongs to "Roles", everything else under /dashboard to "Interviews".
  */
 function isActiveLink(pathname: string, href: string): boolean {
-  if (href === "/dashboard/roles") {
-    return pathname === "/dashboard/roles" || pathname.startsWith("/dashboard/roles/");
+  if (href === "/dashboard/roles" || href === "/dashboard/stats") {
+    return pathname === href || pathname.startsWith(`${href}/`);
   }
   if (href === "/dashboard") {
     return (
       pathname === "/dashboard" ||
-      (pathname.startsWith("/dashboard/") && !pathname.startsWith("/dashboard/roles"))
+      (pathname.startsWith("/dashboard/") &&
+        !pathname.startsWith("/dashboard/roles") &&
+        !pathname.startsWith("/dashboard/stats"))
     );
   }
   return pathname === href || pathname.startsWith(`${href}/`);

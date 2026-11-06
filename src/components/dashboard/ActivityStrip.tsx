@@ -54,7 +54,13 @@ function ActivityChart({ analytics }: { analytics: DashboardAnalytics }) {
     <div className="flex flex-col p-6 sm:p-7">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-medium text-foreground">Daily activity</h2>
+          <h2 className="flex items-center gap-3 text-sm font-medium text-foreground">
+            Daily activity
+            <Link href="/dashboard/stats" className="inline-flex items-center gap-0.5 text-xs font-medium text-accent hover:underline">
+              All stats
+              <ArrowUpRight className="size-3" aria-hidden />
+            </Link>
+          </h2>
           <p className="mt-0.5 text-sm text-muted">
             {active
               ? `${formatDay(active.date)}: ${active.interviews} interview${active.interviews === 1 ? "" : "s"}, ${active.reports} report${active.reports === 1 ? "" : "s"}`
