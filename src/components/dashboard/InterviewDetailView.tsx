@@ -62,7 +62,6 @@ import {
   SlidersHorizontal,
   Sparkles,
   User,
-  Users,
   Video,
   X,
   XCircle,
@@ -1185,7 +1184,7 @@ function AnswerQualityTable({
         <p className="mt-4 text-xs text-muted">No competency questions were scored for this interview.</p>
       ) : (
         <div className="mt-5 overflow-hidden rounded-xl border border-border">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left text-[13px]">
             <thead>
               <tr className="border-b border-border bg-foreground/[0.02] font-medium text-muted">
                 <th className="w-12 px-4 py-3 text-center">#</th>
@@ -1299,7 +1298,7 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
       </div>
 
       <div className="mt-5 overflow-hidden rounded-xl border border-border">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-left text-[13px]">
           <thead>
             <tr className="border-b border-border bg-foreground/[0.02] font-medium text-muted">
               <th className="px-4 py-3">Parameter</th>
@@ -1429,7 +1428,7 @@ function ResumeTable({
         </p>
       ) : (
         <div className="mt-5 overflow-hidden rounded-xl border border-border">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left text-[13px]">
             <thead>
               <tr className="border-b border-border bg-foreground/[0.02] font-medium text-muted">
                 <th className="px-4 py-3">From the resume</th>
@@ -1490,7 +1489,7 @@ function ResumeTable({
           type="button"
           onClick={onAnalyseResume}
           disabled={isAnalysing}
-          className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RotateCcw className={`size-3.5 ${isAnalysing ? "animate-spin" : ""}`} />
           {isAnalysing
@@ -1669,8 +1668,8 @@ function VideoSection({
       />
 
       <div className="mt-5 grid gap-6">
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-xl border border-border bg-slate-50 p-3 dark:border-border dark:bg-background">
+        <div className="grid grid-cols-3 content-start gap-3">
+          <div className="rounded-xl border border-border bg-foreground/[0.02] p-3.5">
             <span className="text-[11px] text-muted">Same-spot answers</span>
             <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground">
               {pattern && pattern.answersObserved > 0
@@ -1678,7 +1677,7 @@ function VideoSection({
                 : "Not measured"}
             </p>
           </div>
-          <div className="rounded-xl border border-border bg-slate-50 p-3 dark:border-border dark:bg-background">
+          <div className="rounded-xl border border-border bg-foreground/[0.02] p-3.5">
             <span className="text-[11px] text-muted">Left interview tab</span>
             <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground">
               {integrity.tabHiddenCount === 0
@@ -1686,7 +1685,7 @@ function VideoSection({
                 : `${integrity.tabHiddenCount}× (${integrity.tabHiddenSeconds}s)`}
             </p>
           </div>
-          <div className="rounded-xl border border-border bg-slate-50 p-3 dark:border-border dark:bg-background">
+          <div className="rounded-xl border border-border bg-foreground/[0.02] p-3.5">
             <span className="text-[11px] text-muted">Connection drops</span>
             <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground">
               {integrity.candidateDisconnects}
@@ -1740,7 +1739,7 @@ function VideoSection({
                 type="button"
                 onClick={onAnalyseVideo}
                 disabled={isAnalysing || video.status === "queued"}
-                className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <RotateCcw
                   className={`size-3.5 ${isAnalysing || video.status === "queued" ? "animate-spin" : ""}`}
@@ -1748,7 +1747,7 @@ function VideoSection({
                 {isAnalysing || video.status === "queued"
                   ? "Analysing recording"
                   : video.status === "analysed"
-                    ? "Regenerate video analysis"
+                    ? "Re-check video"
                     : video.status === "failed"
                       ? "Try video analysis again"
                       : "Analyse this video"}
@@ -1759,24 +1758,22 @@ function VideoSection({
             </div>
           )}
 
-          <div className="mt-4 rounded-xl border border-border bg-slate-50/80 p-3 text-[11px] text-muted dark:border-border dark:bg-background/40">
-            Based on the recorded interview video. This is an automated analysis and should be reviewed along with the full recording.
-          </div>
+          <p className="mt-4 text-xs text-muted">
+            An automated reading of the recording. Watch the moments it points to before relying on it.
+          </p>
         </div>
 
         {/* Where the candidate looked table */}
         {answerRows.length > 0 && (
           <div className="lg:col-span-2 mt-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted">
-              Where the candidate looked, answer by answer
-            </h3>
+            <h3 className="text-sm font-medium text-foreground">Where the candidate looked, answer by answer</h3>
             <p className="mt-1 text-[11px] text-muted dark:text-muted">
               {measurable === answerRows.length
                 ? `${answerRows.length} of ${answerRows.length} answers could be measured on camera.`
                 : `${measurable} of ${answerRows.length} answers could be measured on camera. The rest say why not.`}
             </p>
             <div className="mt-2.5 overflow-x-auto rounded-xl border border-border">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-[13px]">
                 <thead>
                   <tr className="border-b border-border bg-slate-50/80 font-semibold text-muted dark:border-border dark:bg-background/60">
                     <th className="px-3.5 py-2.5">Answer at</th>
@@ -2129,8 +2126,8 @@ function RecordingPanel({
                   aria-pressed={filter === value}
                   className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold capitalize transition ${
                     filter === value
-                      ? "bg-blue-50 text-blue-600 dark:bg-accent/15 dark:text-accent"
-                      : "text-muted hover:text-slate-700 dark:hover:text-foreground"
+                      ? "bg-accent-soft text-accent"
+                      : "text-muted hover:text-foreground"
                   }`}
                 >
                   {value === "all" ? "All" : value === "candidate" ? "Candidate" : "Interviewer"}
@@ -2146,7 +2143,7 @@ function RecordingPanel({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search this conversation…"
-                className="w-full rounded-lg border border-border bg-white py-1.5 pl-8 pr-3 text-xs outline-none transition focus:border-accent dark:border-border dark:bg-background dark:text-slate-200"
+                className="w-full rounded-lg border border-border bg-background/50 py-1.5 pl-8 pr-3 text-xs outline-none transition placeholder:text-muted focus:border-accent focus:bg-surface"
               />
             </div>
           </div>
@@ -2159,7 +2156,7 @@ function RecordingPanel({
             <div
               ref={listRef}
               className="relative min-h-[220px] flex-1 overflow-y-auto p-2"
-              style={{ maxHeight: expanded ? 300 : 420 }}
+              style={{ maxHeight: expanded ? 300 : 290 }}
             >
               {visible.length === 0 ? (
                 <p className="px-2 py-6 text-center text-xs text-muted">
@@ -2341,8 +2338,8 @@ function CommentsDecisionSection({
       <CardHeading
         icon={MessageSquare}
         iconColor="sky"
-        title="Comments & hiring decision"
-        subtitle="Record your hiring decision and notes for the hiring team."
+        title="Your decision"
+        subtitle="The score is advice. The hiring team sees what you record here."
         right={
           decision ? (
             <span className="text-xs text-muted">
@@ -2367,13 +2364,13 @@ function CommentsDecisionSection({
               type="button"
               aria-pressed={selected}
               onClick={() => setOutcome(option.value)}
-              className={`flex items-center justify-center gap-2 rounded-xl border p-3 text-xs font-semibold transition ${
-                selected ? selectedClasses : "border-border text-slate-600 hover:bg-slate-50 dark:border-border dark:text-slate-300"
+              className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-medium transition ${
+                selected ? selectedClasses : "border-border text-foreground/80 hover:border-foreground/20 hover:bg-foreground/[0.03]"
               }`}
             >
               <span
                 className={`grid size-4 place-items-center rounded-full border ${
-                  selected ? "border-current" : "border-slate-300"
+                  selected ? "border-current" : "border-foreground/25"
                 }`}
               >
                 {selected && <Check className="size-2.5 stroke-[3]" />}
@@ -2389,27 +2386,25 @@ function CommentsDecisionSection({
         onChange={(e) => setNote(e.target.value)}
         maxLength={2000}
         rows={3}
-        placeholder="Add comments, evaluation notes, or decision rationale…"
-        className="mt-3.5 w-full rounded-xl border border-border bg-white p-3 text-xs outline-none transition focus:border-accent dark:border-border dark:bg-surface dark:text-foreground"
+        placeholder="Why this decision? Notes for the hiring team"
+        className="mt-3 w-full resize-y rounded-xl border border-border bg-background/50 p-3.5 text-sm leading-6 outline-none transition placeholder:text-muted focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/15"
       />
 
       {error && <p className="mt-2 text-xs text-rose-600">{error}</p>}
       {savedSuccess && (
         <p className="mt-2 text-xs font-medium text-emerald-600 flex items-center gap-1.5">
           <Check className="size-3.5" />
-          <span>Decision and comments saved successfully.</span>
+          <span>Decision saved.</span>
         </p>
       )}
 
       <div className="mt-3 flex items-center justify-between">
-        <span className="text-[11px] text-muted">
-          The AI score advises. The decision stays with you.
-        </span>
+        <span className="text-xs text-muted">{note.length > 0 ? `${note.length} / 2000` : ""}</span>
         <button
           type="button"
           onClick={handleSave}
           disabled={!outcome || isSaving || unchanged}
-          className="rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-9 rounded-lg bg-accent px-4 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
         >
           {isSaving ? "Saving…" : "Save decision"}
         </button>
@@ -2418,59 +2413,49 @@ function CommentsDecisionSection({
   );
 }
 
-/** 10. Other Interviews Section: Peer interviews for the same role */
+/** Other candidates for the same role, ranked by score. */
 function PeersSection({ peers, currentId }: { peers: PeerSummary[]; currentId: string }) {
+  const ranked = [...peers].sort((a, b) => (b.overall?.score ?? -1) - (a.overall?.score ?? -1));
   return (
     <section id="peers" className={`${cardClasses} scroll-mt-32`}>
-      <CardHeading
-        icon={Users}
-        iconColor="slate"
-        title="Other interviews"
-        subtitle="Candidates scored for this role on the same plan and scale."
-      />
-
-      <div className="mt-4 divide-y divide-slate-100 rounded-xl border border-border dark:divide-border/60 dark:border-border">
-        {peers.map((peer) => {
+      <CardHeading title="Compared with this role" subtitle="Everyone interviewed for the same role, on the same plan and scale." />
+      <ol className="mt-5 grid gap-1">
+        {ranked.map((peer, index) => {
           const isCurrent = peer.roomId === currentId;
-          return (
+          const score = peer.overall?.score ?? null;
+          const tone = scoreBand(score).tone;
+          const row = (
             <div
-              key={peer.roomId}
-              className={`flex items-center justify-between p-3.5 text-xs ${
-                isCurrent ? "bg-blue-50/40 dark:bg-accent/5 font-semibold" : ""
+              className={`grid grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,12rem)_2.5rem_6rem] items-center gap-4 rounded-xl px-3 py-2.5 text-sm transition-colors ${
+                isCurrent ? "bg-accent-soft" : "hover:bg-foreground/[0.03]"
               }`}
             >
-              <div className="flex items-center gap-3">
-                <span className="grid size-7 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+              <span className="text-xs text-muted">{index + 1}</span>
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-foreground/[0.06] text-[11px] font-semibold">
                   {initials(peer.candidateName)}
                 </span>
-                <div>
-                  <p className="font-semibold text-foreground">
-                    {peer.candidateName || "Candidate"}
-                    {isCurrent && <span className="ml-2 text-[10px] text-muted">(Current)</span>}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <span className="tabular-nums font-semibold text-foreground">
-                  Score: {peer.overall?.score ?? "–"}/100
+                <span className="truncate font-medium">
+                  {peer.candidateName || "Candidate"}
+                  {isCurrent && <span className="ml-2 text-xs font-normal text-accent">This report</span>}
                 </span>
-                <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-muted bg-slate-100 dark:bg-slate-800">
-                  {peer.decision ? DECISION_LABELS[peer.decision.outcome] : "Undecided"}
-                </span>
-                {!isCurrent && (
-                  <Link
-                    href={`/dashboard/${peer.roomId}`}
-                    className="font-semibold text-accent hover:underline"
-                  >
-                    View report →
-                  </Link>
-                )}
-              </div>
+              </span>
+              <span className="h-1.5 overflow-hidden rounded-full bg-foreground/[0.07]">
+                {score !== null && <span className={`block h-full rounded-full ${TONE_BAR[tone]}`} style={{ width: `${score}%` }} />}
+              </span>
+              <span className="text-right font-semibold">{score ?? "—"}</span>
+              <span className="text-right text-xs text-muted">
+                {peer.decision ? DECISION_LABELS[peer.decision.outcome] : "No decision"}
+              </span>
             </div>
           );
+          return (
+            <li key={peer.roomId}>
+              {isCurrent ? row : <Link href={`/dashboard/${peer.roomId}`}>{row}</Link>}
+            </li>
+          );
         })}
-      </div>
+      </ol>
     </section>
   );
 }
