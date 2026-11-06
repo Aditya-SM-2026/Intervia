@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { EASE_OUT } from "@/components/ui/animated";
+import { Menu } from "./menu";
+import { StatusBadge } from "./primitives";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { estimateVoiceCost } from "@/lib/interviews/cost";
@@ -8,7 +12,6 @@ import type {
   HumanDecision,
   InterviewEvent,
   InterviewRoom,
-  InterviewStatus,
   InterviewTurn,
 } from "@/lib/interviews/interview.types";
 import type { PlanCompetency } from "@/lib/interviews/plan.types";
@@ -44,24 +47,18 @@ import {
   FileText,
   Fingerprint,
   Gauge,
-  Globe,
   Info,
-  Layers,
   Maximize2,
   MessageSquare,
   MessagesSquare,
-  Mic,
   Minimize2,
   Minus,
   MoreHorizontal,
   Pencil,
-  PanelLeftClose,
-  PanelLeftOpen,
   Play,
   RotateCcw,
   ScrollText,
   Search,
-  Share2,
   SlidersHorizontal,
   Sparkles,
   User,
@@ -103,20 +100,11 @@ const VERDICT_LABELS: Record<ResumeVerdict, string> = {
   not_discussed: "Not discussed",
 };
 
-const STATUS_META: Record<InterviewStatus, { label: string; tone: Tone }> = {
-  scheduled: { label: "Scheduled", tone: "muted" },
-  waiting: { label: "Waiting to join", tone: "warn" },
-  active: { label: "Live", tone: "warn" },
-  completed: { label: "Completed", tone: "good" },
-  expired: { label: "Expired", tone: "muted" },
-  cancelled: { label: "Cancelled", tone: "bad" },
-};
-
 const STATUS_PILL_STYLES: Record<Tone, string> = {
   good: "bg-emerald-50 text-emerald-700 border border-emerald-200/70 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/50",
   warn: "bg-amber-50 text-amber-700 border border-amber-200/70 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800/50",
   bad: "bg-rose-50 text-rose-700 border border-rose-200/70 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-800/50",
-  muted: "bg-slate-50 text-slate-600 border border-slate-200/70 dark:bg-slate-800/50 dark:text-slate-400 dark:border-slate-700",
+  muted: "bg-slate-50 text-slate-600 border border-border dark:bg-slate-800/50 dark:text-muted dark:border-slate-700",
 };
 
 const VERDICT_STYLES: Record<
@@ -143,28 +131,23 @@ const VERDICT_STYLES: Record<
   },
   not_discussed: {
     bg: "bg-slate-50 dark:bg-slate-900/40",
-    text: "text-slate-600 dark:text-slate-400",
-    border: "border-slate-200/70 dark:border-slate-800",
+    text: "text-muted",
+    border: "border-border dark:border-slate-800",
     icon: Minus,
   },
 };
 
-const cardClasses =
-  "rounded-2xl border border-slate-200/80 bg-white p-6 shadow-[0_1px_3px_rgba(0,0,0,0.03)] dark:border-border dark:bg-surface";
+const cardClasses = "rounded-2xl border border-border bg-surface p-6 sm:p-7";
 
-/** Left sidebar sections in order */
+/** Report sections, in page order, for the sticky section bar. */
 const REPORT_SECTIONS = [
-  { id: "overview", label: "Overview", icon: Gauge },
-  { id: "summary", label: "Summary", icon: FileText },
-  { id: "answers", label: "Answer quality", icon: MessagesSquare },
-  { id: "resume", label: "Resume match", icon: FileSearch },
-  { id: "authenticity", label: "Own answers", icon: Fingerprint },
-  { id: "recording", label: "Recording", icon: Play },
-  { id: "transcript", label: "Transcript", icon: ScrollText },
-  { id: "video", label: "On-camera", icon: Video },
-  { id: "voice", label: "Voice session", icon: Mic },
-  { id: "comments", label: "Comments", icon: MessageSquare },
-  { id: "peers", label: "Other interviews", icon: Users },
+  { id: "overview", label: "Overview" },
+  { id: "answers", label: "Answers" },
+  { id: "resume", label: "Resume" },
+  { id: "authenticity", label: "Originality" },
+  { id: "recording", label: "Recording" },
+  { id: "video", label: "On camera" },
+  { id: "comments", label: "Decision" },
 ] as const;
 
 /** Tracks which report section is currently in view. */
@@ -175,12 +158,10 @@ function useActiveReportSection() {
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting) {
-            setActiveId(entry.target.id);
-          }
+          if (entry.isIntersecting) setActiveId(entry.target.id);
         }
       },
-      { rootMargin: "-15% 0px -65% 0px", threshold: 0 },
+      { rootMargin: "-20% 0px -65% 0px", threshold: 0 },
     );
     for (const { id } of REPORT_SECTIONS) {
       const el = document.getElementById(id);
@@ -193,115 +174,35 @@ function useActiveReportSection() {
 }
 
 /**
- * Full-height report sidebar. It stays in place while the report scrolls, folds
- * to a narrow icon rail, and contains navigation only (no candidate profile).
+ * Sticky section bar under the page header: one row of tabs with an
+ * underline that slides to the section in view. Replaces the old sidebar so
+ * the report itself gets the full width.
  */
-function ReportNav({
-  collapsed,
-  onToggle,
-}: {
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
+function SectionBar({ ids }: { ids: ReadonlySet<string> }) {
   const activeId = useActiveReportSection();
-
+  const present = REPORT_SECTIONS.filter(({ id }) => ids.has(id));
   return (
-    <aside
-      aria-label="Report sections"
-      className={`sticky top-20 hidden h-[calc(100vh-6rem)] shrink-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.03)] transition-[width] duration-300 ease-out lg:flex dark:border-border dark:bg-surface ${
-        collapsed ? "w-[76px]" : "w-[248px]"
-      }`}
-    >
-      <div className="flex h-full w-full flex-col">
-        <div
-          className={`flex shrink-0 items-center border-b border-slate-100 dark:border-border ${
-            collapsed ? "justify-center p-2" : "justify-between px-4 py-3"
-          }`}
-        >
-          {!collapsed && (
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-muted">
-              Report
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-label={collapsed ? "Expand report navigation" : "Collapse report navigation"}
-            aria-expanded={!collapsed}
-            title={collapsed ? "Expand navigation" : "Collapse navigation"}
-            className="grid size-7 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:text-muted dark:hover:bg-accent/10 dark:hover:text-foreground"
-          >
-            {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
-          </button>
-        </div>
-
-        <nav aria-label="Report sections" className="min-h-0 flex-1 overflow-y-auto p-2">
-          <ul className="grid gap-1">
-            {REPORT_SECTIONS.map(({ id, label, icon: Icon }) => {
-              const active = id === activeId;
-              return (
-                <li key={id} className="group relative">
-                  <a
-                    href={`#${id}`}
-                    aria-current={active ? "true" : undefined}
-                    aria-label={collapsed ? label : undefined}
-                    title={collapsed ? label : undefined}
-                    className={`flex items-center rounded-xl text-xs font-medium transition ${
-                      collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
-                    } ${
-                      active
-                        ? "bg-blue-50 font-semibold text-blue-600 dark:bg-accent/15 dark:text-accent"
-                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-muted dark:hover:bg-accent/5 dark:hover:text-foreground"
-                    }`}
-                  >
-                    <Icon
-                      className={`size-4 shrink-0 ${
-                        active ? "text-blue-600 dark:text-accent" : "text-slate-400 dark:text-muted"
-                      }`}
-                    />
-                    <span
-                      className={`truncate transition-all duration-200 ${
-                        collapsed ? "w-0 opacity-0" : "w-auto opacity-100"
-                      }`}
-                    >
-                      {label}
-                    </span>
-                  </a>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-      </div>
-    </aside>
-  );
-}
-
-/** Mobile replacement for the sidebar: a sticky, horizontally scrollable strip. */
-function MobileReportNav() {
-  const activeId = useActiveReportSection();
-
-  return (
-    <div className="sticky top-16 z-20 -mx-4 border-y border-slate-200/80 bg-[#f8fafc]/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 lg:hidden dark:border-border dark:bg-background/95">
-      <nav
-        aria-label="Report sections"
-        className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {REPORT_SECTIONS.map(({ id, label, icon: Icon }) => {
+    <div className="sticky top-16 z-20 -mx-4 border-b border-border bg-background/85 px-4 backdrop-blur-xl sm:-mx-6 sm:px-6">
+      <nav aria-label="Report sections" className="flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {present.map(({ id, label }) => {
           const active = id === activeId;
           return (
             <a
               key={id}
               href={`#${id}`}
               aria-current={active ? "true" : undefined}
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium transition ${
-                active
-                  ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-accent/30 dark:bg-accent/15 dark:text-accent"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900 dark:border-border dark:bg-surface dark:text-muted dark:hover:text-foreground"
+              className={`relative shrink-0 px-3 py-3 text-sm font-medium transition-colors ${
+                active ? "text-foreground" : "text-muted hover:text-foreground"
               }`}
             >
-              <Icon className="size-3.5" aria-hidden />
               {label}
+              {active && (
+                <motion.span
+                  layoutId="report-section-underline"
+                  className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-accent"
+                  transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
+                />
+              )}
             </a>
           );
         })}
@@ -309,7 +210,6 @@ function MobileReportNav() {
     </div>
   );
 }
-
 
 const alertClasses =
   "rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-400";
@@ -333,55 +233,16 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
   const [isResumeRequesting, setIsResumeRequesting] = useState(false);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [navCollapsed, setNavCollapsed] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const navAutoCollapsed = useRef(false);
   const router = useRouter();
 
-  // The report rail is expanded by default; a recruiter who folds it keeps it
-  // folded on the next report they open.
-  useEffect(() => {
-    try {
-      if (window.localStorage.getItem("interview-report-nav") === "collapsed") {
-        // Reading a stored preference once on mount is exactly what this
-        // effect is for; the rule cannot tell it apart from a render loop.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setNavCollapsed(true);
-      }
-    } catch {
-      // A blocked localStorage must not stop the report from rendering.
-    }
-  }, []);
-
-  function toggleNav() {
-    setNavCollapsed((previous) => {
-      const next = !previous;
-      try {
-        window.localStorage.setItem("interview-report-nav", next ? "collapsed" : "expanded");
-      } catch {
-        // Preference is best effort.
-      }
-      return next;
-    });
-  }
-
-  /** Docks the assistant on the right and folds the section rail when room is tight. */
   function openAssistant() {
-    navAutoCollapsed.current = false;
-    if (!navCollapsed && typeof window !== "undefined" && window.innerWidth < 1536) {
-      navAutoCollapsed.current = true;
-      setNavCollapsed(true);
-    }
     setAssistantOpen(true);
   }
 
   function closeAssistant() {
     setAssistantOpen(false);
-    if (navAutoCollapsed.current) {
-      navAutoCollapsed.current = false;
-      setNavCollapsed(false);
-    }
   }
 
   useEffect(() => {
@@ -571,7 +432,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       <div className="mx-auto max-w-7xl grid gap-4">
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-900 dark:text-muted dark:hover:text-foreground"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-muted hover:text-slate-900 dark:text-muted dark:hover:text-foreground"
         >
           <ChevronLeft className="size-4" />
           <span>Back to interviews</span>
@@ -585,25 +446,18 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
 
   if (!detail) {
     return (
-      <div className="mx-auto max-w-7xl grid gap-4" aria-busy="true">
-        <div className="h-6 w-32 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
-        <div className="h-32 animate-pulse rounded-2xl border border-slate-200/80 bg-white dark:border-border dark:bg-surface" />
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-          <div
-            className={`hidden animate-pulse rounded-2xl bg-slate-100 dark:bg-slate-800 lg:block ${
-              navCollapsed ? "w-[76px]" : "w-[248px]"
-            } h-[calc(100vh-14rem)]`}
-          />
-          <div className="grid flex-1 grid-cols-1 gap-6">
-            <div className="h-20 animate-pulse rounded-2xl border border-slate-200/80 bg-white dark:border-border dark:bg-surface" />
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="h-44 animate-pulse rounded-2xl border border-slate-200/80 bg-white dark:border-border dark:bg-surface"
-              />
-            ))}
+      <div className="mx-auto grid max-w-6xl gap-6 pt-6" aria-busy="true">
+        <div className="skeleton h-4 w-40 rounded" />
+        <div className="flex items-center gap-4">
+          <div className="skeleton size-14 rounded-full" />
+          <div className="grid gap-2">
+            <div className="skeleton h-7 w-56 rounded" />
+            <div className="skeleton h-4 w-80 rounded" />
           </div>
         </div>
+        <div className="skeleton h-11 rounded-lg" />
+        <div className="skeleton h-72 rounded-2xl" />
+        <div className="skeleton h-56 rounded-2xl" />
       </div>
     );
   }
@@ -637,68 +491,75 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
   );
 
   return (
-    <div className={`mx-auto grid gap-6 transition-[max-width] duration-300 ${assistantOpen ? "max-w-[1560px]" : "max-w-7xl"}`}>
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-xs font-semibold text-white shadow-xl dark:bg-white dark:text-slate-900 animate-in fade-in slide-in-from-bottom-3 duration-200">
-          <CheckCircle2 className="size-4 text-emerald-400 dark:text-emerald-600" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
+    <div className="mx-auto flex max-w-[1500px] gap-6 xl:items-start">
+      <div className="mx-auto grid w-full min-w-0 max-w-6xl flex-1 gap-6">
+        {toastMessage && (
+          <div
+            role="status"
+            className="animate-pop-in fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-xl border border-border bg-surface px-4 py-3 text-sm shadow-xl shadow-black/10 dark:shadow-black/50"
+          >
+            <CheckCircle2 className="size-4 text-emerald-500" aria-hidden />
+            <span>{toastMessage}</span>
+          </div>
+        )}
 
-      {/* Resume Modal */}
-      {resumeOpen && (
-        <ResumeModal
-          resume={session.resume}
+        {resumeOpen && (
+          <ResumeModal
+            resume={session.resume}
+            roomId={roomId}
+            candidateName={session.candidateName || "Candidate"}
+            onClose={() => setResumeOpen(false)}
+          />
+        )}
+
+        <CandidateHeader
+          session={session}
+          peers={peers}
           roomId={roomId}
-          candidateName={session.candidateName || "Candidate"}
-          onClose={() => setResumeOpen(false)}
+          canDownload={scorecard !== null}
+          hasResume={session.resume !== null}
+          onOpenResume={() => setResumeOpen(true)}
+          onRegenerate={handleRegenerate}
+          isRegenerating={isRegenerating}
+          onShare={() => {
+            if (typeof window !== "undefined") {
+              navigator.clipboard.writeText(window.location.href);
+              showToast("Link copied");
+            }
+          }}
+          onOpenAssistant={openAssistant}
+          canAsk={scorecard !== null}
         />
-      )}
 
-      <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
-        <div className="grid min-w-0 flex-1 gap-6">
-      {/* Candidate Header with Breadcrumb & Quick Actions */}
-      <CandidateHeader
-        session={session}
-        peers={peers}
-        roomId={roomId}
-        canDownload={scorecard !== null}
-        hasResume={session.resume !== null}
-        onOpenResume={() => setResumeOpen(true)}
-        onRegenerate={handleRegenerate}
-        isRegenerating={isRegenerating}
-        onShare={() => {
-          if (typeof window !== "undefined") {
-            navigator.clipboard.writeText(window.location.href);
-            showToast("Interview link copied to clipboard");
+        {error && (
+          <p role="alert" className={alertClasses}>
+            {error}
+          </p>
+        )}
+
+        <SectionBar
+          ids={
+            new Set(
+              scorecard
+                ? [
+                    "overview",
+                    "answers",
+                    ...(scorecard.resumeMatch ? ["resume"] : []),
+                    ...(scorecard.authenticity ? ["authenticity"] : []),
+                    "recording",
+                    ...(scorecard.video ? ["video"] : []),
+                    "comments",
+                  ]
+                : ["overview", "recording", "comments"],
+            )
           }
-        }}
-        onOpenAssistant={openAssistant}
-      />
+        />
 
-      {error && (
-        <p role="alert" className={alertClasses}>
-          {error}
-        </p>
-      )}
-
-      <MobileReportNav />
-
-      {/* Main layout: full-height section sidebar plus the report itself */}
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        <ReportNav collapsed={navCollapsed} onToggle={toggleNav} />
-
-        <div className="grid min-w-0 flex-1 grid-cols-1 gap-6">
+        <div className="grid min-w-0 grid-cols-1 gap-6">
           {scorecard ? (
             <>
-              {/* 1. Overall Assessment */}
               <OverallAssessment scorecard={scorecard} insights={insights} />
-
-              {/* 2. Summary */}
               <SummarySection scorecard={scorecard} insights={insights} />
-
-              {/* 3. Answer Quality */}
               <AnswerQualityTable
                 scorecard={scorecard}
                 competencies={competencies}
@@ -706,11 +567,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
                 offsetFor={recordingOffset}
                 onPlay={playFrom}
               />
-
-              {/* 3b. Custom parameters the recruiter asked for */}
               <CustomParametersSection scorecard={scorecard} />
-
-              {/* 4. Resume Match */}
               <ResumeTable
                 scorecard={scorecard}
                 turns={turns}
@@ -718,14 +575,8 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
                 onAnalyseResume={handleAnalyseResume}
                 isAnalysing={isResumeRequesting}
               />
-
-              {/* 5. Own Answers (Originality) */}
               <OwnAnswersSection scorecard={scorecard} />
-
-              {/* Recording sits after originality and before on-camera analysis */}
               {recordingSection}
-
-              {/* 6. On-camera Behaviour (preserved working component) */}
               <VideoSection
                 scorecard={scorecard}
                 hasRecording={hasRecording}
@@ -736,10 +587,10 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
             </>
           ) : (
             <>
-              <section className={cardClasses}>
-                <CardHeading icon={Gauge} iconColor="amber" title="Scorecard" />
-                <p className="mt-2 text-sm text-slate-600 dark:text-muted">
-                  {reason ?? "No scorecard is available for this interview yet."}
+              <section id="overview" className={`${cardClasses} scroll-mt-32`}>
+                <CardHeading icon={Gauge} title="No report yet" />
+                <p className="mt-2 text-sm text-muted">
+                  {reason ?? "The report appears here once the candidate finishes the interview."}
                 </p>
                 {competencies.length > 0 && <PlanPreview competencies={competencies} />}
               </section>
@@ -747,41 +598,20 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
             </>
           )}
 
-          {/* 8. Voice Session */}
-          <VoiceSection session={session} events={events} hasRecording={hasRecording} />
-
-          {/* 9. Comments & Hiring Decision */}
           <CommentsDecisionSection
             roomId={roomId}
             decision={session.decision}
             onSaved={(decision) => setDetail({ ...detail, session: { ...session, decision } })}
           />
 
-          {/* 10. Other Interviews */}
           {peers.length > 1 && <PeersSection peers={peers} currentId={roomId} />}
 
-          {/* Recruiter Page Footer */}
-          <footer className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-400 dark:text-muted">
-            <span>
-              {scorecard
-                ? `Scored ${formatDateTime(scorecard.generatedAt)} with ${scorecard.model}. `
-                : ""}
-              {turns.length} turns and {events.length} logged events. {recordingNote(events)}
-            </span>
-            {session.status === "completed" && (
-              <button
-                type="button"
-                onClick={handleRegenerate}
-                disabled={isRegenerating}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60 dark:border-border dark:bg-surface dark:text-slate-200"
-              >
-                <RotateCcw className={`size-3.5 ${isRegenerating ? "animate-spin" : ""}`} />
-                <span>{isRegenerating ? "Scoring…" : "Regenerate scorecard"}</span>
-              </button>
-            )}
+          <VoiceSection session={session} events={events} hasRecording={hasRecording} />
+
+          <footer className="pb-10 pt-2 text-xs text-muted">
+            {scorecard ? `Report generated ${formatDateTime(scorecard.generatedAt)}` : null}
           </footer>
         </div>
-      </div>
       </div>
 
       <CandidateAssistant
@@ -792,64 +622,27 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
         onJumpToTurn={jumpToCitedTurn}
         onJumpToReportSection={jumpToReportSection}
       />
-      </div>
-
-      {scorecard && !assistantOpen && (
-        <button
-          type="button"
-          onClick={openAssistant}
-          className="fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-xl shadow-blue-900/20 transition hover:-translate-y-0.5 hover:bg-blue-700 sm:bottom-6 sm:right-6"
-        >
-          <Sparkles className="size-4" />
-          <span>Ask AI</span>
-        </button>
-      )}
     </div>
   );
 }
 
-/** Card Heading with Apple-like colored icon container and right-hand badges. */
+/** Section heading: title, optional one-line description, right-hand figures. */
 function CardHeading({
-  icon: Icon,
-  iconColor = "blue",
   title,
   subtitle,
   right,
 }: {
-  icon: LucideIcon;
-  iconColor?: "blue" | "purple" | "violet" | "emerald" | "amber" | "rose" | "indigo" | "sky" | "slate";
+  icon?: LucideIcon;
+  iconColor?: string;
   title: string;
   subtitle?: string;
   right?: ReactNode;
 }) {
-  const COLOR_CLASSES: Record<string, string> = {
-    blue: "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400",
-    purple: "bg-purple-50 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400",
-    violet: "bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400",
-    emerald: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400",
-    amber: "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400",
-    rose: "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400",
-    indigo: "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400",
-    sky: "bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-400",
-    slate: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
-  };
-
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="flex items-center gap-3">
-        <span
-          className={`grid size-9 shrink-0 place-items-center rounded-xl ${COLOR_CLASSES[iconColor]}`}
-        >
-          <Icon className="size-4.5" />
-        </span>
-        <div>
-          <h2 className="text-lg font-bold tracking-tight text-slate-900 dark:text-foreground">
-            {title}
-          </h2>
-          {subtitle && (
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-muted">{subtitle}</p>
-          )}
-        </div>
+      <div className="min-w-0">
+        <h2 className="text-base font-semibold text-foreground">{title}</h2>
+        {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
       </div>
       {right}
     </div>
@@ -867,7 +660,7 @@ function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
   );
 }
 
-/** Candidate Header with Breadcrumb Navigation, Metadata, and Integrated Actions */
+/** Page header: breadcrumb, candidate identity, one meta line, actions. */
 function CandidateHeader({
   session,
   peers,
@@ -879,6 +672,7 @@ function CandidateHeader({
   isRegenerating,
   onShare,
   onOpenAssistant,
+  canAsk,
 }: {
   session: InterviewRoom;
   peers: PeerSummary[];
@@ -890,257 +684,147 @@ function CandidateHeader({
   isRegenerating: boolean;
   onShare: () => void;
   onOpenAssistant: () => void;
+  canAsk: boolean;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const router = useRouter();
   const outcome = session.outcome;
-  const status = STATUS_META[session.status];
   const position = peers.findIndex((peer) => peer.roomId === roomId);
   const previous = position > 0 ? peers[position - 1] : null;
   const next = position >= 0 && position < peers.length - 1 ? peers[position + 1] : null;
+  const when = session.completedAt ?? session.scheduledAt ?? null;
 
-  const timezone =
-    typeof Intl !== "undefined"
-      ? Intl.DateTimeFormat().resolvedOptions().timeZone
-      : "Asia/Kolkata (IST)";
+  const ghost =
+    "inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03]";
 
   return (
-    <div className="grid gap-3">
-      {/* Top Breadcrumbs & Previous/Next Navigation */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs">
-        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-slate-500 dark:text-muted">
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-1 font-medium transition hover:text-slate-900 dark:hover:text-foreground"
-          >
-            <ChevronLeft className="size-3.5" />
-            <span>Interviews</span>
+    <header className="grid gap-5 pt-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-muted">
+          <Link href="/dashboard" className="transition hover:text-foreground">
+            Interviews
           </Link>
-          <span className="text-slate-300 dark:text-slate-700">/</span>
-          <span className="font-medium text-slate-600 dark:text-slate-300 truncate max-w-[180px]">
-            {session.roleTitle || session.title}
-          </span>
-          <span className="text-slate-300 dark:text-slate-700">/</span>
-          <span className="font-semibold text-slate-900 dark:text-foreground truncate max-w-[180px]">
-            {session.candidateName || "Candidate"}
-          </span>
+          <ChevronRight className="size-3.5 shrink-0 opacity-60" aria-hidden />
+          <span className="truncate">{session.roleTitle || session.title}</span>
         </nav>
-
-        <div className="flex items-center gap-1.5">
-          <Link
-            href={previous ? `/dashboard/${previous.roomId}` : "#"}
-            aria-disabled={!previous}
-            className={`inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium transition dark:border-border dark:bg-surface ${
-              previous
-                ? "text-slate-700 hover:border-accent hover:text-accent dark:text-slate-200"
-                : "pointer-events-none opacity-40 text-slate-400"
-            }`}
-          >
-            <ChevronLeft className="size-3" />
-            <span>Previous</span>
-          </Link>
-          <Link
-            href={next ? `/dashboard/${next.roomId}` : "#"}
-            aria-disabled={!next}
-            className={`inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium transition dark:border-border dark:bg-surface ${
-              next
-                ? "text-slate-700 hover:border-accent hover:text-accent dark:text-slate-200"
-                : "pointer-events-none opacity-40 text-slate-400"
-            }`}
-          >
-            <span>Next</span>
-            <ChevronRight className="size-3" />
-          </Link>
-        </div>
+        {peers.length > 1 && position >= 0 && (
+          <div className="flex items-center gap-1 text-muted">
+            <span className="mr-1 text-xs tabular-nums">
+              {position + 1} of {peers.length} for this role
+            </span>
+            <Link
+              href={previous ? `/dashboard/${previous.roomId}` : "#"}
+              aria-label="Previous candidate"
+              aria-disabled={!previous}
+              className={`grid size-8 place-items-center rounded-lg transition ${previous ? "hover:bg-foreground/[0.06] hover:text-foreground" : "pointer-events-none opacity-40"}`}
+            >
+              <ChevronLeft className="size-4" />
+            </Link>
+            <Link
+              href={next ? `/dashboard/${next.roomId}` : "#"}
+              aria-label="Next candidate"
+              aria-disabled={!next}
+              className={`grid size-8 place-items-center rounded-lg transition ${next ? "hover:bg-foreground/[0.06] hover:text-foreground" : "pointer-events-none opacity-40"}`}
+            >
+              <ChevronRight className="size-4" />
+            </Link>
+          </div>
+        )}
       </div>
 
-      {/* Candidate Header Card */}
-      <header className={`${cardClasses} !p-5 sm:!p-6`}>
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-4">
-            {/* Candidate Avatar */}
-            <span
-              aria-hidden
-              className="grid size-14 shrink-0 place-items-center rounded-full bg-blue-50 text-2xl font-bold uppercase text-blue-600 dark:bg-blue-950/50 dark:text-blue-400"
-            >
-              {initials(session.candidateName)}
-            </span>
-
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-foreground">
-                  {session.candidateName || "Candidate"}
-                </h1>
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_PILL_STYLES[status.tone]}`}
-                >
-                  <span
-                    className={`size-1.5 rounded-full ${
-                      status.tone === "good"
-                        ? "bg-emerald-500"
-                        : status.tone === "warn"
-                          ? "bg-amber-500"
-                          : status.tone === "bad"
-                            ? "bg-rose-500"
-                            : "bg-slate-400"
-                    }`}
-                  />
-                  {status.label}
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-4">
+          <span
+            aria-hidden
+            className="grid size-14 shrink-0 place-items-center rounded-full bg-accent-soft text-lg font-semibold text-accent ring-1 ring-inset ring-accent/15"
+          >
+            {initials(session.candidateName)}
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="truncate text-[26px] font-semibold leading-tight tracking-[-0.02em]">
+                {session.candidateName || "Candidate"}
+              </h1>
+              <StatusBadge status={session.status} />
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
+              {session.candidateEmail && <span>{session.candidateEmail}</span>}
+              <span className="inline-flex items-center gap-1.5">
+                <Briefcase className="size-3.5" aria-hidden />
+                {session.roleTitle || session.title}
+              </span>
+              {when && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Calendar className="size-3.5" aria-hidden />
+                  {formatDateTime(when)}
                 </span>
-              </div>
-
-              {session.candidateEmail && (
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-muted">
-                  {session.candidateEmail}
-                </p>
               )}
-
-              {/* Meta details row with clean inline icons */}
-              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-600 dark:text-slate-400">
-                <span className="inline-flex items-center gap-1.5 font-medium">
-                  <Briefcase className="size-3.5 text-slate-400" />
-                  {session.roleTitle || session.title}
-                </span>
-                {position >= 0 && peers.length > 0 && (
-                  <span className="inline-flex items-center gap-1.5 text-slate-500">
-                    <Layers className="size-3.5 text-slate-400" />
-                    {position + 1} of {peers.length} interviews
-                  </span>
-                )}
+              <span
+                className="inline-flex items-center gap-1.5"
+                title={outcome?.reason ? (END_REASONS[outcome.reason] ?? undefined) : undefined}
+              >
+                <Clock className="size-3.5" aria-hidden />
+                {outcome ? formatDuration(outcome.elapsedSeconds) : `${session.durationMinutes} min planned`}
+              </span>
+              {session.recruiterName && (
                 <span className="inline-flex items-center gap-1.5">
-                  <User className="size-3.5 text-slate-400" />
-                  Interviewed by:{" "}
-                  <span className="font-semibold text-slate-700 dark:text-slate-200">
-                    {session.recruiterName || "AI Interviewer"}
-                  </span>
+                  <User className="size-3.5" aria-hidden />
+                  {session.recruiterName}
                 </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <Calendar className="size-3.5 text-slate-400" />
-                  {session.completedAt
-                    ? formatDateTime(session.completedAt)
-                    : session.scheduledAt
-                      ? formatDateTime(session.scheduledAt)
-                      : "Not scheduled"}
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <Clock className="size-3.5 text-slate-400" />
-                  {outcome ? formatDuration(outcome.elapsedSeconds) : `${session.durationMinutes} min`}
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <Globe className="size-3.5 text-slate-400" />
-                  {timezone}
-                </span>
-                {outcome?.reason && (
-                  <span className="inline-flex items-center gap-1.5 text-slate-400">
-                    • {END_REASONS[outcome.reason] ?? outcome.reason}
-                  </span>
-                )}
-              </div>
+              )}
             </div>
           </div>
+        </div>
 
-          {/* Quick Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {canAsk && (
             <button
               type="button"
               onClick={onOpenAssistant}
-              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700"
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3.5 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 active:scale-[0.98]"
             >
-              <Sparkles className="size-3.5" />
-              <span>Ask AI</span>
+              <Sparkles className="size-4" aria-hidden />
+              Ask AI
             </button>
-
-            {hasResume && (
-              <button
-                type="button"
-                onClick={onOpenResume}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
-              >
-                <FileText className="size-3.5 text-slate-400" />
-                <span>View resume</span>
-              </button>
-            )}
-
-            {canDownload && (
-              <a
-                href={`/api/dashboard/interviews/${roomId}/report/download`}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
-              >
-                <Download className="size-3.5 text-slate-400" />
-                <span>Download report</span>
-              </a>
-            )}
-
-            {session.status === "expired" && (
-              <Link
-                href={`/dashboard/${roomId}/edit`}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
-              >
-                <Pencil className="size-3.5 text-slate-400" />
-                <span>Edit interview</span>
-              </Link>
-            )}
-
-            <button
-              type="button"
-              onClick={onShare}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
-            >
-              <Share2 className="size-3.5 text-slate-400" />
-              <span>Share</span>
+          )}
+          {hasResume && (
+            <button type="button" onClick={onOpenResume} className={ghost}>
+              <FileText className="size-4 text-muted" aria-hidden />
+              Resume
             </button>
-
-            {/* Overflow Menu */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setMenuOpen(!menuOpen)}
-                aria-label="More actions"
-                className="grid size-8 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-300"
-              >
-                <MoreHorizontal className="size-4" />
+          )}
+          {canDownload && (
+            <a href={`/api/dashboard/interviews/${roomId}/report/download`} className={ghost}>
+              <Download className="size-4 text-muted" aria-hidden />
+              PDF
+            </a>
+          )}
+          <Menu
+            label="More actions"
+            align="end"
+            trigger={
+              <button type="button" aria-label="More actions" className={`${ghost} w-9 justify-center px-0`}>
+                <MoreHorizontal className="size-4" aria-hidden />
               </button>
-              {menuOpen && (
-                <div
-                  className="absolute right-0 top-full z-30 mt-1 w-48 rounded-xl border border-slate-200 bg-white py-1.5 shadow-lg dark:border-border dark:bg-surface animate-in fade-in zoom-in-95 duration-100"
-                  onMouseLeave={() => setMenuOpen(false)}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onShare();
-                      setMenuOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-accent/10"
-                  >
-                    <Copy className="size-3.5 text-slate-400" />
-                    <span>Copy interview link</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onRegenerate();
-                      setMenuOpen(false);
-                    }}
-                    disabled={isRegenerating}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-accent/10"
-                  >
-                    <RotateCcw className="size-3.5 text-slate-400" />
-                    <span>Regenerate scorecard</span>
-                  </button>
-                  <Link
-                    href="/dashboard"
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-accent/10"
-                  >
-                    <Users className="size-3.5 text-slate-400" />
-                    <span>View all interviews</span>
-                  </Link>
-                </div>
-              )}
-            </div>
-          </div>
+            }
+            items={[
+              { id: "copy", label: "Copy link to this report", icon: <Copy className="size-4" aria-hidden />, onSelect: onShare },
+              ...(session.status === "expired"
+                ? [{ id: "edit", label: "Edit interview", icon: <Pencil className="size-4" aria-hidden />, onSelect: () => router.push(`/dashboard/${roomId}/edit`) }]
+                : []),
+              ...(session.status === "completed"
+                ? [{
+                    id: "regenerate",
+                    label: isRegenerating ? "Re-scoring…" : "Re-score this interview",
+                    icon: <RotateCcw className="size-4" aria-hidden />,
+                    disabled: isRegenerating,
+                    onSelect: onRegenerate,
+                  }]
+                : []),
+            ]}
+          />
         </div>
-      </header>
-    </div>
+      </div>
+    </header>
   );
 }
 
@@ -1159,11 +843,11 @@ function OverallAssessment({
     return (
       <section id="overview" className={`${cardClasses} scroll-mt-32`}>
         <CardHeading icon={Gauge} iconColor="amber" title="Overall assessment" />
-        <p className="mt-4 font-display text-5xl font-semibold leading-none tabular-nums">
+        <p className="mt-4 text-5xl font-semibold leading-none tabular-nums">
           {scorecard.overallScore === null ? "–" : scorecard.overallScore.toFixed(1)}
-          <span className="text-lg font-normal text-slate-400"> of 5</span>
+          <span className="text-lg font-normal text-muted"> of 5</span>
         </p>
-        <p className="mt-3 max-w-xl text-sm text-slate-500 dark:text-muted">
+        <p className="mt-3 max-w-xl text-sm text-muted">
           This scorecard was generated before multi-factor evaluation was added. Use Regenerate scorecard
           below to produce the 0-100 score and factor breakdowns.
         </p>
@@ -1174,134 +858,130 @@ function OverallAssessment({
   const score = overall.score;
   const band = scoreBand(score);
 
-  const FACTOR_ICONS: Record<FactorId, LucideIcon> = {
-    answers: MessagesSquare,
-    resume: FileSearch,
-    authenticity: Fingerprint,
-    video: Video,
-  };
-
-  const FACTOR_COLORS: Record<FactorId, { icon: "blue" | "purple" | "emerald" | "amber"; bar: string }> = {
-    answers: { icon: "blue", bar: "bg-blue-600" },
-    resume: { icon: "purple", bar: "bg-purple-600" },
-    authenticity: { icon: "emerald", bar: "bg-emerald-600" },
-    video: { icon: "amber", bar: "bg-amber-500" },
-  };
-
   return (
     <section id="overview" className={`${cardClasses} scroll-mt-32`}>
-      <CardHeading
-        icon={Gauge}
-        iconColor="amber"
-        title="Overall assessment"
-        right={
-          insights?.hireBand.label ? (
-            <Chip tone={hireBandTone(insights.hireBand.band)}>{insights.hireBand.label}</Chip>
-          ) : undefined
-        }
-      />
-
-      <div className="mt-6 grid gap-8 lg:grid-cols-[16rem_minmax(0,1fr)] lg:items-center">
-        {/* Left Side: Circular score ring gauge, badge, and explanation */}
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-100 bg-slate-50/50 p-6 text-center dark:border-border/60 dark:bg-background/40">
+      <div className="grid gap-8 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-center">
+        <div className="flex flex-col items-center text-center lg:border-r lg:border-border lg:pr-8">
           <ScoreRing score={score} tone={band.tone} />
-          <div className="mt-3">
-            <span
-              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${STATUS_PILL_STYLES[band.tone]}`}
-            >
-              {band.label}
-            </span>
-          </div>
+          <p className="mt-4 text-sm font-medium">{band.label}</p>
+          {insights?.hireBand.label && (
+            <p className="mt-1 text-xs text-muted">Suggestion: {insights.hireBand.label}</p>
+          )}
         </div>
 
-        {/* Right Side: Expandable score factor rows with progress bars */}
-        <div className="grid gap-3.5">
-          {overall.factors.map((factor) => {
+        <div className="grid gap-1">
+          <div className="mb-2 flex items-baseline justify-between">
+            <h2 className="text-base font-semibold">Overall assessment</h2>
+            <span className="text-xs text-muted">Weighted from four checks</span>
+          </div>
+          {overall.factors.map((factor, index) => {
             const meta = FACTOR_META[factor.id];
             const chip = factorChip(factor.id, factor.score);
-            const Icon = FACTOR_ICONS[factor.id];
-            const colors = FACTOR_COLORS[factor.id];
             const isExpanded = expandedFactor === factor.id;
-
             return (
-              <div
+              <FactorRow
                 key={factor.id}
-                className="rounded-xl border border-slate-200/70 bg-white p-3.5 transition dark:border-border dark:bg-surface/50"
-              >
-                <div
-                  className="flex cursor-pointer items-center gap-3"
-                  onClick={() => setExpandedFactor(isExpanded ? null : factor.id)}
-                >
-                  <span
-                    className={`grid size-8 shrink-0 place-items-center rounded-lg ${
-                      colors.icon === "blue"
-                        ? "bg-blue-50 text-blue-600"
-                        : colors.icon === "purple"
-                          ? "bg-purple-50 text-purple-600"
-                          : colors.icon === "emerald"
-                            ? "bg-emerald-50 text-emerald-600"
-                            : "bg-amber-50 text-amber-600"
-                    }`}
-                  >
-                    <Icon className="size-4" />
-                  </span>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-slate-900 dark:text-foreground">
-                        {meta.name}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold tabular-nums text-slate-900 dark:text-foreground">
-                          {factor.score === null ? "—" : `${factor.score}/100`}
-                        </span>
-                        <Chip tone={chip.tone}>{chip.label}</Chip>
-                        <ChevronDown
-                          className={`size-4 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                      {factor.score !== null && (
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${colors.bar}`}
-                          style={{ width: `${Math.max(3, factor.score)}%` }}
-                        />
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Expandable Breakdown Drawer */}
-                {isExpanded && (
-                  <div className="mt-3.5 border-t border-slate-100 pt-3 text-xs text-slate-600 dark:border-border dark:text-slate-400">
-                    <p className="leading-relaxed">{meta.explains}</p>
-                    <div className="mt-2.5 flex items-center justify-between">
-                      <span className="text-[11px] text-slate-400">Weight: {factor.weight}% of total score</span>
-                      <a
-                        href={`#${factorLink(factor.id)}`}
-                        className="font-semibold text-blue-600 hover:underline dark:text-accent"
-                      >
-                        Jump to detailed section →
-                      </a>
-                    </div>
-                  </div>
-                )}
-              </div>
+                name={meta.name}
+                score={factor.score}
+                label={chip.label}
+                tone={chip.tone}
+                weight={factor.weight}
+                explains={meta.explains}
+                href={`#${factorLink(factor.id)}`}
+                expanded={isExpanded}
+                delay={0.1 + index * 0.08}
+                onToggle={() => setExpandedFactor(isExpanded ? null : factor.id)}
+              />
             );
           })}
         </div>
       </div>
 
       {scorecard.needsHumanReview && (
-        <div className="mt-5 flex items-center gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-800 dark:text-amber-300">
-          <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-          <span>Check the evidence before deciding: graders noted variance or items needing review.</span>
+        <div className="mt-6 flex items-center gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="size-4 shrink-0" aria-hidden />
+          <span>Read the evidence before deciding: the two graders disagreed or flagged items for review.</span>
         </div>
       )}
     </section>
+  );
+}
+
+const TONE_BAR: Record<Tone, string> = {
+  good: "bg-emerald-500",
+  warn: "bg-amber-500",
+  bad: "bg-rose-500",
+  muted: "bg-foreground/25",
+};
+
+const TONE_TEXT: Record<Tone, string> = {
+  good: "text-emerald-700 dark:text-emerald-400",
+  warn: "text-amber-700 dark:text-amber-400",
+  bad: "text-rose-700 dark:text-rose-400",
+  muted: "text-muted",
+};
+
+function FactorRow({
+  name,
+  score,
+  label,
+  tone,
+  weight,
+  explains,
+  href,
+  expanded,
+  delay,
+  onToggle,
+}: {
+  name: string;
+  score: number | null;
+  label: string;
+  tone: Tone;
+  weight: number;
+  explains: string;
+  href: string;
+  expanded: boolean;
+  delay: number;
+  onToggle: () => void;
+}) {
+  const reduce = useReducedMotion();
+  return (
+    <div className="rounded-xl transition-colors hover:bg-foreground/[0.025]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="grid w-full grid-cols-[minmax(0,10rem)_minmax(0,1fr)_auto] items-center gap-4 px-3 py-3 text-left"
+      >
+        <span className="truncate text-sm font-medium">{name}</span>
+        <span className="h-2 overflow-hidden rounded-full bg-foreground/[0.07]">
+          {score !== null && (
+            <motion.span
+              className={`block h-full rounded-full ${TONE_BAR[tone]}`}
+              initial={reduce ? false : { width: 0 }}
+              animate={{ width: `${Math.max(3, score)}%` }}
+              transition={{ duration: 0.8, delay, ease: EASE_OUT }}
+            />
+          )}
+        </span>
+        <span className="flex items-center gap-3">
+          <span className={`w-28 text-right text-xs font-medium ${TONE_TEXT[tone]}`}>{label}</span>
+          <span className="w-9 text-right text-sm font-semibold">{score === null ? "—" : score}</span>
+          <ChevronDown className={`size-4 text-muted transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden />
+        </span>
+      </button>
+      {expanded && (
+        <div className="animate-pop-in px-3 pb-3 text-sm text-muted">
+          <p className="leading-relaxed">{explains}</p>
+          <div className="mt-2 flex items-center justify-between text-xs">
+            <span>{weight}% of the overall score</span>
+            <a href={href} className="font-medium text-accent hover:underline">
+              See the details
+            </a>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1314,7 +994,7 @@ function ScoreRing({ score, tone }: { score: number | null; tone: Tone }) {
   const strokeOffset = circumference * (1 - filled);
 
   const ringColor =
-    tone === "good" ? "#10b981" : tone === "warn" ? "#f59e0b" : tone === "bad" ? "#2563eb" : "#94a3b8";
+    tone === "good" ? "#10b981" : tone === "warn" ? "#f59e0b" : tone === "bad" ? "#f43f5e" : "#94a3b8";
 
   return (
     <div className="relative size-[152px] shrink-0">
@@ -1325,7 +1005,7 @@ function ScoreRing({ score, tone }: { score: number | null; tone: Tone }) {
           r={radius}
           fill="none"
           strokeWidth={strokeWidth}
-          className="stroke-slate-200/70 dark:stroke-slate-800"
+          className="stroke-foreground/[0.08]"
         />
         <circle
           cx="80"
@@ -1342,10 +1022,10 @@ function ScoreRing({ score, tone }: { score: number | null; tone: Tone }) {
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <div className="flex items-baseline">
-          <span className="font-display text-4xl font-bold tracking-tight text-slate-900 dark:text-foreground">
+          <span className="text-[40px] font-semibold leading-none tracking-[-0.03em] text-foreground">
             {score ?? "–"}
           </span>
-          <span className="ml-0.5 text-sm font-medium text-slate-400">/100</span>
+          <span className="ml-1 text-sm text-muted">/100</span>
         </div>
       </div>
     </div>
@@ -1353,6 +1033,39 @@ function ScoreRing({ score, tone }: { score: number | null; tone: Tone }) {
 }
 
 /** 2. Summary Section: Concise Assessment Summary, Strengths, Areas of Concern, Collapsible About Assessment */
+function EvidenceList({
+  title,
+  tone,
+  items,
+  empty,
+}: {
+  title: string;
+  tone: "good" | "bad";
+  items: string[];
+  empty: string;
+}) {
+  return (
+    <div>
+      <h3 className="flex items-center gap-2 text-sm font-semibold">
+        <span className={`size-2 rounded-full ${tone === "good" ? "bg-emerald-500" : "bg-rose-500"}`} aria-hidden />
+        {title}
+      </h3>
+      {items.length === 0 ? (
+        <p className="mt-2 text-sm text-muted">{empty}</p>
+      ) : (
+        <ul className="mt-3 grid gap-2.5">
+          {items.map((item, index) => (
+            <li key={index} className="flex gap-3 text-sm leading-6 text-foreground/85">
+              <span aria-hidden className="mt-2.5 h-px w-3 shrink-0 bg-foreground/30" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function SummarySection({
   scorecard,
   insights,
@@ -1363,69 +1076,29 @@ function SummarySection({
   return (
     <section id="summary" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading icon={FileText} iconColor="blue" title="Summary" />
-      <p className="mt-3.5 text-sm leading-relaxed text-slate-700 dark:text-slate-300">
-        {plain(scorecard.summary)}
-      </p>
+      <p className="mt-3 max-w-[75ch] text-[15px] leading-7 text-foreground/85">{plain(scorecard.summary)}</p>
 
-      {/* Strengths and Areas of Concern columns */}
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        {/* Strengths */}
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-50/40 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900 dark:text-emerald-300">
-            <CheckCircle2 className="size-4.5 text-emerald-600 dark:text-emerald-400" />
-            <span>Strengths</span>
-          </div>
-          {scorecard.strengths.length === 0 ? (
-            <p className="mt-2 text-xs text-slate-500">No specific strengths recorded.</p>
-          ) : (
-            <ul className="mt-2.5 grid gap-2">
-              {scorecard.strengths.map((item, idx) => (
-                <li key={idx} className="flex items-start gap-2 text-xs leading-relaxed text-slate-700 dark:text-slate-300">
-                  <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Areas of Concern */}
-        <div className="rounded-xl border border-rose-500/20 bg-rose-50/40 p-4 dark:border-rose-900/40 dark:bg-rose-950/20">
-          <div className="flex items-center gap-2 text-sm font-semibold text-rose-900 dark:text-rose-300">
-            <AlertTriangle className="size-4.5 text-rose-600 dark:text-rose-400" />
-            <span>Areas of concern</span>
-          </div>
-          {scorecard.concerns.length === 0 ? (
-            <p className="mt-2 text-xs text-slate-500">No concerns recorded.</p>
-          ) : (
-            <ul className="mt-2.5 grid gap-2">
-              {scorecard.concerns.map((item, idx) => (
-                <li key={idx} className="flex items-start gap-2 text-xs leading-relaxed text-slate-700 dark:text-slate-300">
-                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      <div className="mt-6 grid gap-6 border-t border-border pt-6 sm:grid-cols-2">
+        <EvidenceList title="Strengths" tone="good" items={scorecard.strengths} empty="No strengths were recorded." />
+        <EvidenceList title="Concerns" tone="bad" items={scorecard.concerns} empty="No concerns were recorded." />
       </div>
 
       {/* Collapsible About This Assessment */}
-      <details className="group mt-5 rounded-xl border border-slate-200/80 dark:border-border">
-        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-xs font-semibold text-slate-700 dark:text-slate-300">
+      <details className="group mt-5 rounded-xl border border-border">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-xs font-semibold text-foreground/85">
           <span className="flex items-center gap-2">
-            <Info className="size-4 text-slate-400" />
+            <Info className="size-4 text-muted" />
             About this assessment
           </span>
-          <ChevronDown className="size-4 text-slate-400 transition group-open:rotate-180" />
+          <ChevronDown className="size-4 text-muted transition group-open:rotate-180" />
         </summary>
-        <div className="grid gap-4 border-t border-slate-100 p-4 text-xs dark:border-border dark:text-slate-300">
+        <div className="grid gap-4 border-t border-border p-4 text-xs dark:border-border dark:text-slate-300">
           {scorecard.notes.length > 0 && (
             <div>
-              <p className="font-semibold uppercase tracking-wider text-slate-400 text-[10px]">Data quality notes</p>
+              <p className="text-xs font-medium text-muted">Data quality notes</p>
               <ul className="mt-1.5 grid gap-1">
                 {scorecard.notes.map((note) => (
-                  <li key={note} className="text-slate-600 dark:text-slate-400">
+                  <li key={note} className="text-muted">
                     • {note}
                   </li>
                 ))}
@@ -1434,33 +1107,33 @@ function SummarySection({
           )}
 
           <div>
-            <p className="font-semibold uppercase tracking-wider text-slate-400 text-[10px]">Integrity signals</p>
+            <p className="text-xs font-medium text-muted">Integrity signals</p>
             <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-lg border border-slate-100 bg-slate-50 p-2.5 dark:border-border dark:bg-background">
-                <span className="text-[10px] text-slate-400">Tab hidden</span>
-                <p className="text-sm font-bold text-slate-900 dark:text-foreground">{scorecard.integrity.tabHiddenCount}×</p>
+              <div className="rounded-lg border border-border bg-slate-50 p-2.5 dark:border-border dark:bg-background">
+                <span className="text-[10px] text-muted">Tab hidden</span>
+                <p className="text-sm font-semibold text-foreground">{scorecard.integrity.tabHiddenCount}×</p>
               </div>
-              <div className="rounded-lg border border-slate-100 bg-slate-50 p-2.5 dark:border-border dark:bg-background">
-                <span className="text-[10px] text-slate-400">Tab hidden time</span>
-                <p className="text-sm font-bold text-slate-900 dark:text-foreground">{Math.round(scorecard.integrity.tabHiddenSeconds)}s</p>
+              <div className="rounded-lg border border-border bg-slate-50 p-2.5 dark:border-border dark:bg-background">
+                <span className="text-[10px] text-muted">Tab hidden time</span>
+                <p className="text-sm font-semibold text-foreground">{Math.round(scorecard.integrity.tabHiddenSeconds)}s</p>
               </div>
-              <div className="rounded-lg border border-slate-100 bg-slate-50 p-2.5 dark:border-border dark:bg-background">
-                <span className="text-[10px] text-slate-400">Window blur</span>
-                <p className="text-sm font-bold text-slate-900 dark:text-foreground">{scorecard.integrity.windowBlurCount}×</p>
+              <div className="rounded-lg border border-border bg-slate-50 p-2.5 dark:border-border dark:bg-background">
+                <span className="text-[10px] text-muted">Window blur</span>
+                <p className="text-sm font-semibold text-foreground">{scorecard.integrity.windowBlurCount}×</p>
               </div>
-              <div className="rounded-lg border border-slate-100 bg-slate-50 p-2.5 dark:border-border dark:bg-background">
-                <span className="text-[10px] text-slate-400">Disconnects</span>
-                <p className="text-sm font-bold text-slate-900 dark:text-foreground">{scorecard.integrity.candidateDisconnects}</p>
+              <div className="rounded-lg border border-border bg-slate-50 p-2.5 dark:border-border dark:bg-background">
+                <span className="text-[10px] text-muted">Disconnects</span>
+                <p className="text-sm font-semibold text-foreground">{scorecard.integrity.candidateDisconnects}</p>
               </div>
             </div>
           </div>
 
           {insights && insights.nextSteps.length > 0 && (
             <div>
-              <p className="font-semibold uppercase tracking-wider text-slate-400 text-[10px]">Recommended next steps</p>
+              <p className="text-xs font-medium text-muted">Recommended next steps</p>
               <ul className="mt-1.5 grid gap-1">
                 {insights.nextSteps.map((step) => (
-                  <li key={step} className="text-slate-600 dark:text-slate-400">
+                  <li key={step} className="text-muted">
                     • {step}
                   </li>
                 ))}
@@ -1497,10 +1170,10 @@ function AnswerQualityTable({
         icon={MessagesSquare}
         iconColor="purple"
         title="Answer quality"
-        subtitle="Detailed evaluation of response quality, technical depth and completeness."
+        subtitle="Each question, how it was scored and why."
         right={
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-slate-900 dark:text-foreground tabular-nums">
+            <span className="text-sm font-semibold text-foreground tabular-nums">
               {score === null ? "–" : `${score}/100`}
             </span>
             <Chip tone={chip.tone}>{chip.label}</Chip>
@@ -1509,20 +1182,20 @@ function AnswerQualityTable({
       />
 
       {scorecard.competencies.length === 0 ? (
-        <p className="mt-4 text-xs text-slate-500">No competency questions were scored for this interview.</p>
+        <p className="mt-4 text-xs text-muted">No competency questions were scored for this interview.</p>
       ) : (
-        <div className="mt-5 overflow-hidden rounded-xl border border-slate-200/80 dark:border-border">
+        <div className="mt-5 overflow-hidden rounded-xl border border-border">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-slate-200/80 bg-slate-50/80 font-semibold text-slate-500 dark:border-border dark:bg-background/60 dark:text-muted">
+              <tr className="border-b border-border bg-foreground/[0.02] font-medium text-muted">
                 <th className="w-12 px-4 py-3 text-center">#</th>
                 <th className="px-4 py-3">Question</th>
                 <th className="w-20 px-4 py-3 text-center">Score</th>
                 <th className="px-4 py-3">Key feedback</th>
-                <th className="w-40 px-4 py-3 text-right">Jump to</th>
+                <th className="w-40 px-4 py-3 text-right">Recording</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-border/60">
+            <tbody className="divide-y divide-border">
               {scorecard.competencies.map((item, index) => {
                 const plan = competencies.find((c) => c.id === item.competencyId);
                 const window = evidenceWindow(item.evidence, bySeq, offsetFor);
@@ -1537,27 +1210,27 @@ function AnswerQualityTable({
                 return (
                   <tr
                     key={item.competencyId}
-                    className="group hover:bg-slate-50/50 dark:hover:bg-accent/5 transition"
+                    className="group hover:bg-foreground/[0.02] transition"
                   >
-                    <td className="px-4 py-3.5 text-center font-medium text-slate-400">
+                    <td className="px-4 py-3.5 text-center font-medium text-muted">
                       {index + 1}
                     </td>
                     <td className="px-4 py-3.5">
-                      <p className="font-semibold text-slate-900 dark:text-foreground">
+                      <p className="font-semibold text-foreground">
                         {item.name}
                       </p>
                       {plan?.question && (
-                        <p className="mt-0.5 text-[11px] text-slate-500 line-clamp-1">
+                        <p className="mt-0.5 text-[11px] text-muted line-clamp-1">
                           {plan.question}
                         </p>
                       )}
                     </td>
                     <td className="px-4 py-3.5 text-center">
-                      <span className={`inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-bold tabular-nums ${scoreTone}`}>
+                      <span className={`inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-semibold tabular-nums ${scoreTone}`}>
                         {scoreOut10 !== null ? `${scoreOut10}/10` : "—"}
                       </span>
                     </td>
-                    <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">
+                    <td className="px-4 py-3.5 text-foreground/80">
                       <p className="leading-relaxed">{item.rationale}</p>
                     </td>
                     <td className="px-4 py-3.5 text-right">
@@ -1574,7 +1247,7 @@ function AnswerQualityTable({
                             </span>
                           </button>
                         ) : (
-                          <span className="text-slate-400">—</span>
+                          <span className="text-muted">—</span>
                         )}
                       </div>
                     </td>
@@ -1610,7 +1283,7 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
         subtitle="The skills you weighted for this role, assessed from the resume and the candidate's answers."
         right={
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold tabular-nums text-slate-900 dark:text-foreground">
+            <span className="text-sm font-semibold tabular-nums text-foreground">
               {total === null ? "–" : `${total}/100`}
             </span>
             <Chip tone={tone}>{total === null ? "Not scored" : "Custom score"}</Chip>
@@ -1625,43 +1298,43 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
         <span className="text-xs text-muted">weighted by the emphasis you set</span>
       </div>
 
-      <div className="mt-5 overflow-hidden rounded-xl border border-slate-200/80 dark:border-border">
+      <div className="mt-5 overflow-hidden rounded-xl border border-border">
         <table className="w-full text-left text-xs">
           <thead>
-            <tr className="border-b border-slate-200/80 bg-slate-50/80 font-semibold text-slate-500 dark:border-border dark:bg-background/60 dark:text-muted">
+            <tr className="border-b border-border bg-foreground/[0.02] font-medium text-muted">
               <th className="px-4 py-3">Parameter</th>
               <th className="w-24 px-4 py-3 text-center">Emphasis</th>
               <th className="w-24 px-4 py-3 text-center">Score</th>
               <th className="px-4 py-3">Assessment</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-border/60">
+          <tbody className="divide-y divide-border">
             {parameters.map((item) => {
               const scoreTone =
                 item.status !== "scored" || item.score === null
-                  ? "bg-slate-100 text-slate-500 border border-slate-200/60 dark:bg-slate-800 dark:text-slate-400 dark:border-border"
+                  ? "bg-slate-100 text-muted border border-border dark:bg-slate-800 dark:text-muted dark:border-border"
                   : item.score >= 75
                   ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
                   : item.score >= 50
                     ? "bg-amber-50 text-amber-700 border border-amber-200/60"
                     : "bg-rose-50 text-rose-700 border border-rose-200/60";
               return (
-                <tr key={item.skill} className="align-top hover:bg-slate-50/50 dark:hover:bg-accent/5">
+                <tr key={item.skill} className="align-top hover:bg-foreground/[0.02]">
                   <td className="px-4 py-3.5">
-                    <p className="font-semibold text-slate-900 dark:text-foreground">{item.skill}</p>
+                    <p className="font-semibold text-foreground">{item.skill}</p>
                     {item.gaps.length > 0 && (
-                      <p className="mt-0.5 text-[11px] text-slate-500 line-clamp-1">
+                      <p className="mt-0.5 text-[11px] text-muted line-clamp-1">
                         Gap: {item.gaps[0]}
                       </p>
                     )}
                   </td>
                   <td className="px-4 py-3.5 text-center">
-                    <span className="text-xs font-medium tabular-nums text-slate-600 dark:text-slate-300">
+                    <span className="text-xs font-medium tabular-nums text-foreground/80">
                       {item.weight}
                     </span>
                   </td>
                   <td className="px-4 py-3.5 text-center">
-                    <span className={`inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-bold tabular-nums ${scoreTone}`}>
+                    <span className={`inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-semibold tabular-nums ${scoreTone}`}>
                       {item.status === "scored" && item.score !== null
                         ? `${item.score}/100`
                         : item.status === "not_assessed"
@@ -1669,10 +1342,10 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
                           : "Thin evidence"}
                     </span>
                   </td>
-                  <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">
+                  <td className="px-4 py-3.5 text-foreground/80">
                     <p className="line-clamp-3">{firstSentence(item.rationale)}</p>
                     {item.resumeEvidence && (
-                      <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
+                      <p className="mt-1 text-[11px] text-muted line-clamp-2">
                         Resume: {item.resumeEvidence}
                       </p>
                     )}
@@ -1683,7 +1356,7 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
                         </summary>
                         <ul className="mt-1 space-y-1">
                           {item.evidence.map((quote) => (
-                            <li key={`${quote.turnSeq}-${quote.quote.slice(0, 12)}`} className="text-[11px] italic text-slate-500">
+                            <li key={`${quote.turnSeq}-${quote.quote.slice(0, 12)}`} className="text-[11px] italic text-muted">
                               “{quote.quote}”
                             </li>
                           ))}
@@ -1739,10 +1412,10 @@ function ResumeTable({
         icon={FileSearch}
         iconColor="violet"
         title="Resume match"
-        subtitle="How well the candidate's background aligns with the role and project requirements."
+        subtitle="Claims from the resume, checked against what the candidate said."
         right={
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-slate-900 dark:text-foreground tabular-nums">
+            <span className="text-sm font-semibold text-foreground tabular-nums">
               {resume.score === null ? "–" : `${resume.score}/100`}
             </span>
             <Chip tone={chip.tone}>{chip.label}</Chip>
@@ -1751,21 +1424,21 @@ function ResumeTable({
       />
 
       {resume.claims.length === 0 ? (
-        <p className="mt-4 text-xs text-slate-500">
+        <p className="mt-4 text-xs text-muted">
           {resume.reason ?? "No resume claims were evaluated for this interview."}
         </p>
       ) : (
-        <div className="mt-5 overflow-hidden rounded-xl border border-slate-200/80 dark:border-border">
+        <div className="mt-5 overflow-hidden rounded-xl border border-border">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-slate-200/80 bg-slate-50/80 font-semibold text-slate-500 dark:border-border dark:bg-background/60 dark:text-muted">
-                <th className="px-4 py-3">Claim / Skill from resume</th>
+              <tr className="border-b border-border bg-foreground/[0.02] font-medium text-muted">
+                <th className="px-4 py-3">From the resume</th>
                 <th className="w-40 px-4 py-3">Status</th>
-                <th className="w-48 px-4 py-3">Evidence from interview</th>
+                <th className="w-48 px-4 py-3">Where it came up</th>
                 <th className="px-4 py-3">Notes</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-border/60">
+            <tbody className="divide-y divide-border">
               {resume.claims.map((claim) => {
                 const questions = [
                   ...new Set(
@@ -1778,8 +1451,8 @@ function ResumeTable({
                 const Icon = style.icon;
 
                 return (
-                  <tr key={claim.claim} className="hover:bg-slate-50/50 dark:hover:bg-accent/5 transition">
-                    <td className="px-4 py-3.5 font-semibold text-slate-900 dark:text-foreground">
+                  <tr key={claim.claim} className="hover:bg-foreground/[0.02] transition">
+                    <td className="px-4 py-3.5 font-semibold text-foreground">
                       {claim.claim}
                     </td>
                     <td className="px-4 py-3.5">
@@ -1790,12 +1463,12 @@ function ResumeTable({
                         <span>{VERDICT_LABELS[claim.verdict]}</span>
                       </span>
                     </td>
-                    <td className="px-4 py-3.5 text-slate-600 dark:text-slate-400">
+                    <td className="px-4 py-3.5 text-muted">
                       {questions.length === 0
                         ? "—"
                         : `Discussed in ${questions.map((q) => `Q${q}`).join(", ")}`}
                     </td>
-                    <td className="px-4 py-3.5 text-slate-600 dark:text-slate-400">
+                    <td className="px-4 py-3.5 text-muted">
                       {claim.note || "Clear understanding shown with relevant examples."}
                     </td>
                   </tr>
@@ -1807,7 +1480,7 @@ function ResumeTable({
       )}
 
       {resume.score === null && resume.reason && resume.claims.length > 0 && (
-        <p className="mt-4 rounded-xl border border-slate-100 bg-slate-50/80 p-3 text-[11px] text-slate-500 dark:border-border dark:bg-background/40">
+        <p className="mt-4 rounded-xl border border-border bg-slate-50/80 p-3 text-[11px] text-muted dark:border-border dark:bg-background/40">
           {resume.reason}
         </p>
       )}
@@ -1824,9 +1497,9 @@ function ResumeTable({
             ? "Analysing resume"
             : resume.score === null
               ? "Analyse resume"
-              : "Regenerate resume analysis"}
+              : "Re-check resume"}
         </button>
-        <span className="text-[11px] text-slate-500">
+        <span className="text-[11px] text-muted">
           Checks the resume against what the candidate actually said. Takes a few seconds.
         </span>
       </div>
@@ -1846,11 +1519,11 @@ function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
       <CardHeading
         icon={Fingerprint}
         iconColor="emerald"
-        title="Own answers (originality)"
-        subtitle="Analysis of whether the candidate's responses appear to be original and self-explained."
+        title="Originality"
+        subtitle="Whether the answers read as the candidate's own."
         right={
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-slate-900 dark:text-foreground tabular-nums">
+            <span className="text-sm font-semibold text-foreground tabular-nums">
               {authenticity.score}/100
             </span>
             <Chip tone={chip.tone}>{chip.label}</Chip>
@@ -1861,49 +1534,49 @@ function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
       <div className="mt-5 grid gap-3">
         {signals.length === 0 ? (
           <>
-            <div className="flex items-center justify-between rounded-xl border border-slate-200/70 bg-white p-3.5 transition dark:border-border dark:bg-surface/50">
+            <div className="flex items-center justify-between rounded-xl border border-border bg-white p-3.5 transition dark:border-border dark:bg-surface/50">
               <div className="flex items-center gap-3">
                 <span className="grid size-7 place-items-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40">
                   <CheckCircle2 className="size-4" />
                 </span>
                 <div>
-                  <p className="text-xs font-semibold text-slate-900 dark:text-foreground">
+                  <p className="text-xs font-semibold text-foreground">
                     Responses appear original
                   </p>
-                  <p className="text-[11px] text-slate-500">No repetitive or suspicious patterns detected.</p>
+                  <p className="text-[11px] text-muted">No repetitive or suspicious patterns detected.</p>
                 </div>
               </div>
-              <ChevronDown className="size-4 text-slate-400" />
+              <ChevronDown className="size-4 text-muted" />
             </div>
 
-            <div className="flex items-center justify-between rounded-xl border border-slate-200/70 bg-white p-3.5 transition dark:border-border dark:bg-surface/50">
+            <div className="flex items-center justify-between rounded-xl border border-border bg-white p-3.5 transition dark:border-border dark:bg-surface/50">
               <div className="flex items-center gap-3">
                 <span className="grid size-7 place-items-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40">
                   <CheckCircle2 className="size-4" />
                 </span>
                 <div>
-                  <p className="text-xs font-semibold text-slate-900 dark:text-foreground">
+                  <p className="text-xs font-semibold text-foreground">
                     Consistent response style
                   </p>
-                  <p className="text-[11px] text-slate-500">Answers maintain similar depth and structure across questions.</p>
+                  <p className="text-[11px] text-muted">Answers maintain similar depth and structure across questions.</p>
                 </div>
               </div>
-              <ChevronDown className="size-4 text-slate-400" />
+              <ChevronDown className="size-4 text-muted" />
             </div>
 
-            <div className="flex items-center justify-between rounded-xl border border-slate-200/70 bg-white p-3.5 transition dark:border-border dark:bg-surface/50">
+            <div className="flex items-center justify-between rounded-xl border border-border bg-white p-3.5 transition dark:border-border dark:bg-surface/50">
               <div className="flex items-center gap-3">
                 <span className="grid size-7 place-items-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40">
                   <CheckCircle2 className="size-4" />
                 </span>
                 <div>
-                  <p className="text-xs font-semibold text-slate-900 dark:text-foreground">
+                  <p className="text-xs font-semibold text-foreground">
                     Natural explanations
                   </p>
-                  <p className="text-[11px] text-slate-500">Uses personal examples and explains reasoning naturally.</p>
+                  <p className="text-[11px] text-muted">Uses personal examples and explains reasoning naturally.</p>
                 </div>
               </div>
-              <ChevronDown className="size-4 text-slate-400" />
+              <ChevronDown className="size-4 text-muted" />
             </div>
           </>
         ) : (
@@ -1926,11 +1599,11 @@ function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
                   <AlertTriangle className="size-4" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-slate-900 dark:text-foreground">
+                  <p className="text-xs font-semibold text-foreground">
                     {signal.title}
                   </p>
-                  <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">{signal.detail}</p>
-                  <p className="mt-1 text-[10px] text-slate-400">
+                  <p className="mt-0.5 text-xs text-muted">{signal.detail}</p>
+                  <p className="mt-1 text-[10px] text-muted">
                     Source: {signal.source === "measured" ? "Measured from recorded timings" : "Evaluated from transcript"}
                   </p>
                 </div>
@@ -1987,7 +1660,7 @@ function VideoSection({
         subtitle="Analysis based on the recorded interview video."
         right={
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-slate-900 dark:text-foreground tabular-nums">
+            <span className="text-sm font-semibold text-foreground tabular-nums">
               {video.score === null ? "–" : `${video.score}/100`}
             </span>
             <Chip tone={chip.tone}>{chip.label}</Chip>
@@ -1997,25 +1670,25 @@ function VideoSection({
 
       <div className="mt-5 grid gap-6">
         <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-            <span className="text-[11px] text-slate-400">Same-spot answers</span>
-            <p className="mt-0.5 text-base font-bold tabular-nums text-slate-900 dark:text-foreground">
+          <div className="rounded-xl border border-border bg-slate-50 p-3 dark:border-border dark:bg-background">
+            <span className="text-[11px] text-muted">Same-spot answers</span>
+            <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground">
               {pattern && pattern.answersObserved > 0
                 ? `${pattern.sameSpotAnswers >= 2 ? pattern.sameSpotAnswers : 0} of ${pattern.answersObserved}`
                 : "Not measured"}
             </p>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-            <span className="text-[11px] text-slate-400">Left interview tab</span>
-            <p className="mt-0.5 text-base font-bold tabular-nums text-slate-900 dark:text-foreground">
+          <div className="rounded-xl border border-border bg-slate-50 p-3 dark:border-border dark:bg-background">
+            <span className="text-[11px] text-muted">Left interview tab</span>
+            <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground">
               {integrity.tabHiddenCount === 0
                 ? "Never"
                 : `${integrity.tabHiddenCount}× (${integrity.tabHiddenSeconds}s)`}
             </p>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-            <span className="text-[11px] text-slate-400">Connection drops</span>
-            <p className="mt-0.5 text-base font-bold tabular-nums text-slate-900 dark:text-foreground">
+          <div className="rounded-xl border border-border bg-slate-50 p-3 dark:border-border dark:bg-background">
+            <span className="text-[11px] text-muted">Connection drops</span>
+            <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground">
               {integrity.candidateDisconnects}
             </p>
           </div>
@@ -2026,22 +1699,22 @@ function VideoSection({
           {video.status === "analysed" ? (
             <>
               {video.summary && (
-                <p className="mt-3.5 text-xs leading-relaxed text-slate-700 dark:text-slate-300">
+                <p className="mt-3.5 text-xs leading-relaxed text-foreground/85">
                   {video.summary}
                 </p>
               )}
               {video.moments.length > 0 && (
-                <ul className="mt-3 divide-y divide-slate-100 border-y border-slate-100 text-xs dark:divide-border dark:border-border">
+                <ul className="mt-3 divide-y divide-slate-100 border-y border-border text-xs dark:divide-border dark:border-border">
                   {video.moments.map((moment, index) => (
                     <li key={index} className="flex items-center gap-3 py-2">
                       <button
                         type="button"
                         onClick={() => onPlay(moment.atSeconds - 2)}
-                        className="font-bold tabular-nums text-blue-600 hover:underline dark:text-accent"
+                        className="font-bold tabular-nums text-accent hover:underline"
                       >
                         {formatClock(moment.atSeconds)}
                       </button>
-                      <span className="text-slate-600 dark:text-slate-300">{moment.description}</span>
+                      <span className="text-foreground/80">{moment.description}</span>
                     </li>
                   ))}
                 </ul>
@@ -2049,7 +1722,7 @@ function VideoSection({
             </>
           ) : (
             <div className="mt-3 space-y-2">
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-muted">
                 {video.reason ?? "The recording has not been analysed."}
               </p>
               {video.status === "queued" && (
@@ -2080,13 +1753,13 @@ function VideoSection({
                       ? "Try video analysis again"
                       : "Analyse this video"}
               </button>
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[11px] text-muted">
                 Re-watches the recording for eye contact and presence. Takes about a minute.
               </span>
             </div>
           )}
 
-          <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/80 p-3 text-[11px] text-slate-500 dark:border-border dark:bg-background/40">
+          <div className="mt-4 rounded-xl border border-border bg-slate-50/80 p-3 text-[11px] text-muted dark:border-border dark:bg-background/40">
             Based on the recorded interview video. This is an automated analysis and should be reviewed along with the full recording.
           </div>
         </div>
@@ -2094,25 +1767,25 @@ function VideoSection({
         {/* Where the candidate looked table */}
         {answerRows.length > 0 && (
           <div className="lg:col-span-2 mt-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted">
               Where the candidate looked, answer by answer
             </h3>
-            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+            <p className="mt-1 text-[11px] text-muted dark:text-muted">
               {measurable === answerRows.length
                 ? `${answerRows.length} of ${answerRows.length} answers could be measured on camera.`
                 : `${measurable} of ${answerRows.length} answers could be measured on camera. The rest say why not.`}
             </p>
-            <div className="mt-2.5 overflow-x-auto rounded-xl border border-slate-200/80 dark:border-border">
+            <div className="mt-2.5 overflow-x-auto rounded-xl border border-border">
               <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="border-b border-slate-200/80 bg-slate-50/80 font-semibold text-slate-500 dark:border-border dark:bg-background/60">
+                  <tr className="border-b border-border bg-slate-50/80 font-semibold text-muted dark:border-border dark:bg-background/60">
                     <th className="px-3.5 py-2.5">Answer at</th>
                     <th className="px-3.5 py-2.5">While listening</th>
                     <th className="px-3.5 py-2.5">While answering</th>
                     <th className="px-3.5 py-2.5">Observations</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-border/60">
+                <tbody className="divide-y divide-border">
                   {answerRows.map((answer) => (
                     <tr
                       key={answer.turnSeq}
@@ -2122,11 +1795,11 @@ function VideoSection({
                         <button
                           type="button"
                           onClick={() => onPlay(answer.atSeconds - 2)}
-                          className="font-semibold tabular-nums text-blue-600 hover:underline dark:text-accent"
+                          className="font-semibold tabular-nums text-accent hover:underline"
                         >
                           {formatClock(answer.atSeconds)}
                         </button>
-                        <span className="ml-1.5 text-[11px] text-slate-400">({answer.durationSeconds}s)</span>
+                        <span className="ml-1.5 text-[11px] text-muted">({answer.durationSeconds}s)</span>
                       </td>
                       <td className="px-3.5 py-2.5 align-top">
                         <GazeCell direction={answer.whileListening} />
@@ -2134,7 +1807,7 @@ function VideoSection({
                       <td className="px-3.5 py-2.5 align-top">
                         <GazeCell direction={answer.whileAnswering} strong={onSpot(answer)} />
                       </td>
-                      <td className="px-3.5 py-2.5 align-top text-slate-600 dark:text-slate-400">
+                      <td className="px-3.5 py-2.5 align-top text-muted">
                         {answer.reason ? (
                           <span className="block text-[11px] font-medium text-amber-700 dark:text-amber-400">
                             {answer.reason}
@@ -2143,10 +1816,10 @@ function VideoSection({
                           [
                             onSpot(answer) ? "Held on the same spot as other answers." : null,
                             answer.reading ? "Reading-like eye movement." : null,
-                            answer.note || null,
+                            answer.note ? answer.note.replace(/_/g, " ") : null,
                           ]
                             .filter(Boolean)
-                            .join(" ") || <span className="text-slate-400">Nothing notable.</span>
+                            .join(" ") || <span className="text-muted">Nothing notable.</span>
                         )}
                       </td>
                     </tr>
@@ -2176,7 +1849,7 @@ function GazeCell({ direction, strong = false }: { direction: GazeDirection; str
           />
         ))}
       </span>
-      <span className={strong ? "font-semibold text-amber-700 dark:text-amber-400" : "text-slate-700 dark:text-slate-300"}>
+      <span className={strong ? "font-semibold text-amber-700 dark:text-amber-400" : "text-foreground/85"}>
         {GAZE_LABEL[direction]}
       </span>
     </span>
@@ -2299,7 +1972,7 @@ function RecordingPanel({
         subtitle="Watch the interview and follow every answer in step."
         right={
           <div className="flex items-center gap-2">
-            <span className="hidden text-[11px] font-medium tabular-nums text-slate-400 sm:inline">
+            <span className="hidden text-[11px] font-medium tabular-nums text-muted sm:inline">
               {hasRecording && !videoFailed && total > 0 ? `${formatClock(currentTime)} / ${formatClock(total)}` : ""}
             </span>
             <button
@@ -2307,7 +1980,7 @@ function RecordingPanel({
               onClick={() => setExpanded((previous) => !previous)}
               aria-pressed={expanded}
               aria-label={expanded ? "Collapse video" : "Expand video"}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
             >
               {expanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
               <span>{expanded ? "Collapse" : "Expand"}</span>
@@ -2358,7 +2031,7 @@ function RecordingPanel({
                   <p className="mt-2 text-xs font-semibold text-slate-200">
                     This recording could not be loaded
                   </p>
-                  <p className="mt-1 text-[11px] text-slate-400">
+                  <p className="mt-1 text-[11px] text-muted">
                     The file may still be uploading, or it is missing from storage.
                   </p>
                   <button
@@ -2373,7 +2046,7 @@ function RecordingPanel({
                   </button>
                 </div>
               ) : (
-                <span className="text-xs text-slate-400">This interview was not recorded.</span>
+                <span className="text-xs text-muted">This interview was not recorded.</span>
               )}
             </div>
           )}
@@ -2407,7 +2080,7 @@ function RecordingPanel({
                   className="absolute inset-0 w-full cursor-pointer opacity-0"
                 />
               </div>
-              <div className="mt-1 flex items-center justify-between text-[11px] tabular-nums text-slate-400">
+              <div className="mt-1 flex items-center justify-between text-[11px] tabular-nums text-muted">
                 <span>{formatClock(currentTime)}</span>
                 <span className="flex items-center gap-3">
                   <span className="inline-flex items-center gap-1.5">
@@ -2428,12 +2101,12 @@ function RecordingPanel({
         {/* Right: transcript that follows the playhead */}
         <div
           id="transcript"
-          className="flex min-w-0 scroll-mt-32 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white dark:border-border dark:bg-surface"
+          className="flex min-w-0 scroll-mt-32 flex-col overflow-hidden rounded-xl border border-border bg-white dark:border-border dark:bg-surface"
         >
-          <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3.5 py-2.5 dark:border-border">
+          <div className="flex items-center justify-between gap-2 border-b border-border px-3.5 py-2.5 dark:border-border">
             <div className="flex min-w-0 items-center gap-2">
-              <ScrollText className="size-3.5 shrink-0 text-slate-400" />
-              <span className="text-xs font-semibold text-slate-900 dark:text-foreground">Transcript</span>
+              <ScrollText className="size-3.5 shrink-0 text-muted" />
+              <span className="text-xs font-semibold text-foreground">Transcript</span>
               {playing && active ? (
                 <span className="inline-flex min-w-0 items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
                   <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" />
@@ -2442,7 +2115,7 @@ function RecordingPanel({
                   </span>
                 </span>
               ) : active ? (
-                <span className="text-[10px] font-medium tabular-nums text-slate-400">
+                <span className="text-[10px] font-medium tabular-nums text-muted">
                   {formatClock(active.at)}
                 </span>
               ) : null}
@@ -2457,7 +2130,7 @@ function RecordingPanel({
                   className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold capitalize transition ${
                     filter === value
                       ? "bg-blue-50 text-blue-600 dark:bg-accent/15 dark:text-accent"
-                      : "text-slate-400 hover:text-slate-700 dark:hover:text-foreground"
+                      : "text-muted hover:text-slate-700 dark:hover:text-foreground"
                   }`}
                 >
                   {value === "all" ? "All" : value === "candidate" ? "Candidate" : "Interviewer"}
@@ -2466,20 +2139,20 @@ function RecordingPanel({
             </div>
           </div>
 
-          <div className="border-b border-slate-100 px-3 py-2 dark:border-border">
+          <div className="border-b border-border px-3 py-2 dark:border-border">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search this conversation…"
-                className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs outline-none transition focus:border-accent dark:border-border dark:bg-background dark:text-slate-200"
+                className="w-full rounded-lg border border-border bg-white py-1.5 pl-8 pr-3 text-xs outline-none transition focus:border-accent dark:border-border dark:bg-background dark:text-slate-200"
               />
             </div>
           </div>
 
           {turns.length === 0 ? (
-            <p className="px-3.5 py-6 text-xs text-slate-500">
+            <p className="px-3.5 py-6 text-xs text-muted">
               Nothing has been said in this interview yet.
             </p>
           ) : (
@@ -2489,7 +2162,7 @@ function RecordingPanel({
               style={{ maxHeight: expanded ? 300 : 420 }}
             >
               {visible.length === 0 ? (
-                <p className="px-2 py-6 text-center text-xs text-slate-500">
+                <p className="px-2 py-6 text-center text-xs text-muted">
                   No lines match that filter.
                 </p>
               ) : (
@@ -2510,7 +2183,7 @@ function RecordingPanel({
                         className={`relative w-full rounded-lg border px-2.5 py-2 text-left transition ${
                           isActive
                             ? "border-blue-200 bg-blue-50/80 dark:border-accent/30 dark:bg-accent/10"
-                            : "border-transparent hover:border-slate-200 hover:bg-slate-50 dark:hover:border-border dark:hover:bg-background/40"
+                            : "border-transparent hover:border-border hover:bg-slate-50 dark:hover:border-border dark:hover:bg-background/40"
                         } ${canJump ? "cursor-pointer" : "cursor-default"}`}
                       >
                         {isActive && (
@@ -2519,7 +2192,7 @@ function RecordingPanel({
                         <span className="flex items-center justify-between gap-2">
                           <span className="flex min-w-0 items-center gap-1.5">
                             <span
-                              className={`grid size-5 shrink-0 place-items-center rounded-full text-[9px] font-bold uppercase ${
+                              className={`grid size-5 shrink-0 place-items-center rounded-full text-[9px] font-semibold uppercase ${
                                 candidate
                                   ? "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300"
                                   : "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
@@ -2527,7 +2200,7 @@ function RecordingPanel({
                             >
                               {candidate ? initials(candidateName) : "I"}
                             </span>
-                            <span className="truncate text-[11px] font-semibold text-slate-900 dark:text-foreground">
+                            <span className="truncate text-[11px] font-semibold text-foreground">
                               {candidate ? candidateName : "Interviewer"}
                             </span>
                           </span>
@@ -2535,7 +2208,7 @@ function RecordingPanel({
                             className={`shrink-0 text-[10px] tabular-nums ${
                               isActive
                                 ? "font-semibold text-blue-600 dark:text-accent"
-                                : "text-slate-400"
+                                : "text-muted"
                             }`}
                           >
                             {at !== null ? formatClock(at) : `#${turn.seq}`}
@@ -2546,8 +2219,8 @@ function RecordingPanel({
                             isActive ? "block" : "line-clamp-4"
                           } ${
                             isActive
-                              ? "text-slate-900 dark:text-foreground"
-                              : "text-slate-600 dark:text-slate-300"
+                              ? "text-foreground"
+                              : "text-foreground/80"
                           }`}
                         >
                           {turn.text}
@@ -2560,7 +2233,7 @@ function RecordingPanel({
             </div>
           )}
 
-          <p className="border-t border-slate-100 px-3.5 py-2 text-[10px] text-slate-400 dark:border-border">
+          <p className="border-t border-border px-3.5 py-2 text-[10px] text-muted dark:border-border">
             {!hasRecording
               ? "Transcript only. No recording is available for this interview."
               : videoFailed
@@ -2586,59 +2259,40 @@ function VoiceSection({
   const cost = estimateVoiceCost(session.outcome);
   const bytes = recordingBytes(events);
 
-  return (
-    <section id="voice" className={`${cardClasses} scroll-mt-32`}>
-      <CardHeading
-        icon={Mic}
-        iconColor="indigo"
-        title="Voice session"
-        subtitle="Details about the audio recording for this interview."
-        right={
-          hasRecording ? (
-            <a
-              href={`/api/dashboard/interviews/${session.id}/recording`}
-              download
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-200"
-            >
-              <Download className="size-3.5 text-slate-400" />
-              <span>Download audio</span>
-            </a>
-          ) : undefined
-        }
-      />
+  const facts = [
+    { label: "Duration", value: session.outcome ? formatDuration(session.outcome.elapsedSeconds) : "—" },
+    { label: "Recording size", value: bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : "—" },
+    { label: "Voice AI cost", value: cost ? `$${cost.usd.toFixed(2)}` : "—" },
+    { label: "Ended", value: session.outcome?.reason ? (END_REASONS[session.outcome.reason] ?? "—") : "—" },
+  ];
 
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-          <span className="text-[11px] text-slate-400">Model</span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-foreground">Standard</p>
-        </div>
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-          <span className="text-[11px] text-slate-400">Duration</span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-foreground">
-            {session.outcome ? formatDuration(session.outcome.elapsedSeconds) : "—"}
-          </p>
-        </div>
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-          <span className="text-[11px] text-slate-400">File size</span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-foreground">
-            {bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : "50.4 MB"}
-          </p>
-        </div>
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-          <span className="text-[11px] text-slate-400">Average volume</span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-foreground">
-            {cost ? `$${cost.usd.toFixed(2)}` : "-18 dB"}
-          </p>
-        </div>
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 dark:border-border dark:bg-background">
-          <span className="text-[11px] text-slate-400">Processing status</span>
-          <p className="mt-0.5 flex items-center gap-1.5 text-sm font-bold text-emerald-600 dark:text-emerald-400">
-            <span className="size-1.5 rounded-full bg-emerald-500" />
-            <span>Completed</span>
-          </p>
-        </div>
+  return (
+    <details id="voice" className="group rounded-2xl border border-border bg-surface">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-4 text-sm font-medium">
+        Interview details
+        <ChevronDown className="size-4 text-muted transition group-open:rotate-180" aria-hidden />
+      </summary>
+      <div className="flex flex-wrap items-end justify-between gap-4 border-t border-border px-6 py-5">
+        <dl className="grid grid-cols-2 gap-x-10 gap-y-4 sm:grid-cols-4">
+          {facts.map((fact) => (
+            <div key={fact.label}>
+              <dt className="text-xs text-muted">{fact.label}</dt>
+              <dd className="mt-1 text-sm font-medium">{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
+        {hasRecording && (
+          <a
+            href={`/api/dashboard/interviews/${session.id}/recording`}
+            download
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium transition hover:bg-foreground/[0.03]"
+          >
+            <Download className="size-4 text-muted" aria-hidden />
+            Download audio
+          </a>
+        )}
       </div>
-    </section>
+    </details>
   );
 }
 
@@ -2691,7 +2345,7 @@ function CommentsDecisionSection({
         subtitle="Record your hiring decision and notes for the hiring team."
         right={
           decision ? (
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-muted">
               Saved {formatDateTime(decision.decidedAt)}
             </span>
           ) : undefined
@@ -2714,7 +2368,7 @@ function CommentsDecisionSection({
               aria-pressed={selected}
               onClick={() => setOutcome(option.value)}
               className={`flex items-center justify-center gap-2 rounded-xl border p-3 text-xs font-semibold transition ${
-                selected ? selectedClasses : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-border dark:text-slate-300"
+                selected ? selectedClasses : "border-border text-slate-600 hover:bg-slate-50 dark:border-border dark:text-slate-300"
               }`}
             >
               <span
@@ -2736,7 +2390,7 @@ function CommentsDecisionSection({
         maxLength={2000}
         rows={3}
         placeholder="Add comments, evaluation notes, or decision rationale…"
-        className="mt-3.5 w-full rounded-xl border border-slate-200/80 bg-white p-3 text-xs outline-none transition focus:border-accent dark:border-border dark:bg-surface dark:text-foreground"
+        className="mt-3.5 w-full rounded-xl border border-border bg-white p-3 text-xs outline-none transition focus:border-accent dark:border-border dark:bg-surface dark:text-foreground"
       />
 
       {error && <p className="mt-2 text-xs text-rose-600">{error}</p>}
@@ -2748,7 +2402,7 @@ function CommentsDecisionSection({
       )}
 
       <div className="mt-3 flex items-center justify-between">
-        <span className="text-[11px] text-slate-400">
+        <span className="text-[11px] text-muted">
           The AI score advises. The decision stays with you.
         </span>
         <button
@@ -2775,7 +2429,7 @@ function PeersSection({ peers, currentId }: { peers: PeerSummary[]; currentId: s
         subtitle="Candidates scored for this role on the same plan and scale."
       />
 
-      <div className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200/80 dark:divide-border/60 dark:border-border">
+      <div className="mt-4 divide-y divide-slate-100 rounded-xl border border-border dark:divide-border/60 dark:border-border">
         {peers.map((peer) => {
           const isCurrent = peer.roomId === currentId;
           return (
@@ -2786,28 +2440,28 @@ function PeersSection({ peers, currentId }: { peers: PeerSummary[]; currentId: s
               }`}
             >
               <div className="flex items-center gap-3">
-                <span className="grid size-7 place-items-center rounded-full bg-blue-50 text-xs font-bold text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+                <span className="grid size-7 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
                   {initials(peer.candidateName)}
                 </span>
                 <div>
-                  <p className="font-semibold text-slate-900 dark:text-foreground">
+                  <p className="font-semibold text-foreground">
                     {peer.candidateName || "Candidate"}
-                    {isCurrent && <span className="ml-2 text-[10px] text-slate-400">(Current)</span>}
+                    {isCurrent && <span className="ml-2 text-[10px] text-muted">(Current)</span>}
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-4">
-                <span className="tabular-nums font-bold text-slate-900 dark:text-foreground">
+                <span className="tabular-nums font-semibold text-foreground">
                   Score: {peer.overall?.score ?? "–"}/100
                 </span>
-                <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-slate-500 bg-slate-100 dark:bg-slate-800">
+                <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-muted bg-slate-100 dark:bg-slate-800">
                   {peer.decision ? DECISION_LABELS[peer.decision.outcome] : "Undecided"}
                 </span>
                 {!isCurrent && (
                   <Link
                     href={`/dashboard/${peer.roomId}`}
-                    className="font-semibold text-blue-600 hover:underline dark:text-accent"
+                    className="font-semibold text-accent hover:underline"
                   >
                     View report →
                   </Link>
@@ -2849,37 +2503,37 @@ function ResumeModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs">
-      <div className="flex max-h-[88vh] w-full max-w-3xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-border dark:bg-surface">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4 dark:border-border">
+      <div className="flex max-h-[88vh] w-full max-w-3xl flex-col rounded-2xl border border-border bg-white p-6 shadow-2xl dark:border-border dark:bg-surface">
+        <div className="flex items-start justify-between gap-4 border-b border-border pb-4 dark:border-border">
           <div className="min-w-0">
-            <h3 className="text-base font-bold text-slate-900 dark:text-foreground">
+            <h3 className="text-base font-semibold text-foreground">
               Candidate resume
             </h3>
-            <p className="truncate text-xs text-slate-400">{fileName}</p>
+            <p className="truncate text-xs text-muted">{fileName}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <a
               href={fileUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-300"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-300"
             >
-              <ExternalLink className="size-3.5 text-slate-400" />
+              <ExternalLink className="size-3.5 text-muted" />
               <span>Open in new tab</span>
             </a>
             <a
               href={fileUrl}
               download={fileName}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-300"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-300"
             >
-              <Download className="size-3.5 text-slate-400" />
+              <Download className="size-3.5 text-muted" />
               <span>Download</span>
             </a>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close resume"
-              className="grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+              className="grid size-8 place-items-center rounded-lg text-muted hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
             >
               <X className="size-4" />
             </button>
@@ -2890,10 +2544,10 @@ function ResumeModal({
           <iframe
             src={`${fileUrl}#view=FitH`}
             title={`Resume of ${candidateName}`}
-            className="mt-4 h-[62vh] w-full rounded-xl border border-slate-100 bg-slate-50 dark:border-border"
+            className="mt-4 h-[62vh] w-full rounded-xl border border-border bg-slate-50 dark:border-border"
           />
         ) : (
-          <div className="mt-4 flex-1 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/50 p-4 text-xs leading-relaxed font-mono text-slate-700 dark:border-border dark:bg-background/40 dark:text-slate-300 whitespace-pre-wrap">
+          <div className="mt-4 flex-1 overflow-y-auto rounded-xl border border-border bg-slate-50/50 p-4 text-xs leading-relaxed font-mono text-slate-700 dark:border-border dark:bg-background/40 dark:text-slate-300 whitespace-pre-wrap">
             {resume?.text ||
               (hasOriginal
                 ? "This is a Word document. Use Download to open the original."
@@ -2906,9 +2560,9 @@ function ResumeModal({
             <button
               type="button"
               onClick={copyText}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-surface dark:text-slate-300"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-surface dark:text-slate-300"
             >
-              <Copy className="size-3.5 text-slate-400" />
+              <Copy className="size-3.5 text-muted" />
               <span>{copied ? "Copied!" : "Copy text"}</span>
             </button>
           ) : (
@@ -2932,7 +2586,7 @@ function PlanPreview({ competencies }: { competencies: PlanCompetency[] }) {
   return (
     <div className="mt-4">
       <h3 className="text-sm font-semibold">Interview plan</h3>
-      <ol className="mt-2 grid list-decimal gap-1.5 pl-5 text-xs text-slate-600 dark:text-slate-400">
+      <ol className="mt-2 grid list-decimal gap-1.5 pl-5 text-xs text-muted">
         {competencies.map((c) => (
           <li key={c.id}>
             <span className="font-semibold text-slate-800 dark:text-slate-200">{c.name}:</span>{" "}
@@ -2996,12 +2650,6 @@ function scoreBand(score: number | null): { label: string; tone: Tone } {
   return { label: "Needs attention", tone: "bad" };
 }
 
-function hireBandTone(band: string): Tone {
-  if (band === "strong-hire" || band === "hire") return "good";
-  if (band === "no-hire" || band === "strong-no-hire") return "bad";
-  return "muted";
-}
-
 function factorChip(id: FactorId, score: number | null): { label: string; tone: Tone } {
   if (score === null) return { label: "Not scored", tone: "muted" };
   const tone: Tone = score >= 65 ? "good" : score >= 50 ? "warn" : "bad";
@@ -3027,13 +2675,6 @@ function recordingBytes(events: InterviewEvent[]): number | null {
   const finished = events.find((event) => event.type === "recording_finished");
   const bytes = finished?.data?.bytes;
   return typeof bytes === "number" && bytes > 0 ? bytes : null;
-}
-
-function recordingNote(events: InterviewEvent[]): string {
-  const started = events.find((event) => event.type === "recording_started");
-  if (started) return "The candidate was recorded.";
-  if (events.some((event) => event.type === "recording_failed")) return "Recording failed to start.";
-  return "Not recorded.";
 }
 
 function formatClock(totalSeconds: number): string {
