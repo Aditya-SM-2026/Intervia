@@ -182,9 +182,14 @@ export async function readDashboardStats(range: StatsRange): Promise<DashboardSt
     const entry = roleRows.get(`id:${application.role_id}`);
     if (entry) entry.applications += 1;
   }
+  // Interviews without a role id join a saved role of the same title.
+  const savedByTitle = new Map(roles.map((role) => [role.title.trim().toLowerCase(), `id:${role.id}`]));
   for (const item of derived) {
     const title = item.row.role_title ?? item.row.title;
-    const key = item.row.role_id && roleRows.has(`id:${item.row.role_id}`) ? `id:${item.row.role_id}` : keyFor(null, title);
+    const key =
+      item.row.role_id && roleRows.has(`id:${item.row.role_id}`)
+        ? `id:${item.row.role_id}`
+        : (savedByTitle.get(title.trim().toLowerCase()) ?? keyFor(null, title));
     let entry = roleRows.get(key);
     if (!entry) {
       entry = { roleId: null, title, status: null, applications: 0, interviews: 0, completed: 0, avgScore: null, advanced: 0, costUsd: 0, scores: [] };

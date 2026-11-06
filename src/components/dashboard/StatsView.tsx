@@ -126,16 +126,20 @@ function Summary({ stats }: { stats: DashboardStats }) {
 
 function Funnel({ stats }: { stats: DashboardStats }) {
   const reduce = useReducedMotion();
-  const max = Math.max(1, ...stats.funnel.map((step) => step.value));
+  // Applications are a side door (most interviews are sent directly), so they
+  // are reported beside the funnel rather than as its first step.
+  const applied = stats.funnel.find((step) => step.key === "applied")?.value ?? 0;
+  const steps = stats.funnel.filter((step) => step.key !== "applied");
+  const max = Math.max(1, ...steps.map((step) => step.value));
   return (
     <section aria-label="Hiring funnel" className="rounded-3xl border border-border bg-surface p-6 sm:p-8">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-medium">From application to decision</h2>
+        <h2 className="text-sm font-medium">From interview to decision</h2>
         <p className="text-sm text-muted">Percentages show how many moved on from the step above</p>
       </div>
       <ol className="mt-6 grid gap-3">
-        {stats.funnel.map((step, index) => {
-          const previous = index > 0 ? stats.funnel[index - 1].value : null;
+        {steps.map((step, index) => {
+          const previous = index > 0 ? steps[index - 1].value : null;
           const conversion = previous && previous > 0 ? Math.round((step.value / previous) * 100) : null;
           const width = Math.max(step.value === 0 ? 0 : 4, (step.value / max) * 100);
           return (
@@ -145,7 +149,8 @@ function Funnel({ stats }: { stats: DashboardStats }) {
                 <motion.div
                   className="absolute inset-y-0 left-0 rounded-lg"
                   style={{
-                    background: `linear-gradient(90deg, color-mix(in srgb, var(--accent) ${100 - index * 18}%, var(--gold)), color-mix(in srgb, var(--accent) ${82 - index * 18}%, var(--gold)))`,
+                    background: step.key === "advanced" ? "var(--gold)" : "var(--accent)",
+                    opacity: step.key === "advanced" ? 1 : 1 - index * 0.18,
                   }}
                   initial={reduce ? false : { width: 0 }}
                   animate={{ width: `${width}%` }}
@@ -160,12 +165,12 @@ function Funnel({ stats }: { stats: DashboardStats }) {
           );
         })}
       </ol>
-      {stats.funnel[0].value === 0 && (
-        <p className="mt-4 flex items-center gap-1.5 text-xs text-muted">
-          <Info className="size-3.5" aria-hidden />
-          Applied counts people who used a role&apos;s application link. Interviews sent directly don&apos;t go through it.
-        </p>
-      )}
+      <p className="mt-5 flex items-center gap-1.5 text-xs text-muted">
+        <Info className="size-3.5" aria-hidden />
+        {applied > 0
+          ? `${plural(applied, "person")} applied through a role's application link in this period.`
+          : "Nobody applied through a role's application link in this period."}
+      </p>
     </section>
   );
 }
@@ -292,7 +297,6 @@ function RolesTable({ stats }: { stats: DashboardStats }) {
                     ) : (
                       <span className="font-medium">{role.title}</span>
                     )}
-                    {!role.roleId && <span className="ml-2 text-xs text-muted">not a saved role</span>}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums">{role.roleId ? role.applications : "—"}</td>
                   <td className="px-3 py-3 text-right tabular-nums">{role.interviews}</td>
@@ -450,6 +454,7 @@ function StatsSkeleton() {
 /* ---------- formatting ---------- */
 
 function plural(count: number, word: string): string {
+  if (word === "person") return `${count} ${count === 1 ? "person" : "people"}`;
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
@@ -457,11 +462,11 @@ function formatMinutes(minutes: number): string {
   if (minutes < 60) return plural(minutes, "minute");
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  return rest ? `${hours} h ${rest} min` : plural(hours, "hour");
+  return rest ? `${hours}\u00a0h ${rest}\u00a0min` : plural(hours, "hour");
 }
 
 function formatUsd(value: number): string {
-  return value < 10 ? `$${value.toFixed(2)}` : `$${Math.round(value).toLocaleString()}`;
+  return value < 1000 ? `$${value.toFixed(2)}` : `$${Math.round(value).toLocaleString()}`;
 }
 
 function formatShort(iso: string): string {
