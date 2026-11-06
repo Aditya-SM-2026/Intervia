@@ -110,20 +110,19 @@ export function CreateInterviewPanel({
 
   if (result) {
     return (
-      <div className="rounded-2xl border border-border bg-surface p-5 sm:p-7">
+      <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-surface p-6 sm:p-8">
         {result.duplicate && (
-          <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-            This interview was already scheduled — showing the existing link instead of creating a
-            second one.
+          <p className="mb-5 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+            This interview already existed, so here is its link instead of a second one.
           </p>
         )}
         <InterviewLinkResult result={result} onReset={() => setResult(null)} />
         {roleHref && (
           <Link
             href={roleHref}
-            className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"
+            className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-muted transition hover:text-foreground"
           >
-            ← Back to {initialRole?.title}
+            Back to {initialRole?.title}
           </Link>
         )}
       </div>
@@ -135,15 +134,15 @@ export function CreateInterviewPanel({
       {roleHref && (
         <Link
           href={roleHref}
-          className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-accent hover:underline"
+          className="-mt-3 inline-flex w-fit items-center gap-1.5 text-sm text-muted transition hover:text-foreground"
         >
-          ← Back to {initialRole?.title}
+          Roles / {initialRole?.title}
         </Link>
       )}
       {error && (
         <p
           role="alert"
-          className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400"
+          className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-300"
         >
           {error}
         </p>

@@ -47,12 +47,14 @@ export default async function RecruiterPage({ searchParams }: PageProps<"/recrui
   return (
     <ThemeProvider>
       <TopNav />
-      <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
-        <h1 className="text-3xl font-semibold">New interview</h1>
-        <p className="mt-1 mb-6 max-w-2xl text-muted">
-          The job description and resume become the interview plan. You will see the plan
-          before you send the link.
-        </p>
+      <div aria-hidden className="bg-grid-fade pointer-events-none absolute inset-x-0 top-16 -z-10 h-[420px]" />
+      <main className="relative mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6">
+        <header className="pb-7 pt-9">
+          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">New interview</h1>
+          <p className="mt-1.5 max-w-xl text-sm text-muted">
+            The job description and resume become the interview plan. You see the plan before you send the link.
+          </p>
+        </header>
         <CreateInterviewPanel
           initialRole={initialRole}
           initialRoleTitle={initialRole ? undefined : legacyRoleTitle}

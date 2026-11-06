@@ -107,7 +107,7 @@ export function CustomScoringDialog({
         <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4 sm:px-6">
           <div>
             <h2 id="custom-scoring-title" className="text-lg font-semibold">
-              Custom scoring
+              Skill weighting
             </h2>
             <p className="mt-1 text-sm text-muted">
               How much of the interview should go to each skill for{" "}
@@ -118,17 +118,16 @@ export function CustomScoringDialog({
             type="button"
             onClick={onClose}
             aria-label="Close custom scoring"
-            className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-surface-muted hover:text-foreground"
+            className="grid size-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.05] hover:text-foreground"
           >
             <X className="size-4" aria-hidden />
           </button>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">
-          <p className="rounded-lg border border-border bg-background px-3 py-2.5 text-xs leading-relaxed text-muted">
-            This tells the interviewer how many questions and follow-ups to spend on each area. It
-            does not restrict the interview to these topics, and it is optional: leave everything
-            at Normal to let the agent decide the balance from the job description.
+          <p className="text-sm leading-6 text-muted">
+            Heavier skills get more questions and follow-ups. Nothing is left out, and leaving everything at
+            normal lets the job description decide.
           </p>
 
           {dragging !== null && (
@@ -137,27 +136,28 @@ export function CustomScoringDialog({
             </p>
           )}
 
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 divide-y divide-border border-y border-border">
             {rows.length === 0 && (
-              <p className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted">
+              <p className="py-5 text-sm text-muted">
                 No parameters yet. Add a skill such as AWS, Kubernetes or English communication.
               </p>
             )}
             {rows.map((item, index) => (
-              <div key={`${item.skill}-${index}`} className="rounded-xl border border-border bg-background px-3 py-3">
+              <div key={`${item.skill}-${index}`} className="py-3.5">
                 <div className="flex items-center justify-between gap-3">
                   <label htmlFor={`focus-${index}`} className="min-w-0 truncate text-sm font-medium">
                     {item.skill}
                   </label>
                   <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-accent">
-                      {labelForWeight(item.weight)} · {item.weight}
+                    <span className="text-sm tabular-nums">
+                      <span className="font-medium">{labelForWeight(item.weight)}</span>
+                      <span className="ml-1.5 text-muted">{item.weight}</span>
                     </span>
                     <button
                       type="button"
                       onClick={() => remove(index)}
                       aria-label={`Remove ${item.skill}`}
-                      className="grid size-6 place-items-center rounded-md text-muted transition hover:bg-surface hover:text-foreground"
+                      className="grid size-6 place-items-center rounded-md text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
                     >
                       <X className="size-3.5" aria-hidden />
                     </button>
@@ -174,7 +174,7 @@ export function CustomScoringDialog({
                   onPointerDown={() => setDragging(item.weight)}
                   onPointerUp={() => setDragging(null)}
                   aria-valuetext={`${item.skill}: ${item.weight} out of 100, ${labelForWeight(item.weight)}`}
-                  className="mt-2 w-full accent-accent"
+                  className="mt-2 w-full accent-[var(--accent)]"
                 />
                 <div className="mt-0.5 flex justify-between text-[11px] text-muted">
                   <span>Skip</span>
@@ -187,7 +187,7 @@ export function CustomScoringDialog({
 
           <div className="mt-4">
             <label htmlFor="new-parameter" className="mb-1.5 block text-sm font-medium">
-              Add a parameter
+              Add a skill
             </label>
             <div className="flex gap-2">
               <input
@@ -203,7 +203,7 @@ export function CustomScoringDialog({
                     addParameter();
                   }
                 }}
-                className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 text-sm outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 text-sm outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-4 focus:ring-accent/15"
               />
               <button
                 type="button"
@@ -215,7 +215,7 @@ export function CustomScoringDialog({
               </button>
             </div>
             {error && (
-              <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
+              <p role="alert" className="mt-2 text-xs text-rose-600 dark:text-rose-400">
                 {error}
               </p>
             )}
@@ -235,16 +235,16 @@ export function CustomScoringDialog({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-surface-muted"
+              className="h-9 rounded-lg px-3.5 text-sm font-medium text-muted transition hover:bg-foreground/[0.05] hover:text-foreground"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={save}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+              className="h-9 rounded-lg bg-accent px-4 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90"
             >
-              Use these scores
+              Use these weights
             </button>
           </div>
         </footer>

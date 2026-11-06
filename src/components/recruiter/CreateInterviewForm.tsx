@@ -4,7 +4,10 @@ import { useId, useRef, useState } from "react";
 import type { DifficultyLevel } from "@/lib/interviews/interview.types";
 import { normalizeSkillFocus, type SkillFocus } from "@/lib/interviews/skill-focus";
 import type { InterviewRoleDefaults } from "@/lib/roles/interview-role-defaults";
+import { ChevronDown, Loader2, SlidersHorizontal } from "lucide-react";
 import { CustomScoringDialog } from "./CustomScoringDialog";
+import { DocumentText } from "@/components/ui/DocumentText";
+import { SegmentedTabs } from "@/components/ui/animated";
 import {
   DEFAULT_DURATION_MINUTES,
   MAX_DURATION_MINUTES,
@@ -51,7 +54,7 @@ interface CreateInterviewFormProps {
 }
 
 const inputClasses =
-  "h-11 w-full min-w-0 rounded-lg border border-border bg-surface px-3 text-sm outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20";
+  "h-10 w-full min-w-0 rounded-lg border border-border bg-background/50 px-3 text-sm outline-none transition placeholder:text-muted/70 focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/15";
 
 const labelClasses = "mb-1.5 block text-sm font-medium";
 
@@ -98,10 +101,10 @@ function PdfPicker({
 
   if (file) {
     return (
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 text-sm">
+      <div className="flex items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm">
         <span
           aria-hidden="true"
-          className="grid size-8 shrink-0 place-items-center rounded-md bg-accent/10 text-[11px] font-bold text-accent"
+          className="grid size-8 shrink-0 place-items-center rounded-lg bg-rose-500/10 text-[10px] font-semibold text-rose-600 dark:text-rose-400"
         >
           PDF
         </span>
@@ -136,9 +139,9 @@ function PdfPicker({
         setDragging(false);
         take(event.dataTransfer.files?.[0]);
       }}
-      className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed text-sm transition focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20 ${
-        compact ? "px-3 py-2.5" : "px-4 py-6"
-      } ${dragging ? "border-accent bg-accent/5" : "border-border hover:border-accent hover:bg-accent/5"}`}
+      className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed text-sm transition focus-within:border-accent focus-within:ring-4 focus-within:ring-accent/15 ${
+        compact ? "px-3 py-2.5" : "px-4 py-5"
+      } ${dragging ? "border-accent bg-accent-soft" : "border-border hover:border-foreground/30 hover:bg-foreground/[0.02]"}`}
     >
       <input
         ref={inputRef}
@@ -200,34 +203,11 @@ export function CreateInterviewForm({
   /** Compact summary shown on the custom-scoring row. */
   const customScoringSummary =
     skillFocus.length === 0
-      ? "Optional: weight the skills so the interviewer spends more time on what matters."
+      ? "The interviewer spends more time on heavier skills."
       : skillFocus
           .slice(0, 4)
           .map((item) => `${item.skill} ${item.weight}`)
-          .join(" · ") + (skillFocus.length > 4 ? ` · +${skillFocus.length - 4} more` : "");
-
-  const customScoringControl = (
-    <div>
-      <span className={labelClasses}>Custom scoring (optional)</span>
-      <button
-        type="button"
-        onClick={() => setScoringOpen(true)}
-        className="flex w-full items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2.5 text-left transition hover:border-accent hover:bg-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-      >
-        <span className="min-w-0">
-          <span className="block text-sm font-medium">
-            {skillFocus.length === 0
-              ? "Set how much each skill matters"
-              : `${skillFocus.length} parameter${skillFocus.length === 1 ? "" : "s"} set`}
-          </span>
-          <span className="block truncate text-xs text-muted">{customScoringSummary}</span>
-        </span>
-        <span className="shrink-0 rounded-md border border-border px-2 py-1 text-xs font-semibold text-accent">
-          {skillFocus.length === 0 ? "Set up" : "Edit"}
-        </span>
-      </button>
-    </div>
-  );
+          .join(", ") + (skillFocus.length > 4 ? `, +${skillFocus.length - 4} more` : "");
 
   /**
    * Picking an existing role replaces the title and job description with that
@@ -282,233 +262,135 @@ export function CreateInterviewForm({
     });
   }
 
+  const [jdView, setJdView] = useState<"edit" | "preview">(
+    jobDescriptionText.trim().length > 0 && (selectedRole !== null || initialRole !== null) ? "preview" : "edit",
+  );
+
   return (
-    <form onSubmit={handleSubmit} className="grid gap-6">
-      <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
-        <div className="grid min-w-0 content-start gap-6">
-          <fieldset className="grid min-w-0 gap-4 rounded-2xl border border-border bg-surface p-5 sm:p-6 [&>*]:min-w-0">
-            <legend className="sr-only">Candidate and role</legend>
-            <h2 className="text-lg font-semibold">Candidate and role</h2>
-            {roles.length > 0 && (
-              <div>
-                <label htmlFor="role-choice" className={labelClasses}>
-                  Role
-                </label>
-                <select
-                  id="role-choice"
-                  value={roleChoice}
-                  onChange={(event) => handleRoleChange(event.target.value)}
-                  className={inputClasses}
-                >
-                  <option value="new">New role (type the title below)</option>
-                  {roles.map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.title}
-                    </option>
-                  ))}
-                </select>
-                {selectedRole && (
-                  <p className="mt-1.5 text-xs text-muted">
-                    Title, job description and skills come from this role.{" "}
-                    <a
-                      href={`/dashboard/roles/${selectedRole.id}`}
-                      className="font-medium text-accent hover:underline"
-                    >
-                      View role
-                    </a>
-                  </p>
-                )}
-              </div>
-            )}
-            {roles.length > 0 && customScoringControl}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label htmlFor="candidate-name" className={labelClasses}>
-                  Candidate name
-                </label>
-                <input
-                  id="candidate-name"
-                  type="text"
-                  required
-                  maxLength={200}
-                  autoComplete="off"
-                  placeholder="Aditya Rao"
-                  value={candidateName}
-                  onChange={(event) => setCandidateName(event.target.value)}
-                  className={inputClasses}
-                />
-              </div>
-              <div>
-                <label htmlFor="candidate-email" className={labelClasses}>
-                  Candidate email
-                </label>
-                <input
-                  id="candidate-email"
-                  type="email"
-                  required
-                  maxLength={200}
-                  autoComplete="off"
-                  placeholder="aditya@example.com"
-                  value={candidateEmail}
-                  onChange={(event) => setCandidateEmail(event.target.value)}
-                  aria-describedby="candidate-email-hint"
-                  className={inputClasses}
-                />
-                <p id="candidate-email-hint" className="mt-1.5 text-xs text-muted">
-                  The link opens only for this address.
-                </p>
-              </div>
-              {showRoleTitleInput && (
-                <div>
-                  <label htmlFor="role-title" className={labelClasses}>
-                    {roles.length > 0 ? "New role title" : "Role"}
-                  </label>
-                  <input
-                    id="role-title"
-                    type="text"
-                    required
-                    maxLength={200}
-                    placeholder="Backend Engineer"
-                    value={roleTitle}
-                    onChange={(event) => setRoleTitle(event.target.value)}
-                    className={inputClasses}
-                  />
-                </div>
-              )}
-              {roles.length === 0 && (
-                <div className="sm:col-span-2">{customScoringControl}</div>
-              )}
-              <div>
-                <label htmlFor="recruiter-name" className={labelClasses}>
-                  Your name
-                </label>
-                <input
-                  id="recruiter-name"
-                  type="text"
-                  required
-                  maxLength={200}
-                  autoComplete="name"
-                  placeholder="Priya Sharma"
-                  value={recruiterName}
-                  onChange={(event) => setRecruiterName(event.target.value)}
-                  aria-describedby="recruiter-name-hint"
-                  className={inputClasses}
-                />
-                <p id="recruiter-name-hint" className="mt-1.5 text-xs text-muted">
-                  The candidate is told who will follow up.
-                </p>
-              </div>
-              <div className="sm:col-span-2">
-                <p className="text-xs text-muted">
-                  The interview link is valid for 24 hours from the moment it is created. The
-                  candidate can start any time in that window; after 24 hours the link expires.
-                </p>
-              </div>
-            </div>
-          </fieldset>
-
-          <fieldset className="grid min-w-0 gap-5 rounded-2xl border border-border bg-surface p-5 sm:p-6 [&>*]:min-w-0">
-            <legend className="sr-only">How the interview runs</legend>
-            <h2 className="text-lg font-semibold">How the interview runs</h2>
-
-            <div>
-              <div className="flex items-baseline justify-between gap-3">
-                <label htmlFor="duration" className="text-sm font-medium">
-                  Length
-                </label>
-                <output htmlFor="duration" className="text-sm font-semibold tabular-nums">
-                  {durationMinutes} minutes
-                </output>
-              </div>
+    <form onSubmit={handleSubmit} className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_19rem] lg:items-start">
+      <div className="grid min-w-0 gap-6">
+        <Step number={1} title="Who is this for" description="The link opens only for this email address.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field id="candidate-name" label="Candidate name">
               <input
-                id="duration"
-                type="range"
-                min={MIN_DURATION_MINUTES}
-                max={MAX_DURATION_MINUTES}
-                step={1}
-                value={durationMinutes}
-                onChange={(event) => setDurationMinutes(Number(event.target.value))}
-                className="mt-2 w-full accent-accent"
+                id="candidate-name"
+                type="text"
+                required
+                maxLength={200}
+                autoComplete="off"
+                placeholder="Aditya Rao"
+                value={candidateName}
+                onChange={(event) => setCandidateName(event.target.value)}
+                className={inputClasses}
               />
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {DURATION_PRESETS.map((minutes) => (
-                  <button
-                    key={minutes}
-                    type="button"
-                    onClick={() => setDurationMinutes(minutes)}
-                    aria-pressed={durationMinutes === minutes}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium tabular-nums transition ${
-                      durationMinutes === minutes
-                        ? "border-accent bg-accent text-white"
-                        : "border-border text-muted hover:border-accent hover:text-foreground"
-                    }`}
+            </Field>
+            <Field id="candidate-email" label="Candidate email">
+              <input
+                id="candidate-email"
+                type="email"
+                required
+                maxLength={200}
+                autoComplete="off"
+                placeholder="aditya@example.com"
+                value={candidateEmail}
+                onChange={(event) => setCandidateEmail(event.target.value)}
+                className={inputClasses}
+              />
+            </Field>
+            <Field id="recruiter-name" label="Your name" hint="The candidate is told who will follow up.">
+              <input
+                id="recruiter-name"
+                type="text"
+                required
+                maxLength={200}
+                autoComplete="name"
+                placeholder="Priya Sharma"
+                value={recruiterName}
+                onChange={(event) => setRecruiterName(event.target.value)}
+                className={inputClasses}
+              />
+            </Field>
+          </div>
+        </Step>
+
+        <Step
+          number={2}
+          title="Role and job description"
+          description="Questions come from the job description. The resume makes follow-ups specific to this person."
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            {roles.length > 0 && (
+              <Field id="role-choice" label="Role">
+                <div className="relative">
+                  <select
+                    id="role-choice"
+                    value={roleChoice}
+                    onChange={(event) => {
+                      handleRoleChange(event.target.value);
+                      setJdView(event.target.value === "new" ? "edit" : "preview");
+                    }}
+                    className={`${inputClasses} cursor-pointer appearance-none pr-9`}
                   >
-                    {minutes} min
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <span className={labelClasses}>Interviewer style</span>
-              <div
-                className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-background p-1 sm:grid-cols-4"
-                role="radiogroup"
-                aria-label="Interviewer style"
-              >
-                {DIFFICULTY_OPTIONS.map((option) => (
-                  <label
-                    key={option.value}
-                    className={`cursor-pointer rounded-lg px-2 py-2 text-center text-sm font-medium transition focus-within:ring-2 focus-within:ring-accent/30 ${
-                      difficulty === option.value
-                        ? "bg-accent text-white"
-                        : "text-muted hover:bg-surface hover:text-foreground"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="difficulty"
-                      value={option.value}
-                      checked={difficulty === option.value}
-                      onChange={() => setDifficulty(option.value)}
-                      className="sr-only"
-                    />
-                    {option.label}
-                  </label>
-                ))}
-              </div>
-              <p className="mt-1.5 text-xs text-muted">{style?.hint}</p>
-            </div>
-
-          </fieldset>
-        </div>
-
-        <fieldset className="grid min-w-0 content-start gap-5 rounded-2xl border border-border bg-surface p-5 sm:p-6 [&>*]:min-w-0">
-          <legend className="sr-only">What the interviewer should know</legend>
-          <div>
-            <h2 className="text-lg font-semibold">What the interviewer should know</h2>
-            <p className="mt-1 text-sm text-muted">
-              The questions come from the job description. The resume makes the follow-ups
-              specific to this candidate, and answers are later checked against it.
-            </p>
+                    <option value="new">A new role</option>
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.title}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown aria-hidden className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+                </div>
+              </Field>
+            )}
+            {showRoleTitleInput && (
+              <Field id="role-title" label={roles.length > 0 ? "New role title" : "Role"}>
+                <input
+                  id="role-title"
+                  type="text"
+                  required
+                  maxLength={200}
+                  placeholder="Backend developer"
+                  value={roleTitle}
+                  onChange={(event) => setRoleTitle(event.target.value)}
+                  className={inputClasses}
+                />
+              </Field>
+            )}
           </div>
 
-          <div>
-            <label htmlFor="jd-text" className={labelClasses}>
-              Job description
-            </label>
+          <div className="mt-5">
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <span className="text-sm font-medium">Job description</span>
+              {!jobDescriptionPdf && jobDescriptionText.trim() && (
+                <SegmentedTabs
+                  id="create-jd"
+                  label="Job description view"
+                  value={jdView}
+                  onChange={setJdView}
+                  options={[
+                    { value: "preview", label: "Preview" },
+                    { value: "edit", label: "Edit" },
+                  ]}
+                />
+              )}
+            </div>
             {jobDescriptionPdf ? (
               <PdfPicker file={jobDescriptionPdf} onChange={setJobDescriptionPdf} prompt="" />
+            ) : jdView === "preview" && jobDescriptionText.trim() ? (
+              <div className="max-h-80 overflow-y-auto rounded-xl border border-border bg-background/40 px-5 py-4">
+                <DocumentText text={jobDescriptionText} />
+              </div>
             ) : (
               <>
                 <textarea
                   id="jd-text"
+                  aria-label="Job description"
                   maxLength={20000}
-                  rows={9}
+                  rows={10}
                   placeholder="Paste the job description here"
                   value={jobDescriptionText}
                   onChange={(event) => setJobDescriptionText(event.target.value)}
-                  className={`${inputClasses} h-auto resize-y py-2.5 leading-relaxed`}
+                  className={`${inputClasses} h-auto resize-y py-3 leading-6`}
                 />
                 {!jobDescriptionText.trim() && (
                   <div className="mt-2">
@@ -527,50 +409,162 @@ export function CreateInterviewForm({
             )}
             {selectedRole && (
               <p className="mt-1.5 text-xs text-muted">
-                Pre-filled from the role. Edit it here if this candidate needs a different
-                brief, or upload a PDF to replace it.
+                From the role.{" "}
+                <a href={`/dashboard/roles/${selectedRole.id}`} className="font-medium text-accent hover:underline">
+                  Open role
+                </a>
+                . Changes here apply to this interview only.
               </p>
             )}
           </div>
 
-          <div>
-            <span className={labelClasses}>Candidate resume (optional)</span>
-            <PdfPicker file={resume} onChange={setResume} prompt="or drop it here" />
-            <p className="mt-1.5 text-xs text-muted">
-              {initial?.existingResumeName && !resume
-                ? `On file: ${initial.existingResumeName}. Upload a PDF to replace it.`
-                : "No resume yet? A one-time upload link is generated for the candidate."}
-            </p>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div>
+              <span className="mb-1.5 block text-sm font-medium">
+                Resume <span className="font-normal text-muted">(optional)</span>
+              </span>
+              <PdfPicker file={resume} onChange={setResume} prompt="or drop it here" />
+              <p className="mt-1.5 text-xs text-muted">
+                {initial?.existingResumeName && !resume
+                  ? `On file: ${initial.existingResumeName}. Upload a PDF to replace it.`
+                  : "Without one, the candidate gets a link to upload it."}
+              </p>
+            </div>
+            <div>
+              <span className="mb-1.5 block text-sm font-medium">
+                Skill weighting <span className="font-normal text-muted">(optional)</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setScoringOpen(true)}
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-surface px-3.5 py-3 text-left transition hover:border-foreground/20 hover:bg-foreground/[0.02]"
+              >
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium">
+                    {skillFocus.length === 0
+                      ? "Choose what matters most"
+                      : `${skillFocus.length} skill${skillFocus.length === 1 ? "" : "s"} weighted`}
+                  </span>
+                  <span className="block truncate text-xs text-muted">{customScoringSummary}</span>
+                </span>
+                <SlidersHorizontal className="size-4 shrink-0 text-muted" aria-hidden />
+              </button>
+            </div>
           </div>
-        </fieldset>
+        </Step>
+
+        <Step number={3} title="How it runs">
+          <div>
+            <div className="flex items-baseline justify-between gap-3">
+              <label htmlFor="duration" className="text-sm font-medium">
+                Length
+              </label>
+              <output htmlFor="duration" className="text-sm font-semibold tabular-nums">
+                {durationMinutes} min
+              </output>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {DURATION_PRESETS.map((minutes) => (
+                <button
+                  key={minutes}
+                  type="button"
+                  onClick={() => setDurationMinutes(minutes)}
+                  aria-pressed={durationMinutes === minutes}
+                  className={`h-8 rounded-lg px-3 text-sm font-medium tabular-nums transition ${
+                    durationMinutes === minutes
+                      ? "bg-foreground text-background"
+                      : "bg-foreground/[0.05] text-foreground/75 hover:bg-foreground/[0.09] hover:text-foreground"
+                  }`}
+                >
+                  {minutes}
+                </button>
+              ))}
+            </div>
+            <input
+              id="duration"
+              type="range"
+              min={MIN_DURATION_MINUTES}
+              max={MAX_DURATION_MINUTES}
+              step={1}
+              value={durationMinutes}
+              onChange={(event) => setDurationMinutes(Number(event.target.value))}
+              aria-label="Length in minutes"
+              className="mt-3 w-full accent-[var(--accent)]"
+            />
+          </div>
+
+          <fieldset className="mt-6">
+            <legend className="mb-2 text-sm font-medium">Interviewer style</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {DIFFICULTY_OPTIONS.map((option) => {
+                const active = difficulty === option.value;
+                return (
+                  <label
+                    key={option.value}
+                    className={`relative cursor-pointer rounded-xl border p-3.5 transition focus-within:ring-4 focus-within:ring-accent/15 ${
+                      active ? "border-accent bg-accent-soft/60" : "border-border hover:border-foreground/20"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="difficulty"
+                      value={option.value}
+                      checked={active}
+                      onChange={() => setDifficulty(option.value)}
+                      className="sr-only"
+                    />
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium">{option.label}</span>
+                      <span
+                        aria-hidden
+                        className={`grid size-4 place-items-center rounded-full border ${active ? "border-accent bg-accent" : "border-foreground/25"}`}
+                      >
+                        {active && <span className="size-1.5 rounded-full bg-white" />}
+                      </span>
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-muted">{option.hint}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        </Step>
       </div>
 
-      {localError && (
-        <p
-          role="alert"
-          className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400"
-        >
-          {localError}
-        </p>
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-surface px-5 py-4 sm:px-6">
-        <p className="text-sm text-muted">
-          {footerNote ?? (
-            <>
-              <span className="font-medium text-foreground">{durationMinutes} minutes</span>,{" "}
-              {style?.label.toLowerCase()} style. Link valid for 24 hours.
-            </>
-          )}
-        </p>
+      <aside className="rounded-2xl border border-border bg-surface p-5 lg:sticky lg:top-20">
+        <h2 className="text-[15px] font-semibold">This interview</h2>
+        <dl className="mt-4 grid gap-3 text-sm">
+          <SummaryRow label="Candidate" value={candidateName.trim() || "—"} />
+          <SummaryRow label="Role" value={(selectedRole ? selectedRole.title : roleTitle.trim()) || "—"} />
+          <SummaryRow label="Length" value={`${durationMinutes} minutes`} />
+          <SummaryRow label="Style" value={style?.label ?? "—"} />
+          <SummaryRow
+            label="Job description"
+            value={jobDescriptionPdf ? "PDF" : jobDescriptionText.trim() ? "Added" : "Missing"}
+            warn={!jobDescriptionPdf && !jobDescriptionText.trim()}
+          />
+          <SummaryRow
+            label="Resume"
+            value={resume ? "Attached" : initial?.existingResumeName ? "On file" : "Candidate uploads"}
+          />
+        </dl>
+        {localError && (
+          <p role="alert" className="mt-4 rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">
+            {localError}
+          </p>
+        )}
         <button
           type="submit"
           disabled={isSubmitting}
-          className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
         >
+          {isSubmitting && <Loader2 className="size-4 animate-spin" aria-hidden />}
           {isSubmitting ? submittingLabel : submitLabel}
         </button>
-      </div>
+        <p className="mt-3 text-xs leading-5 text-muted">
+          {footerNote ?? "You see the interview plan before sending. The link stays valid for 24 hours."}
+        </p>
+      </aside>
 
       {scoringOpen && (
         <CustomScoringDialog
@@ -585,5 +579,56 @@ export function CreateInterviewForm({
         />
       )}
     </form>
+  );
+}
+
+function Step({
+  number,
+  title,
+  description,
+  children,
+}: {
+  number: number;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5 sm:p-6">
+      <div className="mb-5 flex items-start gap-3">
+        <span
+          aria-hidden
+          className="grid size-6 shrink-0 place-items-center rounded-full bg-foreground text-xs font-semibold tabular-nums text-background"
+        >
+          {number}
+        </span>
+        <div>
+          <h2 className="text-[15px] font-semibold leading-6">{title}</h2>
+          {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Field({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label htmlFor={id} className={labelClasses}>
+        {label}
+      </label>
+      {children}
+      {hint && <p className="mt-1.5 text-xs text-muted">{hint}</p>}
+    </div>
+  );
+}
+
+function SummaryRow({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="text-muted">{label}</dt>
+      <dd className={`truncate text-right font-medium ${warn ? "text-amber-600 dark:text-amber-400" : ""}`}>{value}</dd>
+    </div>
   );
 }

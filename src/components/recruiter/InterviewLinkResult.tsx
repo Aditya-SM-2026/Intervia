@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Check, Copy, ExternalLink } from "lucide-react";
 import type { InterviewRoom } from "@/lib/interviews/interview.types";
 
 interface InterviewLinkResultProps {
@@ -41,137 +42,125 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
     }
   }
 
+  const emailLine =
+    inviteEmail?.status === "sent"
+      ? { tone: "text-muted", text: `Invitation emailed to ${room.candidateEmail}.` }
+      : inviteEmail?.status === "failed"
+        ? { tone: "text-amber-700 dark:text-amber-400", text: `The email to ${room.candidateEmail} did not go through. Copy the link and send it yourself.` }
+        : inviteEmail?.status === "not_configured"
+          ? { tone: "text-muted", text: `Email is not set up here. Copy the link and send it to ${room.candidateEmail}.` }
+          : null;
+
   return (
-    <div className="grid gap-4">
-      <h2 className="text-lg font-semibold">Interview created</h2>
-
-      <p className="text-sm">
-        <span className="font-medium">{room.title}</span>
-        {room.candidateName && <> for candidate {room.candidateName}</>}.
-      </p>
-
-      {inviteEmail && (
-        <p className="text-sm">
-          {inviteEmail.status === "sent" && (
-            <span className="text-muted">
-              Invitation email sent to <span className="font-medium">{room.candidateEmail}</span>.
-            </span>
+    <div className="grid gap-7">
+      <div className="flex items-start gap-3.5">
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-emerald-500/12 text-emerald-600 dark:text-emerald-400">
+          <Check className="size-5" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-xl font-semibold tracking-[-0.01em]">Interview ready</h2>
+          <p className="mt-1 text-sm text-muted">
+            {room.title}
+            {room.candidateName ? ` for ${room.candidateName}` : ""}
+            {room.expiresAt ? `. The link works until ${formatDateTime(room.expiresAt)}.` : "."}
+          </p>
+          {emailLine && <p className={`mt-1 text-sm ${emailLine.tone}`}>{emailLine.text}</p>}
+          {room.scheduledAt && (
+            <p className="mt-1 text-sm text-muted">
+              Scheduled for {new Date(room.scheduledAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+            </p>
           )}
-          {inviteEmail.status === "failed" && (
-            <span className="text-amber-600 dark:text-amber-400">
-              Invitation email could not be sent — copy the link above and share it with{" "}
-              <span className="font-medium">{room.candidateEmail}</span> yourself.
-            </span>
-          )}
-          {inviteEmail.status === "not_configured" && (
-            <span className="text-muted">
-              Email sending is not configured — copy the link above and share it with{" "}
-              <span className="font-medium">{room.candidateEmail}</span>.
-            </span>
-          )}
-        </p>
-      )}
-
-      {room.scheduledAt && (
-        <p className="text-sm">
-          <span className="font-medium">Scheduled for</span>{" "}
-          {new Date(room.scheduledAt).toLocaleString(undefined, {
-            dateStyle: "medium",
-            timeStyle: "short",
-          })}{" "}
-          <span className="text-muted">(your local time)</span>
-        </p>
-      )}
+        </div>
+      </div>
 
       <div>
-        <p className="mb-1 text-sm font-medium">Candidate link</p>
-        <input
-          type="text"
-          readOnly
-          value={candidateUrl}
-          aria-label="Candidate link"
-          onFocus={(event) => event.currentTarget.select()}
-          className="w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm"
-        />
+        <p className="mb-1.5 text-sm font-medium">Candidate link</p>
+        <div className="flex items-center gap-1 rounded-xl border border-border bg-background/50 p-1 pl-3.5">
+          <input
+            type="text"
+            readOnly
+            value={candidateUrl}
+            aria-label="Candidate link"
+            onFocus={(event) => event.currentTarget.select()}
+            className="min-w-0 flex-1 bg-transparent text-sm text-muted outline-none"
+          />
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-sm font-medium text-white transition hover:bg-accent/90"
+          >
+            {copied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />}
+            {copied ? "Copied" : "Copy link"}
+          </button>
+        </div>
         {manualCopyNeeded && (
-          <p className="mt-1 text-xs text-muted">
-            Automatic copy is not available — select the link above and copy it
-            manually.
-          </p>
+          <p className="mt-1.5 text-xs text-muted">Copying is blocked in this browser. Select the link and copy it by hand.</p>
         )}
+        <p className="mt-1.5 text-xs text-muted">It opens only for the invited email address.</p>
       </div>
 
       {uploadUrl && !room.resume && (
         <div>
-          <p className="mb-1 text-sm font-medium">Resume upload link for the candidate</p>
+          <p className="mb-1.5 text-sm font-medium">Resume upload link</p>
           <input
             type="text"
             readOnly
             value={uploadUrl}
             aria-label="Resume upload link"
             onFocus={(event) => event.currentTarget.select()}
-            className="w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm"
+            className="h-10 w-full rounded-xl border border-border bg-background/50 px-3.5 text-sm text-muted outline-none"
           />
-          <p className="mt-1 text-xs text-muted">
-            The candidate can upload their resume (PDF, DOC, DOCX) here; the link works once
-            and expires after 24 hours.
-          </p>
+          <p className="mt-1.5 text-xs text-muted">For the candidate to add a resume. Works once, for 24 hours.</p>
         </div>
       )}
 
       {room.plan && (
-        <div>
-          <p className="mb-1 text-sm font-medium">
-            Interview plan: {room.durationMinutes} minutes, {room.plan.competencies.length} topics,{" "}
-            {room.voiceMode === "rolling" ? "lower-cost voice" : "standard voice"}
-          </p>
+        <div className="border-t border-border pt-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-[15px] font-semibold">The plan</h3>
+            <p className="text-sm text-muted">
+              {room.durationMinutes} minutes, {room.plan.competencies.length} topics
+            </p>
+          </div>
           {room.plan.source === "fallback" && (
-            <p className="mb-2 text-xs text-amber-600 dark:text-amber-400">
-              A tailored plan could not be generated, so a generic plan is used. Create the
-              interview again to retry.
+            <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">
+              A plan tailored to this job could not be made, so a general one is used. Create the interview again to retry.
             </p>
           )}
-          <ol className="grid list-decimal gap-2 rounded-lg border border-border bg-background py-3 pl-8 pr-3 text-sm">
-            {room.plan.competencies.map((competency) => (
-              <li key={competency.id}>
-                <span className="font-medium">{competency.name}.</span>{" "}
-                <span className="text-muted">{competency.question}</span>
+          <ol className="mt-4 divide-y divide-border border-y border-border">
+            {room.plan.competencies.map((competency, index) => (
+              <li key={competency.id} className="grid grid-cols-[1.75rem_1fr] gap-x-2 py-3.5 text-sm">
+                <span className="tabular-nums text-muted">{index + 1}</span>
+                <span>
+                  <span className="block font-medium">{competency.name}</span>
+                  <span className="mt-0.5 block leading-6 text-muted">{competency.question}</span>
+                </span>
               </li>
             ))}
           </ol>
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
-        >
-          {copied ? "Copied!" : "Copy link"}
-        </button>
+      <div className="flex flex-wrap items-center gap-2">
         <a
           href={candidateUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-surface"
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3.5 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03]"
         >
-          Open candidate link
+          <ExternalLink className="size-4 text-muted" aria-hidden />
+          Open as candidate
         </a>
         <button
           type="button"
           onClick={onReset}
-          className="rounded-lg px-4 py-2 text-sm font-medium text-muted transition hover:text-foreground"
+          className="inline-flex h-9 items-center rounded-lg px-3.5 text-sm font-medium text-muted transition hover:bg-foreground/[0.05] hover:text-foreground"
         >
           Create another
         </button>
+        <span className="grow" />
+        <span className="text-xs text-muted">The report appears on Interviews when it ends.</span>
       </div>
-
-      <p className="text-xs text-muted">
-        Share this link only with the candidate. It opens only for the invited email
-        address{room.expiresAt ? `, until ${formatDateTime(room.expiresAt)}` : ""}. The scorecard
-        appears on the dashboard when the interview ends.
-      </p>
     </div>
   );
 }
