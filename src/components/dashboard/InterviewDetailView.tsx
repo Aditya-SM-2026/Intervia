@@ -47,7 +47,6 @@ import {
   FileText,
   Fingerprint,
   Gauge,
-  Info,
   Maximize2,
   MessageSquare,
   MessagesSquare,
@@ -99,12 +98,6 @@ const VERDICT_LABELS: Record<ResumeVerdict, string> = {
   not_discussed: "Not discussed",
 };
 
-const STATUS_PILL_STYLES: Record<Tone, string> = {
-  good: "bg-emerald-50 text-emerald-700 border border-emerald-200/70 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/50",
-  warn: "bg-amber-50 text-amber-700 border border-amber-200/70 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800/50",
-  bad: "bg-rose-50 text-rose-700 border border-rose-200/70 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-800/50",
-  muted: "bg-slate-50 text-slate-600 border border-border dark:bg-slate-800/50 dark:text-muted dark:border-slate-700",
-};
 
 const VERDICT_STYLES: Record<
   ResumeVerdict,
@@ -136,7 +129,7 @@ const VERDICT_STYLES: Record<
   },
 };
 
-const cardClasses = "rounded-2xl border border-border bg-surface p-6 sm:p-7";
+const cardClasses = "border-t border-border py-10 first:border-t-0 first:pt-8";
 
 /** Report sections, in page order, for the sticky section bar. */
 const REPORT_SECTIONS = [
@@ -554,7 +547,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
           }
         />
 
-        <div className="grid min-w-0 grid-cols-1 gap-6">
+        <article className="min-w-0 rounded-2xl border border-border bg-surface px-5 shadow-sm shadow-black/[0.03] sm:px-10">
           {scorecard ? (
             <>
               <OverallAssessment scorecard={scorecard} insights={insights} />
@@ -607,10 +600,10 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
 
           <VoiceSection session={session} events={events} hasRecording={hasRecording} />
 
-          <footer className="pb-10 pt-2 text-xs text-muted">
-            {scorecard ? `Report generated ${formatDateTime(scorecard.generatedAt)}` : null}
-          </footer>
-        </div>
+        </article>
+        <footer className="px-1 pb-10 pt-4 text-xs text-muted">
+          {scorecard ? `Report generated ${formatDateTime(scorecard.generatedAt)}` : null}
+        </footer>
       </div>
 
       <CandidateAssistant
@@ -640,22 +633,24 @@ function CardHeading({
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
-        <h2 className="text-base font-semibold text-foreground">{title}</h2>
-        {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
+        <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
+        {subtitle && <p className="mt-1 max-w-prose text-sm text-muted">{subtitle}</p>}
       </div>
       {right}
     </div>
   );
 }
 
-/** Status Chip */
-function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
+/** Section score at the right of a heading: the number, then what it means. */
+function HeadingScore({ score, tone, label }: { score: number | null; tone: Tone; label: string }) {
   return (
-    <span
-      className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${STATUS_PILL_STYLES[tone]}`}
-    >
-      {children}
-    </span>
+    <div className="text-right">
+      <p className="leading-none">
+        <span className="text-2xl font-semibold tracking-[-0.02em] tabular-nums">{score ?? "–"}</span>
+        {score !== null && <span className="ml-0.5 text-sm text-muted">/100</span>}
+      </p>
+      <p className={`mt-1.5 text-xs font-medium ${TONE_TEXT[tone]}`}>{label}</p>
+    </div>
   );
 }
 
@@ -836,6 +831,7 @@ function OverallAssessment({
   insights: ReportInsights | null;
 }) {
   const [expandedFactor, setExpandedFactor] = useState<FactorId | null>(null);
+  const reduce = useReducedMotion();
   const overall = scorecard.overall;
 
   if (!overall) {
@@ -859,48 +855,61 @@ function OverallAssessment({
 
   return (
     <section id="overview" className={`${cardClasses} scroll-mt-32`}>
-      <div className="grid gap-8 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-center">
-        <div className="flex flex-col items-center text-center lg:border-r lg:border-border lg:pr-8">
-          <ScoreRing score={score} tone={band.tone} />
-          <p className="mt-4 text-sm font-medium">{band.label}</p>
+      <div className="grid gap-10 lg:grid-cols-[13rem_minmax(0,1fr)]">
+        <div>
+          <h2 className="text-sm text-muted">Overall score</h2>
+          <p className="mt-3 flex items-baseline gap-1">
+            <motion.span
+              className="text-[64px] font-semibold leading-[0.85] tracking-[-0.045em] tabular-nums"
+              initial={reduce ? false : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, ease: EASE_OUT }}
+            >
+              {score ?? "–"}
+            </motion.span>
+            <span className="text-base text-muted">/100</span>
+          </p>
+          <p className={`mt-4 text-[15px] font-medium ${TONE_TEXT[band.tone]}`}>{band.label}</p>
           {insights?.hireBand.label && (
-            <p className="mt-1 text-xs text-muted">Suggestion: {insights.hireBand.label}</p>
+            <p className="mt-0.5 text-sm text-muted">Suggested: {insights.hireBand.label.toLowerCase()}</p>
           )}
         </div>
 
-        <div className="grid gap-1">
-          <div className="mb-2 flex items-baseline justify-between">
-            <h2 className="text-base font-semibold">Overall assessment</h2>
-            <span className="text-xs text-muted">Weighted from four checks</span>
+        <div>
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-lg font-semibold tracking-[-0.01em]">How the score is made</h2>
+            <span className="text-xs text-muted">Click a row for what it measures</span>
           </div>
-          {overall.factors.map((factor, index) => {
-            const meta = FACTOR_META[factor.id];
-            const chip = factorChip(factor.id, factor.score);
-            const isExpanded = expandedFactor === factor.id;
-            return (
-              <FactorRow
-                key={factor.id}
-                name={meta.name}
-                score={factor.score}
-                label={chip.label}
-                tone={chip.tone}
-                weight={factor.weight}
-                explains={meta.explains}
-                href={`#${factorLink(factor.id)}`}
-                expanded={isExpanded}
-                delay={0.1 + index * 0.08}
-                onToggle={() => setExpandedFactor(isExpanded ? null : factor.id)}
-              />
-            );
-          })}
+          <div className="mt-3 divide-y divide-border border-y border-border">
+            {overall.factors.map((factor, index) => {
+              const meta = FACTOR_META[factor.id];
+              const chip = factorChip(factor.id, factor.score);
+              const isExpanded = expandedFactor === factor.id;
+              return (
+                <FactorRow
+                  key={factor.id}
+                  name={meta.name}
+                  score={factor.score}
+                  label={chip.label}
+                  tone={chip.tone}
+                  weight={factor.weight}
+                  explains={meta.explains}
+                  href={`#${factorLink(factor.id)}`}
+                  expanded={isExpanded}
+                  delay={0.15 + index * 0.07}
+                  onToggle={() => setExpandedFactor(isExpanded ? null : factor.id)}
+                />
+              );
+            })}
+          </div>
         </div>
       </div>
 
       {scorecard.needsHumanReview && (
-        <div className="mt-6 flex items-center gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
-          <AlertTriangle className="size-4 shrink-0" aria-hidden />
-          <span>Read the evidence before deciding: the two graders disagreed or flagged items for review.</span>
-        </div>
+        <p className="mt-6 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          The two graders disagreed on part of this report. Read the evidence before deciding.
+        </p>
       )}
     </section>
   );
@@ -945,118 +954,55 @@ function FactorRow({
 }) {
   const reduce = useReducedMotion();
   return (
-    <div className="rounded-xl transition-colors hover:bg-foreground/[0.025]">
+    <div>
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className="grid w-full grid-cols-[minmax(0,10rem)_minmax(0,1fr)_auto] items-center gap-4 px-3 py-3 text-left"
+        className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-2 py-3.5 text-left sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_8.5rem_2.5rem_1rem]"
       >
-        <span className="truncate text-sm font-medium">{name}</span>
-        <span className="h-2 overflow-hidden rounded-full bg-foreground/[0.07]">
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium group-hover:text-accent">{name}</span>
+          <span className="block text-xs text-muted">{weight}% of the score</span>
+        </span>
+        <span className="hidden h-1 overflow-hidden rounded-full bg-foreground/[0.08] sm:block">
           {score !== null && (
             <motion.span
-              className={`block h-full rounded-full ${TONE_BAR[tone]}`}
+              className="block h-full rounded-full bg-foreground/75"
               initial={reduce ? false : { width: 0 }}
-              animate={{ width: `${Math.max(3, score)}%` }}
+              animate={{ width: `${Math.max(2, score)}%` }}
               transition={{ duration: 0.8, delay, ease: EASE_OUT }}
             />
           )}
         </span>
-        <span className="flex items-center gap-3">
-          <span className={`w-28 text-right text-xs font-medium ${TONE_TEXT[tone]}`}>{label}</span>
-          <span className="w-9 text-right text-sm font-semibold">{score === null ? "—" : score}</span>
-          <ChevronDown className={`size-4 text-muted transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden />
-        </span>
+        <span className={`hidden text-sm sm:block ${TONE_TEXT[tone]}`}>{label}</span>
+        <span className="text-right text-[15px] font-semibold tabular-nums">{score === null ? "—" : score}</span>
+        <ChevronDown className={`hidden size-4 text-muted transition-transform sm:block ${expanded ? "rotate-180" : ""}`} aria-hidden />
       </button>
       {expanded && (
-        <div className="animate-pop-in px-3 pb-3 text-sm text-muted">
-          <p className="leading-relaxed">{explains}</p>
-          <div className="mt-2 flex items-center justify-between text-xs">
-            <span>{weight}% of the overall score</span>
-            <a href={href} className="font-medium text-accent hover:underline">
-              See the details
-            </a>
-          </div>
+        <div className="animate-pop-in max-w-prose pb-4 text-sm leading-6 text-muted">
+          <p>{explains}</p>
+          <a href={href} className="mt-1.5 inline-block font-medium text-accent hover:underline">
+            Go to the details
+          </a>
         </div>
       )}
     </div>
   );
 }
 
-/** Circular Ring Gauge */
-function ScoreRing({ score, tone }: { score: number | null; tone: Tone }) {
-  const radius = 64;
-  const strokeWidth = 10;
-  const circumference = 2 * Math.PI * radius;
-  const filled = score === null ? 0 : Math.max(0, Math.min(100, score)) / 100;
-  const strokeOffset = circumference * (1 - filled);
-
-  const ringColor =
-    tone === "good" ? "#10b981" : tone === "warn" ? "#f59e0b" : tone === "bad" ? "#f43f5e" : "#94a3b8";
-
-  return (
-    <div className="relative size-[152px] shrink-0">
-      <svg viewBox="0 0 160 160" className="size-full -rotate-90">
-        <circle
-          cx="80"
-          cy="80"
-          r={radius}
-          fill="none"
-          strokeWidth={strokeWidth}
-          className="stroke-foreground/[0.08]"
-        />
-        <circle
-          cx="80"
-          cy="80"
-          r={radius}
-          fill="none"
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-          stroke={ringColor}
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeOffset}
-          className="transition-all duration-700 ease-out"
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <div className="flex items-baseline">
-          <span className="text-[40px] font-semibold leading-none tracking-[-0.03em] text-foreground">
-            {score ?? "–"}
-          </span>
-          <span className="ml-1 text-sm text-muted">/100</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** 2. Summary Section: Concise Assessment Summary, Strengths, Areas of Concern, Collapsible About Assessment */
-function EvidenceList({
-  title,
-  tone,
-  items,
-  empty,
-}: {
-  title: string;
-  tone: "good" | "bad";
-  items: string[];
-  empty: string;
-}) {
+/** Summary: what happened, what went well, what to probe. */
+function EvidenceList({ title, items, empty }: { title: string; items: string[]; empty: string }) {
   return (
     <div>
-      <h3 className="flex items-center gap-2 text-sm font-semibold">
-        <span className={`size-2 rounded-full ${tone === "good" ? "bg-emerald-500" : "bg-rose-500"}`} aria-hidden />
-        {title}
-      </h3>
+      <h3 className="text-sm font-semibold">{title}</h3>
       {items.length === 0 ? (
         <p className="mt-2 text-sm text-muted">{empty}</p>
       ) : (
-        <ul className="mt-3 grid gap-2.5">
+        <ul className="mt-3 list-disc space-y-2.5 pl-4 text-[15px] leading-6 text-foreground/85 marker:text-foreground/30">
           {items.map((item, index) => (
-            <li key={index} className="flex gap-3 text-sm leading-6 text-foreground/85">
-              <span aria-hidden className="mt-2.5 h-px w-3 shrink-0 bg-foreground/30" />
-              <span>{item}</span>
+            <li key={index} className="pl-1">
+              {item}
             </li>
           ))}
         </ul>
@@ -1072,74 +1018,62 @@ function SummarySection({
   scorecard: Scorecard;
   insights: ReportInsights | null;
 }) {
+  const integrity = scorecard.integrity;
   return (
     <section id="summary" className={`${cardClasses} scroll-mt-32`}>
-      <CardHeading icon={FileText} iconColor="blue" title="Summary" />
-      <p className="mt-3 max-w-[75ch] text-[15px] leading-7 text-foreground/85">{plain(scorecard.summary)}</p>
+      <CardHeading title="Summary" />
+      <p className="mt-4 max-w-[68ch] text-[15px] leading-7 text-foreground/85">{plain(scorecard.summary)}</p>
 
-      <div className="mt-6 grid gap-6 border-t border-border pt-6 sm:grid-cols-2">
-        <EvidenceList title="Strengths" tone="good" items={scorecard.strengths} empty="No strengths were recorded." />
-        <EvidenceList title="Concerns" tone="bad" items={scorecard.concerns} empty="No concerns were recorded." />
+      <div className="mt-8 grid gap-8 sm:grid-cols-2 sm:gap-12">
+        <EvidenceList title="What went well" items={scorecard.strengths} empty="Nothing stood out." />
+        <EvidenceList title="What to probe further" items={scorecard.concerns} empty="No concerns were raised." />
       </div>
 
-      {/* Collapsible About This Assessment */}
-      <details className="group mt-5 rounded-xl border border-border">
-        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-xs font-semibold text-foreground/85">
-          <span className="flex items-center gap-2">
-            <Info className="size-4 text-muted" />
-            About this assessment
-          </span>
-          <ChevronDown className="size-4 text-muted transition group-open:rotate-180" />
-        </summary>
-        <div className="grid gap-4 border-t border-border p-4 text-xs dark:border-border dark:text-slate-300">
-          {scorecard.notes.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-muted">Data quality notes</p>
-              <ul className="mt-1.5 grid gap-1">
-                {scorecard.notes.map((note) => (
-                  <li key={note} className="text-muted">
-                    • {note}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div>
-            <p className="text-xs font-medium text-muted">Integrity signals</p>
-            <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-lg border border-border bg-slate-50 p-2.5 dark:border-border dark:bg-background">
-                <span className="text-[10px] text-muted">Tab hidden</span>
-                <p className="text-sm font-semibold text-foreground">{scorecard.integrity.tabHiddenCount}×</p>
-              </div>
-              <div className="rounded-lg border border-border bg-slate-50 p-2.5 dark:border-border dark:bg-background">
-                <span className="text-[10px] text-muted">Tab hidden time</span>
-                <p className="text-sm font-semibold text-foreground">{Math.round(scorecard.integrity.tabHiddenSeconds)}s</p>
-              </div>
-              <div className="rounded-lg border border-border bg-slate-50 p-2.5 dark:border-border dark:bg-background">
-                <span className="text-[10px] text-muted">Window blur</span>
-                <p className="text-sm font-semibold text-foreground">{scorecard.integrity.windowBlurCount}×</p>
-              </div>
-              <div className="rounded-lg border border-border bg-slate-50 p-2.5 dark:border-border dark:bg-background">
-                <span className="text-[10px] text-muted">Disconnects</span>
-                <p className="text-sm font-semibold text-foreground">{scorecard.integrity.candidateDisconnects}</p>
-              </div>
-            </div>
-          </div>
-
-          {insights && insights.nextSteps.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-muted">Recommended next steps</p>
-              <ul className="mt-1.5 grid gap-1">
-                {insights.nextSteps.map((step) => (
-                  <li key={step} className="text-muted">
-                    • {step}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+      {insights && insights.nextSteps.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-sm font-semibold">Suggested next steps</h3>
+          <ol className="mt-3 list-decimal space-y-2 pl-4 text-[15px] leading-6 text-foreground/85 marker:text-muted">
+            {insights.nextSteps.map((step) => (
+              <li key={step} className="pl-1">
+                {step}
+              </li>
+            ))}
+          </ol>
         </div>
+      )}
+
+      <details className="group mt-8">
+        <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-sm text-muted transition hover:text-foreground">
+          During the interview
+          <ChevronDown className="size-3.5 transition group-open:rotate-180" aria-hidden />
+        </summary>
+        <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-4 text-sm sm:grid-cols-4">
+          <div>
+            <dt className="text-muted">Left the tab</dt>
+            <dd className="mt-0.5 font-medium tabular-nums">
+              {integrity.tabHiddenCount === 0 ? "Never" : `${integrity.tabHiddenCount} times`}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Time away</dt>
+            <dd className="mt-0.5 font-medium tabular-nums">{Math.round(integrity.tabHiddenSeconds)}s</dd>
+          </div>
+          <div>
+            <dt className="text-muted">Switched windows</dt>
+            <dd className="mt-0.5 font-medium tabular-nums">{integrity.windowBlurCount} times</dd>
+          </div>
+          <div>
+            <dt className="text-muted">Connection drops</dt>
+            <dd className="mt-0.5 font-medium tabular-nums">{integrity.candidateDisconnects}</dd>
+          </div>
+        </dl>
+        {scorecard.notes.length > 0 && (
+          <ul className="mt-4 space-y-1 text-sm text-muted">
+            {scorecard.notes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        )}
       </details>
     </section>
   );
@@ -1170,79 +1104,69 @@ function AnswerQualityTable({
         iconColor="purple"
         title="Answer quality"
         subtitle="Each question, how it was scored and why."
-        right={
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground tabular-nums">
-              {score === null ? "–" : `${score}/100`}
-            </span>
-            <Chip tone={chip.tone}>{chip.label}</Chip>
-          </div>
-        }
+        right={<HeadingScore score={score} tone={chip.tone} label={chip.label} />}
       />
 
       {scorecard.competencies.length === 0 ? (
         <p className="mt-4 text-xs text-muted">No competency questions were scored for this interview.</p>
       ) : (
-        <div className="mt-5 overflow-hidden rounded-xl border border-border">
+        <div className="-mx-3 mt-6 overflow-x-auto">
           <table className="w-full text-left text-[13px]">
             <thead>
-              <tr className="border-b border-border bg-foreground/[0.02] font-medium text-muted">
+              <tr className="border-b border-border text-xs font-medium text-muted">
                 <th className="w-12 px-4 py-3 text-center">#</th>
-                <th className="px-4 py-3">Question</th>
+                <th className="px-3 py-2.5">Question</th>
                 <th className="w-20 px-4 py-3 text-center">Score</th>
-                <th className="px-4 py-3">Key feedback</th>
+                <th className="px-3 py-2.5">Key feedback</th>
                 <th className="w-40 px-4 py-3 text-right">Recording</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody className="divide-y divide-border align-top">
               {scorecard.competencies.map((item, index) => {
                 const plan = competencies.find((c) => c.id === item.competencyId);
                 const window = evidenceWindow(item.evidence, bySeq, offsetFor);
                 const scoreOut10 = item.score !== null ? item.score * 2 : null;
                 const scoreTone =
                   scoreOut10 !== null && scoreOut10 >= 7
-                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
+                    ? TONE_TEXT.good
                     : scoreOut10 !== null && scoreOut10 >= 5
-                      ? "bg-amber-50 text-amber-700 border border-amber-200/60"
-                      : "bg-rose-50 text-rose-700 border border-rose-200/60";
+                      ? TONE_TEXT.warn
+                      : TONE_TEXT.bad;
 
                 return (
                   <tr
                     key={item.competencyId}
                     className="group hover:bg-foreground/[0.02] transition"
                   >
-                    <td className="px-4 py-3.5 text-center font-medium text-muted">
+                    <td className="px-3 py-4 text-center font-medium text-muted">
                       {index + 1}
                     </td>
-                    <td className="px-4 py-3.5">
-                      <p className="font-semibold text-foreground">
-                        {item.name}
-                      </p>
+                    <td className="px-3 py-4">
+                      <p className="font-medium text-foreground">{item.name}</p>
                       {plan?.question && (
-                        <p className="mt-0.5 text-[11px] text-muted line-clamp-1">
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">
                           {plan.question}
                         </p>
                       )}
                     </td>
-                    <td className="px-4 py-3.5 text-center">
-                      <span className={`inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-semibold tabular-nums ${scoreTone}`}>
-                        {scoreOut10 !== null ? `${scoreOut10}/10` : "—"}
-                      </span>
+                    <td className="px-3 py-4 text-center">
+                      <span className={`text-[15px] font-semibold tabular-nums ${scoreTone}`}>{scoreOut10 ?? "—"}</span>
+                      {scoreOut10 !== null && <span className="text-xs text-muted">/10</span>}
                     </td>
-                    <td className="px-4 py-3.5 text-foreground/80">
+                    <td className="px-3 py-4 text-foreground/80">
                       <p className="leading-relaxed">{item.rationale}</p>
                     </td>
-                    <td className="px-4 py-3.5 text-right">
+                    <td className="px-3 py-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         {window ? (
                           <button
                             type="button"
                             onClick={() => onPlay(window.from)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/80 px-2.5 py-1 text-xs font-semibold tabular-nums text-blue-700 transition hover:bg-blue-100 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-300"
+                            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium tabular-nums text-accent transition hover:bg-accent-soft"
                           >
-                            <Play className="size-3 fill-current text-blue-600 dark:text-blue-400" />
+                            <Play className="size-3 fill-current" aria-hidden />
                             <span>
-                              {formatClock(window.from)} - {formatClock(window.to)}
+                              {formatClock(window.from)}–{formatClock(window.to)}
                             </span>
                           </button>
                         ) : (
@@ -1271,7 +1195,6 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
 
   const total = scorecard.customScore ?? null;
   const tone: Tone = total === null ? "muted" : total >= 75 ? "good" : total >= 50 ? "warn" : "bad";
-  const barTone = total === null ? "bg-slate-300" : total >= 75 ? "bg-emerald-500" : total >= 50 ? "bg-amber-500" : "bg-rose-500";
 
   return (
     <section id="custom" className={`${cardClasses} scroll-mt-32`}>
@@ -1280,60 +1203,47 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
         iconColor="indigo"
         title="Custom parameters"
         subtitle="The skills you weighted for this role, assessed from the resume and the candidate's answers."
-        right={
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold tabular-nums text-foreground">
-              {total === null ? "–" : `${total}/100`}
-            </span>
-            <Chip tone={tone}>{total === null ? "Not scored" : "Custom score"}</Chip>
-          </div>
-        }
+        right={<HeadingScore score={total} tone={tone} label={total === null ? "Not scored" : "Custom score"} />}
       />
 
-      <div className="mt-4 flex items-center gap-3">
-        <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-          <div className={`h-full rounded-full ${barTone}`} style={{ width: `${total ?? 0}%` }} />
-        </div>
-        <span className="text-xs text-muted">weighted by the emphasis you set</span>
-      </div>
 
-      <div className="mt-5 overflow-hidden rounded-xl border border-border">
+      <div className="-mx-3 mt-6 overflow-x-auto">
         <table className="w-full text-left text-[13px]">
           <thead>
-            <tr className="border-b border-border bg-foreground/[0.02] font-medium text-muted">
-              <th className="px-4 py-3">Parameter</th>
+            <tr className="border-b border-border text-xs font-medium text-muted">
+              <th className="px-3 py-2.5">Parameter</th>
               <th className="w-24 px-4 py-3 text-center">Emphasis</th>
               <th className="w-24 px-4 py-3 text-center">Score</th>
-              <th className="px-4 py-3">Assessment</th>
+              <th className="px-3 py-2.5">Assessment</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
+          <tbody className="divide-y divide-border align-top">
             {parameters.map((item) => {
               const scoreTone =
                 item.status !== "scored" || item.score === null
-                  ? "bg-slate-100 text-muted border border-border dark:bg-slate-800 dark:text-muted dark:border-border"
+                  ? TONE_TEXT.muted
                   : item.score >= 75
-                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
-                  : item.score >= 50
-                    ? "bg-amber-50 text-amber-700 border border-amber-200/60"
-                    : "bg-rose-50 text-rose-700 border border-rose-200/60";
+                    ? TONE_TEXT.good
+                    : item.score >= 50
+                      ? TONE_TEXT.warn
+                      : TONE_TEXT.bad;
               return (
                 <tr key={item.skill} className="align-top hover:bg-foreground/[0.02]">
-                  <td className="px-4 py-3.5">
-                    <p className="font-semibold text-foreground">{item.skill}</p>
+                  <td className="px-3 py-4">
+                    <p className="font-medium text-foreground">{item.skill}</p>
                     {item.gaps.length > 0 && (
                       <p className="mt-0.5 text-[11px] text-muted line-clamp-1">
                         Gap: {item.gaps[0]}
                       </p>
                     )}
                   </td>
-                  <td className="px-4 py-3.5 text-center">
+                  <td className="px-3 py-4 text-center">
                     <span className="text-xs font-medium tabular-nums text-foreground/80">
                       {item.weight}
                     </span>
                   </td>
-                  <td className="px-4 py-3.5 text-center">
-                    <span className={`inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-semibold tabular-nums ${scoreTone}`}>
+                  <td className="px-3 py-4 text-center">
+                    <span className={`text-sm font-semibold tabular-nums ${scoreTone}`}>
                       {item.status === "scored" && item.score !== null
                         ? `${item.score}/100`
                         : item.status === "not_assessed"
@@ -1341,7 +1251,7 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
                           : "Thin evidence"}
                     </span>
                   </td>
-                  <td className="px-4 py-3.5 text-foreground/80">
+                  <td className="px-3 py-4 text-foreground/80">
                     <p className="line-clamp-3">{firstSentence(item.rationale)}</p>
                     {item.resumeEvidence && (
                       <p className="mt-1 text-[11px] text-muted line-clamp-2">
@@ -1412,14 +1322,7 @@ function ResumeTable({
         iconColor="violet"
         title="Resume match"
         subtitle="Claims from the resume, checked against what the candidate said."
-        right={
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground tabular-nums">
-              {resume.score === null ? "–" : `${resume.score}/100`}
-            </span>
-            <Chip tone={chip.tone}>{chip.label}</Chip>
-          </div>
-        }
+        right={<HeadingScore score={resume.score} tone={chip.tone} label={chip.label} />}
       />
 
       {resume.claims.length === 0 ? (
@@ -1427,17 +1330,17 @@ function ResumeTable({
           {resume.reason ?? "No resume claims were evaluated for this interview."}
         </p>
       ) : (
-        <div className="mt-5 overflow-hidden rounded-xl border border-border">
+        <div className="-mx-3 mt-6 overflow-x-auto">
           <table className="w-full text-left text-[13px]">
             <thead>
-              <tr className="border-b border-border bg-foreground/[0.02] font-medium text-muted">
-                <th className="px-4 py-3">From the resume</th>
+              <tr className="border-b border-border text-xs font-medium text-muted">
+                <th className="px-3 py-2.5">From the resume</th>
                 <th className="w-40 px-4 py-3">Status</th>
                 <th className="w-48 px-4 py-3">Where it came up</th>
-                <th className="px-4 py-3">Notes</th>
+                <th className="px-3 py-2.5">Notes</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody className="divide-y divide-border align-top">
               {resume.claims.map((claim) => {
                 const questions = [
                   ...new Set(
@@ -1451,24 +1354,22 @@ function ResumeTable({
 
                 return (
                   <tr key={claim.claim} className="hover:bg-foreground/[0.02] transition">
-                    <td className="px-4 py-3.5 font-semibold text-foreground">
+                    <td className="px-3 py-4 font-medium text-foreground">
                       {claim.claim}
                     </td>
-                    <td className="px-4 py-3.5">
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border ${style.bg} ${style.text} ${style.border}`}
-                      >
-                        <Icon className="size-3" />
+                    <td className="px-3 py-4">
+                      <span className={`inline-flex items-center gap-1.5 whitespace-nowrap font-medium ${style.text}`}>
+                        <Icon className="size-3.5 shrink-0" aria-hidden />
                         <span>{VERDICT_LABELS[claim.verdict]}</span>
                       </span>
                     </td>
-                    <td className="px-4 py-3.5 text-muted">
+                    <td className="px-3 py-4 text-muted">
                       {questions.length === 0
                         ? "—"
                         : `Discussed in ${questions.map((q) => `Q${q}`).join(", ")}`}
                     </td>
-                    <td className="px-4 py-3.5 text-muted">
-                      {claim.note || "Clear understanding shown with relevant examples."}
+                    <td className="px-3 py-4 text-muted">
+                      {claim.note || "—"}
                     </td>
                   </tr>
                 );
@@ -1479,7 +1380,7 @@ function ResumeTable({
       )}
 
       {resume.score === null && resume.reason && resume.claims.length > 0 && (
-        <p className="mt-4 rounded-xl border border-border bg-slate-50/80 p-3 text-[11px] text-muted dark:border-border dark:bg-background/40">
+        <p className="mt-4 text-sm text-muted">
           {resume.reason}
         </p>
       )}
@@ -1520,97 +1421,37 @@ function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
         iconColor="emerald"
         title="Originality"
         subtitle="Whether the answers read as the candidate's own."
-        right={
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground tabular-nums">
-              {authenticity.score}/100
-            </span>
-            <Chip tone={chip.tone}>{chip.label}</Chip>
-          </div>
-        }
+        right={<HeadingScore score={authenticity.score} tone={chip.tone} label={chip.label} />}
       />
 
-      <div className="mt-5 grid gap-3">
-        {signals.length === 0 ? (
-          <>
-            <div className="flex items-center justify-between rounded-xl border border-border bg-white p-3.5 transition dark:border-border dark:bg-surface/50">
-              <div className="flex items-center gap-3">
-                <span className="grid size-7 place-items-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40">
-                  <CheckCircle2 className="size-4" />
-                </span>
-                <div>
-                  <p className="text-xs font-semibold text-foreground">
-                    Responses appear original
-                  </p>
-                  <p className="text-[11px] text-muted">No repetitive or suspicious patterns detected.</p>
-                </div>
-              </div>
-              <ChevronDown className="size-4 text-muted" />
-            </div>
-
-            <div className="flex items-center justify-between rounded-xl border border-border bg-white p-3.5 transition dark:border-border dark:bg-surface/50">
-              <div className="flex items-center gap-3">
-                <span className="grid size-7 place-items-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40">
-                  <CheckCircle2 className="size-4" />
-                </span>
-                <div>
-                  <p className="text-xs font-semibold text-foreground">
-                    Consistent response style
-                  </p>
-                  <p className="text-[11px] text-muted">Answers maintain similar depth and structure across questions.</p>
-                </div>
-              </div>
-              <ChevronDown className="size-4 text-muted" />
-            </div>
-
-            <div className="flex items-center justify-between rounded-xl border border-border bg-white p-3.5 transition dark:border-border dark:bg-surface/50">
-              <div className="flex items-center gap-3">
-                <span className="grid size-7 place-items-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40">
-                  <CheckCircle2 className="size-4" />
-                </span>
-                <div>
-                  <p className="text-xs font-semibold text-foreground">
-                    Natural explanations
-                  </p>
-                  <p className="text-[11px] text-muted">Uses personal examples and explains reasoning naturally.</p>
-                </div>
-              </div>
-              <ChevronDown className="size-4 text-muted" />
-            </div>
-          </>
-        ) : (
-          signals.map((signal, idx) => {
+      {signals.length === 0 ? (
+        <p className="mt-5 flex items-center gap-2 text-[15px] text-foreground/85">
+          <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+          Nothing suggests the answers were read out or prepared by someone else.
+        </p>
+      ) : (
+        <ul className="mt-5 divide-y divide-border border-y border-border">
+          {signals.map((signal, idx) => {
             const serious = signal.severity >= 2;
             return (
-              <div
-                key={idx}
-                className={`flex items-start gap-3 rounded-xl border p-3.5 ${
-                  serious
-                    ? "border-rose-500/30 bg-rose-50/40 dark:border-rose-900/40 dark:bg-rose-950/20"
-                    : "border-amber-500/30 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/20"
-                }`}
-              >
-                <span
-                  className={`grid size-7 shrink-0 place-items-center rounded-lg ${
-                    serious ? "bg-rose-100 text-rose-600" : "bg-amber-100 text-amber-600"
-                  }`}
-                >
-                  <AlertTriangle className="size-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-foreground">
-                    {signal.title}
+              <li key={idx} className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_9rem] sm:gap-6">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{signal.title}</p>
+                  <p className="mt-1 max-w-prose text-sm leading-6 text-muted">{signal.detail}</p>
+                </div>
+                <div className="text-sm sm:text-right">
+                  <p className={`font-medium ${serious ? TONE_TEXT.bad : TONE_TEXT.warn}`}>
+                    {serious ? "Serious" : "Worth a look"}
                   </p>
-                  <p className="mt-0.5 text-xs text-muted">{signal.detail}</p>
-                  <p className="mt-1 text-[10px] text-muted">
-                    Source: {signal.source === "measured" ? "Measured from recorded timings" : "Evaluated from transcript"}
+                  <p className="mt-0.5 text-xs text-muted">
+                    {signal.source === "measured" ? "Measured from timings" : "Read from the transcript"}
                   </p>
                 </div>
-              </div>
+              </li>
             );
-          })
-        )}
-      </div>
+          })}
+        </ul>
+      )}
     </section>
   );
 }
@@ -1657,37 +1498,30 @@ function VideoSection({
         iconColor="rose"
         title="On-camera behaviour"
         subtitle="Analysis based on the recorded interview video."
-        right={
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground tabular-nums">
-              {video.score === null ? "–" : `${video.score}/100`}
-            </span>
-            <Chip tone={chip.tone}>{chip.label}</Chip>
-          </div>
-        }
+        right={<HeadingScore score={video.score} tone={chip.tone} label={chip.label} />}
       />
 
       <div className="mt-5 grid gap-6">
-        <div className="grid grid-cols-3 content-start gap-3">
-          <div className="rounded-xl border border-border bg-foreground/[0.02] p-3.5">
-            <span className="text-[11px] text-muted">Same-spot answers</span>
-            <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground">
+        <div className="grid grid-cols-3 content-start gap-6 border-y border-border py-4">
+          <div>
+            <span className="text-sm text-muted">Same-spot answers</span>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
               {pattern && pattern.answersObserved > 0
                 ? `${pattern.sameSpotAnswers >= 2 ? pattern.sameSpotAnswers : 0} of ${pattern.answersObserved}`
                 : "Not measured"}
             </p>
           </div>
-          <div className="rounded-xl border border-border bg-foreground/[0.02] p-3.5">
-            <span className="text-[11px] text-muted">Left interview tab</span>
-            <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground">
+          <div>
+            <span className="text-sm text-muted">Left the interview tab</span>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
               {integrity.tabHiddenCount === 0
                 ? "Never"
                 : `${integrity.tabHiddenCount}× (${integrity.tabHiddenSeconds}s)`}
             </p>
           </div>
-          <div className="rounded-xl border border-border bg-foreground/[0.02] p-3.5">
-            <span className="text-[11px] text-muted">Connection drops</span>
-            <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground">
+          <div>
+            <span className="text-sm text-muted">Connection drops</span>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
               {integrity.candidateDisconnects}
             </p>
           </div>
@@ -1772,21 +1606,21 @@ function VideoSection({
                 ? `${answerRows.length} of ${answerRows.length} answers could be measured on camera.`
                 : `${measurable} of ${answerRows.length} answers could be measured on camera. The rest say why not.`}
             </p>
-            <div className="mt-2.5 overflow-x-auto rounded-xl border border-border">
+            <div className="-mx-3 mt-3 overflow-x-auto">
               <table className="w-full text-left text-[13px]">
                 <thead>
-                  <tr className="border-b border-border bg-slate-50/80 font-semibold text-muted dark:border-border dark:bg-background/60">
+                  <tr className="border-b border-border text-xs font-medium text-muted">
                     <th className="px-3.5 py-2.5">Answer at</th>
                     <th className="px-3.5 py-2.5">While listening</th>
                     <th className="px-3.5 py-2.5">While answering</th>
                     <th className="px-3.5 py-2.5">Observations</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
+                <tbody className="divide-y divide-border align-top">
                   {answerRows.map((answer) => (
                     <tr
                       key={answer.turnSeq}
-                      className={onSpot(answer) ? "bg-amber-50/60 dark:bg-amber-950/20" : undefined}
+                      className={onSpot(answer) ? "bg-amber-500/[0.06]" : undefined}
                     >
                       <td className="px-3.5 py-2.5 align-top">
                         <button
@@ -2264,12 +2098,12 @@ function VoiceSection({
   ];
 
   return (
-    <details id="voice" className="group rounded-2xl border border-border bg-surface">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-4 text-sm font-medium">
+    <details id="voice" className="group border-t border-border">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-5 text-sm font-medium text-muted transition hover:text-foreground">
         Interview details
         <ChevronDown className="size-4 text-muted transition group-open:rotate-180" aria-hidden />
       </summary>
-      <div className="flex flex-wrap items-end justify-between gap-4 border-t border-border px-6 py-5">
+      <div className="flex flex-wrap items-end justify-between gap-4 pb-8">
         <dl className="grid grid-cols-2 gap-x-10 gap-y-4 sm:grid-cols-4">
           {facts.map((fact) => (
             <div key={fact.label}>
