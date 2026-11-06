@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { Bricolage_Grotesque, Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import { THEME_COOKIE, parseThemeCookie } from "@/lib/theme";
 import "./globals.css";
 
@@ -14,17 +14,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// Headings: a grotesque with some character, so the product does not read as
-// a generic dashboard. Body text stays in Geist for long transcripts.
-const display = Bricolage_Grotesque({
-  variable: "--font-display-face",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
   title: {
-    default: "Sreemedhas Agent — AI-powered interviews for better hiring",
-    template: "%s | Sreemedhas Agent",
+    default: "Medhas Academy Interviews",
+    template: "%s · Medhas Academy",
   },
   description: "AI-powered conversations for better hiring.",
 };
@@ -40,7 +33,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={[geistSans.variable, geistMono.variable, display.variable, theme === "dark" && "dark"]
+      className={[geistSans.variable, geistMono.variable, theme === "dark" && "dark"]
         .filter(Boolean)
         .join(" ")}
       style={{ colorScheme: theme }}

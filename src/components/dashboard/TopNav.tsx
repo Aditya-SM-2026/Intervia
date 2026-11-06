@@ -1,8 +1,8 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import { BrandMark } from "@/components/brand/BrandMark";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, FileText, LogOut, Monitor, Moon, Plus, Search, Settings, Sun } from "lucide-react";
 import type { DashboardAnalytics } from "@/lib/dashboard/dashboard.types";
@@ -20,7 +20,6 @@ import { useTheme } from "./theme";
 const NAV_LINKS = [
   { href: "/dashboard", label: "Interviews" },
   { href: "/dashboard/roles", label: "Roles" },
-  { href: "/recruiter", label: "New interview" },
 ] as const;
 
 /**
@@ -89,21 +88,11 @@ export function TopNav() {
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
-        <div className="flex items-center gap-8">
-          <Link href="/" className="flex items-center gap-2.5" aria-label="Sreemedhas Agent home">
-            <span className="inline-flex items-center rounded-lg bg-white px-2 py-1">
-              <Image
-                src="/company_logo_sreemedhas.png"
-                alt="Sreemedhas Software Technologies"
-                width={140}
-                height={37}
-                priority
-                className="h-7 w-auto object-contain"
-              />
-            </span>
-          </Link>
+    <header className="sticky top-0 z-40 border-b border-border bg-surface/85 backdrop-blur-xl supports-[backdrop-filter]:bg-surface/70">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6">
+        <div className="flex items-center gap-6">
+          <BrandMark href="/dashboard" />
+          <span aria-hidden className="hidden h-6 w-px bg-border md:block" />
           <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
             {NAV_LINKS.map((link) => {
               const active = isActiveLink(pathname, link.href);
@@ -112,43 +101,44 @@ export function TopNav() {
                   key={link.href}
                   href={link.href}
                   aria-current={active ? "page" : undefined}
-                  className={`relative rounded-lg px-3 py-2 text-sm font-medium transition hover:text-foreground ${
-                    active ? "text-foreground" : "text-muted"
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                    active
+                      ? "bg-foreground/[0.06] text-foreground"
+                      : "text-muted hover:bg-foreground/[0.04] hover:text-foreground"
                   }`}
                 >
                   {link.label}
-                  {active && (
-                    <span aria-hidden className="absolute inset-x-3 -bottom-[13px] h-0.5 rounded-full bg-accent" />
-                  )}
                 </Link>
               );
             })}
           </nav>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2">
           <form role="search" onSubmit={submitSearch} className="relative hidden sm:block">
             <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
             <input
               ref={searchRef}
               type="search"
               name="q"
-              placeholder="Search candidates, roles, or reports…"
+              placeholder="Search…"
               aria-label="Search candidates, roles, or reports"
-              className="w-56 rounded-xl border border-border bg-background py-2 pl-9 pr-14 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 lg:w-72"
+              className="h-9 w-52 rounded-lg border border-border bg-background/60 pl-9 pr-12 text-sm outline-none transition placeholder:text-muted hover:border-foreground/20 focus:w-72 focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/15 lg:w-64"
             />
-            <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-border bg-surface px-1.5 py-0.5 font-sans text-[10px] font-medium text-muted">
+            <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-surface px-1.5 py-0.5 font-sans text-[10px] font-medium text-muted">
               {shortcutHint}
             </kbd>
           </form>
 
           <Link
             href="/recruiter"
-            className="hidden items-center gap-2 rounded-xl bg-foreground px-4 py-2 text-sm font-medium text-background transition hover:opacity-85 sm:inline-flex"
+            className="hidden h-9 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 active:scale-[0.98] sm:inline-flex"
           >
             <Plus className="size-4" aria-hidden />
             New interview
           </Link>
+
+          <span aria-hidden className="mx-1 hidden h-6 w-px bg-border sm:block" />
 
           <Menu
             label="Notifications"
@@ -162,7 +152,7 @@ export function TopNav() {
               <button
                 type="button"
                 aria-label={`Notifications${analytics && analytics.awaitingRecent.length > 0 ? ` (${analytics.awaitingRecent.length} awaiting analysis)` : ""}`}
-                className="relative grid size-9 place-items-center rounded-xl border border-transparent text-muted transition hover:border-border hover:bg-background hover:text-foreground"
+                className="relative grid size-9 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.05] hover:text-foreground"
               >
                 <Bell className="size-[18px]" aria-hidden />
                 {bellOpen && analytics && analytics.awaitingRecent.length > 0 && (
@@ -199,21 +189,20 @@ export function TopNav() {
               <button
                 type="button"
                 aria-label="User menu"
-                className="flex items-center gap-1.5 rounded-xl border border-transparent p-1 transition hover:border-border hover:bg-background"
+                className="flex items-center rounded-full p-0.5 transition hover:ring-4 hover:ring-foreground/[0.06]"
               >
                 <Avatar name="Recruiter" className="size-8 text-xs" />
               </button>
             }
             header={
               <div className="border-b border-border px-3 py-2.5">
-                <p className="text-sm font-semibold">Recruiter workspace</p>
-                <p className="text-xs text-muted">Appearance</p>
+                <p className="text-sm font-semibold">Recruiter</p>
+                <p className="text-xs text-muted">Medhas Academy</p>
+                <p className="mt-3 text-[11px] font-medium uppercase tracking-wider text-muted">Theme</p>
                 <ThemeControl />
               </div>
             }
             items={[
-              { id: "create", label: "Create interview", icon: <Plus className="size-4" aria-hidden />, onSelect: () => router.push("/recruiter") },
-              { id: "reports", label: "All reports", icon: <FileText className="size-4" aria-hidden />, onSelect: () => router.push("/dashboard") },
               { id: "settings", label: "Settings", icon: <Settings className="size-4" aria-hidden />, onSelect: () => router.push("/dashboard/settings") },
               { id: "signout", label: "Sign out", icon: <LogOut className="size-4" aria-hidden />, onSelect: () => void signOut() },
             ]}
@@ -233,7 +222,7 @@ function ThemeControl() {
     { value: "system" as const, label: "System", icon: <Monitor className="size-3.5" aria-hidden /> },
   ];
   return (
-    <div role="radiogroup" aria-label="Theme" className="mt-2 grid grid-cols-3 gap-1 rounded-lg border border-border bg-background p-1">
+    <div role="radiogroup" aria-label="Theme" className="mt-1.5 grid grid-cols-3 gap-1 rounded-lg bg-foreground/[0.05] p-1">
       {options.map((option) => (
         <button
           key={option.value}
@@ -243,8 +232,8 @@ function ThemeControl() {
           onClick={() => setPreference(option.value)}
           className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition ${
             preference === option.value
-              ? "bg-accent text-white shadow-xs"
-              : "text-muted hover:bg-accent-soft hover:text-foreground"
+              ? "bg-surface text-foreground shadow-sm ring-1 ring-border"
+              : "text-muted hover:text-foreground"
           }`}
         >
           {option.icon}

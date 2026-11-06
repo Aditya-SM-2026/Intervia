@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import { BrandMark } from "@/components/brand/BrandMark";
 import {
   DisconnectReason,
   ParticipantKind,
@@ -455,15 +455,7 @@ export function InterviewRoom({
 
         <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
           <div className="min-w-0">
-            <span className="inline-flex items-center rounded-md bg-white px-2 py-1">
-              <Image
-                src="/company_logo_sreemedhas.png"
-                alt="Sreemedhas Software Technologies"
-                width={110}
-                height={29}
-                className="h-5 w-auto object-contain"
-              />
-            </span>
+            <BrandMark href={null} size="sm" onDark />
             <h1 className="mt-1 truncate text-sm text-muted">{roomTitle}</h1>
           </div>
           <div className="flex items-center gap-3">

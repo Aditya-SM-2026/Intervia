@@ -1,9 +1,10 @@
+import { BrandMark } from "@/components/brand/BrandMark";
 import type { Metadata } from "next";
 import { ApplicationForm } from "@/components/apply/ApplicationForm";
 import { getPublicApplicationState } from "@/lib/roles/application.service";
 import { closedReasonMessage } from "@/lib/roles/form-link-status";
 
-export const metadata: Metadata = { title: "Apply — Sreemedhas Agent" };
+export const metadata: Metadata = { title: "Apply" };
 
 export default async function ApplyPage({
   params,
@@ -19,9 +20,9 @@ export default async function ApplyPage({
   return (
     <main className="min-h-dvh bg-background px-4 py-10 sm:py-14">
       <div className="mx-auto w-full max-w-xl">
-        <p className="text-center text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-          Sreemedhas Agent
-        </p>
+        <div className="flex justify-center">
+          <BrandMark href={null} />
+        </div>
         {state.form ? (
           <ApplicationForm
             token={token}

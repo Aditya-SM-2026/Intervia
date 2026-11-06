@@ -16,32 +16,32 @@
   --color-candidate: var(--candidate);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-display: var(--font-display-face), var(--font-geist-sans), sans-serif;
+  --font-display: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
 /*
- * Two voices run through the whole product: blue is the interviewer (and the
- * product's own actions), green is the candidate (their words, their audio).
+ * Neutral, low-chroma surfaces with one strong brand blue for actions. Green
+ * stays reserved for the candidate's voice inside the interview views.
  */
 :root {
-  --background: #f5f6f8;
-  --foreground: #101828;
+  --background: #f6f7f9;
+  --foreground: #0e1525;
   --surface: #ffffff;
-  --border: #e1e5ec;
-  --muted: #5d6779;
-  --accent: #2f5fe0;
-  --accent-soft: rgba(47, 95, 224, 0.08);
+  --border: #e3e6eb;
+  --muted: #5a6476;
+  --accent: #2446d8;
+  --accent-soft: rgba(36, 70, 216, 0.08);
   --candidate: #17976a;
 }
 
 .dark {
-  --background: #0c111b;
-  --foreground: #e8ecf5;
-  --surface: #141b29;
-  --border: #263048;
-  --muted: #93a0b8;
-  --accent: #7aa7ff;
-  --accent-soft: rgba(122, 167, 255, 0.12);
+  --background: #0a0e16;
+  --foreground: #e6eaf2;
+  --surface: #111723;
+  --border: #222a3a;
+  --muted: #8b95a8;
+  --accent: #4a72f5;
+  --accent-soft: rgba(74, 114, 245, 0.14);
   --candidate: #6fd3a8;
   color-scheme: dark;
 }
@@ -50,10 +50,20 @@
   color-scheme: light;
 }
 
+body {
+  font-feature-settings: "cv11", "ss01";
+  text-rendering: optimizeLegibility;
+}
+
 h1,
-h2 {
+h2,
+h3 {
   font-family: var(--font-display);
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 :focus-visible {

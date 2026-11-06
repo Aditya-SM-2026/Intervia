@@ -13,7 +13,6 @@ interface AppShellProps {
 const NAV = [
   { id: "interviews", href: "/dashboard", label: "Interviews" },
   { id: "roles", href: "/dashboard/roles", label: "Roles" },
-  { id: "new", href: "/recruiter", label: "New interview" },
 ] as const;
 
 /** Chrome shared by the signed-in recruiter pages. */

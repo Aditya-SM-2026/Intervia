@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ResumeUploadForm } from "@/components/recruiter/ResumeUploadForm";
 
-export const metadata: Metadata = { title: "Upload your resume — Sreemedhas Agent" };
+export const metadata: Metadata = { title: "Upload your resume" };
 
 export default async function UploadPage({
   params,

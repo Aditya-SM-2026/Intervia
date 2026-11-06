@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import { Bot, ChevronRight, Database, Mic, SlidersHorizontal } from "lucide-react";
+import { BrandEmblem } from "@/components/brand/BrandMark";
 import { TopNav } from "@/components/dashboard/TopNav";
 import { ThemeProvider } from "@/components/dashboard/theme";
 import { readAgentPersonalityForSettings } from "@/lib/agent/personality.service";
@@ -42,19 +42,11 @@ export default async function SettingsPage() {
           )}
           <section className="rounded-2xl border border-border bg-surface p-5">
             <div className="flex flex-wrap items-center gap-4">
-              <span className="grid h-14 w-44 place-items-center rounded-xl bg-white px-3 py-2">
-                <Image
-                  src="/company_logo_sreemedhas.png"
-                  alt="Sreemedhas Software Technologies"
-                  width={176}
-                  height={46}
-                  className="h-full w-auto object-contain"
-                />
-              </span>
+              <BrandEmblem className="size-14" />
               <div className="min-w-0">
-                <p className="text-lg font-semibold tracking-tight">Sreemedhas Agent</p>
+                <p className="text-lg font-semibold tracking-tight">Medhas Academy Interviews</p>
                 <p className="text-sm text-muted">
-                  Sreemedhas Software Technologies Pvt Ltd · AI interview agent
+                  AI interview agent
                 </p>
               </div>
             </div>
