@@ -722,7 +722,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
           )}
         </section>
 
-        <aside className="grid gap-6 lg:sticky lg:top-20">
+        <aside className="flex min-w-0 flex-col gap-6 lg:sticky lg:top-20">
           <ApplicationFormSettings roleId={roleId} roleTitle={role.title} roleDescription={role.description} />
           <PipelineCard rows={rows} />
         </aside>

@@ -42,14 +42,24 @@ function tidyHeading(text: string): string {
   return stripped;
 }
 
+const SENTENCE_END = /[.!?;:]$/;
+
 export function parseDocument(raw: string): DocumentBlock[] {
   const lines = raw.replace(/\r\n?/g, "\n").split("\n").map((line) => line.trim());
   const blocks: DocumentBlock[] = [];
-  let paragraph: string[] = [];
+  let group: string[] = [];
 
+  // Lines that each end a sentence are separate points, so they read as a
+  // list; anything else is ordinary wrapped prose and joins into a paragraph.
   const flush = () => {
-    if (paragraph.length > 0) blocks.push({ kind: "paragraph", text: paragraph.join(" ") });
-    paragraph = [];
+    if (group.length === 0) return;
+    const ended = group.filter((line) => SENTENCE_END.test(line)).length;
+    if (group.length >= 2 && ended >= group.length - 1 && group.every((line) => line.length < 260)) {
+      blocks.push({ kind: "bullets", items: [...group] });
+    } else {
+      blocks.push({ kind: "paragraph", text: group.join(" ") });
+    }
+    group = [];
   };
   const last = () => blocks[blocks.length - 1];
 
@@ -76,18 +86,21 @@ export function parseDocument(raw: string): DocumentBlock[] {
       continue;
     }
     const fact = FACT.exec(line);
-    if (fact && paragraph.length === 0) {
+    if (fact && group.length === 0) {
       const previous = last();
       const item = { label: fact[1].trim(), value: fact[2].trim() };
       if (previous?.kind === "facts") previous.items.push(item);
       else blocks.push({ kind: "facts", items: [item] });
       continue;
     }
-    if (paragraph.length === 0 && isHeading(line, lines[index + 1], lines[index - 1])) {
+    const previousLine = group.length > 0 ? group[group.length - 1] : "";
+    const afterSentence = group.length === 0 || SENTENCE_END.test(previousLine);
+    if (afterSentence && isHeading(line, lines[index + 1], group.length === 0 ? "" : previousLine)) {
+      flush();
       blocks.push({ kind: "heading", text: tidyHeading(line) });
       continue;
     }
-    paragraph.push(line);
+    group.push(line);
   }
   flush();
   return blocks;
