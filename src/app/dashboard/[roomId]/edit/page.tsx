@@ -35,8 +35,8 @@ export default async function EditInterviewPage({
   return (
     <ThemeProvider>
       <TopNav />
-      <main className="min-h-[calc(100vh-64px)] w-full bg-[#f8fafc] px-4 py-6 sm:px-6 lg:px-8 dark:bg-background">
-        <div className="mx-auto w-full max-w-4xl">
+      <main className="w-full px-4 pb-24 pt-8 sm:px-6">
+        <div className="mx-auto w-full max-w-6xl">
           <Link
             href="/dashboard"
             className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted transition hover:text-foreground"
@@ -46,7 +46,7 @@ export default async function EditInterviewPage({
           </Link>
 
           <div className="mb-5">
-            <h1 className="text-2xl font-semibold">Edit interview</h1>
+            <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">Edit interview</h1>
             <p className="mt-1 text-sm text-muted">
               {room.candidateName ?? "This candidate"} · {room.roleTitle ?? room.title}
             </p>

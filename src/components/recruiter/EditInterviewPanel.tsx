@@ -163,13 +163,13 @@ export function EditInterviewPanel({
           <div className="mt-5">
             <p className="mb-2 text-sm font-medium">Candidate link</p>
             <div className="flex flex-wrap items-center gap-2">
-              <code className="min-w-0 flex-1 break-all rounded-lg border border-border bg-surface-muted px-3 py-2 text-xs">
+              <code className="min-w-0 flex-1 break-all rounded-lg border border-border bg-foreground/[0.04] px-3 py-2 text-xs">
                 {result.candidateUrl}
               </code>
               <button
                 type="button"
                 onClick={() => copyLink(result.candidateUrl)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium transition hover:bg-surface-muted"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium transition hover:bg-foreground/[0.05]"
               >
                 {copied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />}
                 {copied ? "Copied" : "Copy"}
@@ -198,7 +198,7 @@ export function EditInterviewPanel({
             <button
               type="button"
               onClick={() => setResult(null)}
-              className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-surface-muted"
+              className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-foreground/[0.05]"
             >
               Keep editing
             </button>
@@ -213,7 +213,7 @@ export function EditInterviewPanel({
       {error && (
         <p
           role="alert"
-          className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400"
+          className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-300"
         >
           {error}
         </p>
@@ -221,7 +221,7 @@ export function EditInterviewPanel({
       {notice && (
         <p
           role="status"
-          className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400"
+          className="rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300"
         >
           {notice}
         </p>
@@ -242,7 +242,7 @@ export function EditInterviewPanel({
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="grid gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+          <label className="grid gap-1.5 text-xs font-medium text-muted">
             Date
             <input
               type="date"
@@ -251,7 +251,7 @@ export function EditInterviewPanel({
               className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition focus:border-accent"
             />
           </label>
-          <label className="grid gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+          <label className="grid gap-1.5 text-xs font-medium text-muted">
             Time
             <input
               type="time"
