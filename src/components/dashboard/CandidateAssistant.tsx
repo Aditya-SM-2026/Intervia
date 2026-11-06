@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
   ArrowUpRight,
+  Bot,
   CheckCircle2,
   ChevronDown,
   History,
@@ -20,11 +21,14 @@ import {
 import type {
   AssistantAnswer,
   AssistantCandidateAnswer,
+  AssistantCitation,
   AssistantComparisonAnswer,
   AssistantConversation,
+  AssistantGeneralAnswer,
   AssistantMessage,
   AssistantNoticeAnswer,
   AssistantPortfolioAnswer,
+  AssistantSkillEstimate,
 } from "@/lib/interviews/assistant.types";
 
 interface CandidateAssistantProps {
@@ -33,11 +37,12 @@ interface CandidateAssistantProps {
   open: boolean;
   onClose: () => void;
   onJumpToTurn?: (seq: number) => void;
+  onJumpToReportSection?: (sectionId: string) => void;
 }
 
 const SUGGESTIONS = [
   "What are the strongest technical answers?",
-  "Where is the evidence thinnest?",
+  "What score would you give for their top skill?",
   "Is this candidate better than another candidate?",
   "Who scored highest in this role?",
 ];
@@ -48,12 +53,20 @@ const CONFIDENCE_STYLE: Record<string, string> = {
   low: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
 };
 
+const BASIS_LABEL: Record<string, string> = {
+  report: "From the report",
+  inferred: "Inferred from the interview",
+  general: "General knowledge",
+  estimate: "Estimated score",
+};
+
 export function CandidateAssistant({
   roomId,
   candidateName,
   open,
   onClose,
   onJumpToTurn,
+  onJumpToReportSection,
 }: CandidateAssistantProps) {
   const [conversations, setConversations] = useState<AssistantConversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -331,11 +344,11 @@ export function CandidateAssistant({
               <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 dark:border-blue-900/60 dark:bg-blue-950/20">
                 <p className="flex items-center gap-2 text-xs font-bold text-blue-800 dark:text-blue-200">
                   <MessageSquare className="size-4" />
-                  Ask about the evidence, not the score
+                  Ask anything about this candidate
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-blue-900/80 dark:text-blue-100/80">
-                  I use {candidateName || "this candidate"}&apos;s resume, transcript and stored report.
-                  I will say when the evidence is missing, and I keep every candidate&apos;s words separate.
+                  I read {candidateName || "this candidate"}&apos;s report, transcript and resume, and
+                  I can estimate a skill score when the report has no official one.
                 </p>
               </div>
               <div className="grid gap-2">
@@ -366,6 +379,7 @@ export function CandidateAssistant({
                     key={message.id}
                     message={message}
                     onJumpToTurn={onJumpToTurn}
+                    onJumpToSection={onJumpToReportSection}
                     onFollowUp={(question) => void sendQuestion(question)}
                   />
                 ),
@@ -428,31 +442,36 @@ export function CandidateAssistant({
 function AssistantMessageCard({
   message,
   onJumpToTurn,
+  onJumpToSection,
   onFollowUp,
 }: {
   message: AssistantMessage;
   onJumpToTurn?: (seq: number) => void;
+  onJumpToSection?: (sectionId: string) => void;
   onFollowUp: (question: string) => void;
 }) {
   const answer = message.answer;
   return (
     <div className="flex items-start gap-2.5">
-      <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">
-        <Sparkles className="size-3.5" />
-      </span>
-      <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-slate-200 bg-white p-3.5 shadow-xs dark:border-border dark:bg-surface">
+      <div className="size-8 shrink-0 rounded-full bg-gradient-to-br from-sky-500 to-blue-600 p-[1.5px] shadow-sm">
+        <div className="flex h-full w-full items-center justify-center rounded-full bg-white dark:bg-slate-900">
+          <Bot className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+        </div>
+      </div>
+      <div className="min-w-0 max-w-[calc(100%-2.5rem)] rounded-2xl rounded-tl-md bg-slate-50 px-4 py-3 text-slate-800 ring-1 ring-slate-200/80 dark:bg-slate-800/80 dark:text-slate-100 dark:ring-slate-700/80">
         {answer ? (
           <AnswerBody
             answer={answer}
             onJumpToTurn={onJumpToTurn}
+            onJumpToSection={onJumpToSection}
             onFollowUp={onFollowUp}
           />
         ) : (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-200">
-            {message.content}
-          </p>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
         )}
-        <p className="mt-2 text-[10px] text-slate-400">{formatTime(message.createdAt)}</p>
+        <p className="mt-2.5 text-[10px] text-slate-400 dark:text-slate-500">
+          {formatTime(message.createdAt)}
+        </p>
       </div>
     </div>
   );
@@ -461,14 +480,26 @@ function AssistantMessageCard({
 function AnswerBody({
   answer,
   onJumpToTurn,
+  onJumpToSection,
   onFollowUp,
 }: {
   answer: AssistantAnswer;
   onJumpToTurn?: (seq: number) => void;
+  onJumpToSection?: (sectionId: string) => void;
   onFollowUp: (question: string) => void;
 }) {
+  if (answer.kind === "general") {
+    return <GeneralAnswerCard answer={answer} />;
+  }
   if (answer.kind === "candidate") {
-    return <CandidateAnswerCard answer={answer} onJumpToTurn={onJumpToTurn} onFollowUp={onFollowUp} />;
+    return (
+      <CandidateAnswerCard
+        answer={answer}
+        onJumpToTurn={onJumpToTurn}
+        onJumpToSection={onJumpToSection}
+        onFollowUp={onFollowUp}
+      />
+    );
   }
   if (answer.kind === "comparison") {
     return <ComparisonAnswerCard answer={answer} onJumpToTurn={onJumpToTurn} />;
@@ -482,51 +513,63 @@ function AnswerBody({
 function CandidateAnswerCard({
   answer,
   onJumpToTurn,
+  onJumpToSection,
   onFollowUp,
 }: {
   answer: AssistantCandidateAnswer;
   onJumpToTurn?: (seq: number) => void;
+  onJumpToSection?: (sectionId: string) => void;
   onFollowUp: (question: string) => void;
 }) {
+  const citations =
+    answer.citations && answer.citations.length > 0
+      ? answer.citations
+      : legacyCitations(answer);
+  const basis = answer.basis ?? "report";
+
   return (
     <div className="grid gap-3">
-      <p className="whitespace-pre-line text-sm leading-relaxed text-slate-800 dark:text-slate-100">{answer.assessment}</p>
-      <ConfidencePill confidence={answer.confidence} reason={answer.confidenceReason} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <BasisBadge basis={basis} />
+        {answer.estimatedSkill && (
+          <span
+            className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+              answer.estimatedSkill.official
+                ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"
+                : "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+            }`}
+          >
+            {answer.estimatedSkill.official ? "Report score" : "Estimate"}
+          </span>
+        )}
+      </div>
 
-      {answer.resumeEvidence.items.length > 0 && (
-        <EvidenceBlock title="From the resume" tone="resume">
-          {answer.resumeEvidence.items.map((item, index) => (
-            <EvidenceQuote key={`${index}-${item.quote.slice(0, 12)}`} quote={item.quote} note={item.note} />
-          ))}
-        </EvidenceBlock>
+      <AnswerText
+        text={answer.assessment}
+        citations={citations}
+        onJumpToTurn={onJumpToTurn}
+        onJumpToSection={onJumpToSection}
+      />
+
+      {answer.estimatedSkill && (
+        <EstimatedSkillCard estimate={answer.estimatedSkill} onJumpToSection={onJumpToSection} />
       )}
 
-      {answer.interviewEvidence.items.length > 0 && (
-        <EvidenceBlock title="Demonstrated in the interview" tone="interview">
-          {answer.interviewEvidence.items.map((item) => (
-            <EvidenceBlockRow
-              key={`${item.turnSeq}-${item.quote.slice(0, 10)}`}
-              turnSeq={item.turnSeq}
-              quote={item.quote}
-              note={item.note}
-              onJump={onJumpToTurn}
-            />
-          ))}
-        </EvidenceBlock>
-      )}
-
-      {!answer.resumeEvidence.found && !answer.interviewEvidence.discussed && (
-        <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
-          I could not find enough evidence in this report to answer that.
-        </p>
+      {citations.length > 0 && (
+        <CitationSources
+          citations={citations}
+          onJumpToTurn={onJumpToTurn}
+          onJumpToSection={onJumpToSection}
+        />
       )}
 
       {answer.missingEvidence && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-          <span className="font-semibold">Missing evidence: </span>
           {answer.missingEvidence}
         </p>
       )}
+
+      <ConfidencePill confidence={answer.confidence} reason={answer.confidenceReason} />
 
       {answer.followUps.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -542,6 +585,238 @@ function CandidateAnswerCard({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function AnswerText({
+  text,
+  citations,
+  onJumpToTurn,
+  onJumpToSection,
+}: {
+  text: string;
+  citations: AssistantCitation[];
+  onJumpToTurn?: (seq: number) => void;
+  onJumpToSection?: (sectionId: string) => void;
+}) {
+  const byIndex = new Map(citations.map((citation) => [citation.index, citation]));
+  const parts = text.split(/(\[\d+\])/g);
+  return (
+    <p className="whitespace-pre-line text-sm leading-relaxed">
+      {parts.map((part, index) => {
+        const match = /^\[(\d+)\]$/.exec(part);
+        if (!match) return <span key={`text-${index}`}>{part}</span>;
+        const citation = byIndex.get(Number(match[1]));
+        if (!citation) return null;
+        const target =
+          citation.kind === "transcript"
+            ? citation.turnSeq !== undefined
+            : Boolean(citation.sectionId);
+        return (
+          <button
+            key={`cite-${index}`}
+            type="button"
+            disabled={!target}
+            onClick={() => jumpCitation(citation, onJumpToTurn, onJumpToSection)}
+            title={citation.quote || citation.label}
+            className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-100 px-1 align-[0.15em] text-[10px] font-semibold text-blue-700 transition hover:bg-blue-200 disabled:cursor-default dark:bg-blue-950/60 dark:text-blue-300"
+          >
+            {citation.index}
+          </button>
+        );
+      })}
+    </p>
+  );
+}
+
+function BasisBadge({ basis }: { basis: string }) {
+  const tone =
+    basis === "inferred"
+      ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+      : basis === "general"
+        ? "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+        : basis === "estimate"
+          ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300"
+          : "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300";
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${tone}`}>
+      {BASIS_LABEL[basis] ?? "From the report"}
+    </span>
+  );
+}
+
+function EstimatedSkillCard({
+  estimate,
+  onJumpToSection,
+}: {
+  estimate: AssistantSkillEstimate;
+  onJumpToSection?: (sectionId: string) => void;
+}) {
+  const tone = estimate.official
+    ? "border-blue-200 bg-blue-50/70 dark:border-blue-900 dark:bg-blue-950/25"
+    : "border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/25";
+  return (
+    <div className={`rounded-xl border p-3 ${tone}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-[9px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            {estimate.official ? "Official report score" : "Estimated skill score"}
+          </p>
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{estimate.skill}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-2xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
+            {estimate.score}
+            <span className="text-xs font-medium text-slate-400">/100</span>
+          </p>
+          <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">{estimate.band}</p>
+        </div>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-slate-700 dark:text-slate-200">
+        {estimate.rationale}
+      </p>
+      <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
+        {estimate.official
+          ? "This comes from the report's scored custom parameters."
+          : "Estimated from the interview and resume evidence, not an official report score."}
+      </p>
+      <div className="mt-2 flex gap-1.5">
+        {estimate.official && (
+          <button
+            type="button"
+            onClick={() => onJumpToSection?.("custom")}
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[9px] font-semibold text-slate-600 transition hover:border-blue-300 hover:text-blue-700 dark:border-border dark:bg-surface dark:text-slate-300"
+          >
+            View score details
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CitationSources({
+  citations,
+  onJumpToTurn,
+  onJumpToSection,
+}: {
+  citations: AssistantCitation[];
+  onJumpToTurn?: (seq: number) => void;
+  onJumpToSection?: (sectionId: string) => void;
+}) {
+  return (
+    <details className="group rounded-xl border border-slate-200 bg-white/70 dark:border-border dark:bg-slate-900/30">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+        <span className="flex items-center gap-1.5">
+          <Quote className="size-3 text-slate-400" />
+          Sources
+          <span className="rounded-full bg-slate-100 px-1.5 text-[9px] text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+            {citations.length}
+          </span>
+        </span>
+        <ChevronDown className="size-3.5 text-slate-400 transition group-open:rotate-180" />
+      </summary>
+      <div className="grid gap-1 border-t border-slate-200 p-2 dark:border-border">
+        {citations.map((citation) => (
+          <CitationRow
+            key={`${citation.kind}-${citation.index}`}
+            citation={citation}
+            onJumpToTurn={onJumpToTurn}
+            onJumpToSection={onJumpToSection}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function CitationRow({
+  citation,
+  onJumpToTurn,
+  onJumpToSection,
+}: {
+  citation: AssistantCitation;
+  onJumpToTurn?: (seq: number) => void;
+  onJumpToSection?: (sectionId: string) => void;
+}) {
+  const target =
+    citation.kind === "transcript"
+      ? citation.turnSeq !== undefined
+      : Boolean(citation.sectionId);
+  return (
+    <button
+      type="button"
+      disabled={!target}
+      onClick={() => jumpCitation(citation, onJumpToTurn, onJumpToSection)}
+      className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-slate-50 disabled:cursor-default dark:hover:bg-slate-800/50"
+    >
+      <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-blue-100 text-[9px] font-bold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
+        {citation.index}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[10px] font-semibold text-slate-700 dark:text-slate-200">
+          {citation.label}
+        </span>
+        {citation.quote && (
+          <span className="mt-0.5 line-clamp-2 block text-[10px] italic leading-relaxed text-slate-500 dark:text-slate-400">
+            “{citation.quote}”
+          </span>
+        )}
+        {citation.note && (
+          <span className="mt-0.5 block text-[9px] leading-relaxed text-slate-400 dark:text-slate-500">
+            {citation.note}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+function jumpCitation(
+  citation: AssistantCitation,
+  onTurn?: (turn: number) => void,
+  onSection?: (section: string) => void,
+) {
+  if (citation.kind === "transcript") {
+    if (citation.turnSeq !== undefined) onTurn?.(citation.turnSeq);
+    return;
+  }
+  if (citation.sectionId) onSection?.(citation.sectionId);
+}
+
+function legacyCitations(answer: AssistantCandidateAnswer): AssistantCitation[] {
+  const citations: AssistantCitation[] = [];
+  for (const item of answer.resumeEvidence.items) {
+    citations.push({
+      index: citations.length + 1,
+      kind: "resume",
+      label: "Resume",
+      sectionId: "resume",
+      quote: item.quote,
+      note: item.note,
+    });
+  }
+  for (const item of answer.interviewEvidence.items) {
+    citations.push({
+      index: citations.length + 1,
+      kind: "transcript",
+      label: `Turn ${item.turnSeq}`,
+      turnSeq: item.turnSeq,
+      quote: item.quote,
+      note: item.note,
+    });
+  }
+  return citations;
+}
+
+function GeneralAnswerCard({ answer }: { answer: AssistantGeneralAnswer }) {
+  return (
+    <div className="grid gap-2">
+      <span className="w-fit rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+        General knowledge
+      </span>
+      <p className="text-sm leading-relaxed">{answer.answer}</p>
     </div>
   );
 }
@@ -712,43 +987,6 @@ function NoticeAnswerCard({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function EvidenceBlock({
-  title,
-  tone,
-  children,
-}: {
-  title: string;
-  tone: "resume" | "interview";
-  children: ReactNode;
-}) {
-  return (
-    <div className={`rounded-xl border p-2.5 ${
-      tone === "resume"
-        ? "border-sky-200 bg-sky-50/50 dark:border-sky-900 dark:bg-sky-950/20"
-        : "border-emerald-200 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/20"
-    }`}>
-      <p className={`text-[10px] font-bold uppercase tracking-wide ${
-        tone === "resume" ? "text-sky-700 dark:text-sky-300" : "text-emerald-700 dark:text-emerald-300"
-      }`}>
-        {title}
-      </p>
-      <div className="mt-1.5 grid gap-1.5">{children}</div>
-    </div>
-  );
-}
-
-function EvidenceQuote({ quote, note }: { quote: string; note: string }) {
-  return (
-    <div className="rounded-lg bg-white/80 p-2 dark:bg-slate-900/40">
-      <p className="flex gap-1.5 text-[11px] italic leading-relaxed text-slate-700 dark:text-slate-200">
-        <Quote className="mt-0.5 size-3 shrink-0 text-slate-400" />
-        <span>&ldquo;{quote}&rdquo;</span>
-      </p>
-      {note && <p className="mt-1 pl-[18px] text-[10px] text-slate-500 dark:text-muted">{note}</p>}
     </div>
   );
 }

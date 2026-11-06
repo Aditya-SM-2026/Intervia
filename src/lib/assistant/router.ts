@@ -28,6 +28,27 @@ const CROSS_PATTERN =
 const FOLLOW_UP =
   /^(what about|how about|and |what about their|what about his|what about her|the other|both|between them|which one|who is better)/i;
 
+const CANDIDATE_CONTEXT =
+  /\b(candidate|candidates|they|them|their|theirs|he|him|his|she|her|hers|this person|the person|this interview|the interview|interview|report|resume|cv|transcript|answer|answers|answered|score|scores|scored|rating|rated|role|job|position|fit|hire|hirable|experience|skill|skills|project|projects|strength|strengths|weakness|weaknesses|assessment|evaluate|evaluation)\b/i;
+
+const GENERAL_INTENT =
+  /^(what|who|when|where|why|how|define|explain|describe|tell me about|can you explain|could you explain)\b/i;
+
+const GENERAL_FOLLOW_UP =
+  /^(why|how so|tell me more|explain|what does that mean|and what|what about that)\b/i;
+
+/**
+ * Obvious outside-knowledge questions skip the candidate evidence pack.
+ * Anything that mentions the candidate, report or an evaluation stays on the
+ * report path, where the model can still mark an unrelated answer as general.
+ */
+export function isLikelyGeneralQuestion(question: string, lastScope: AssistantScope | null): boolean {
+  const text = question.trim();
+  if (!text || CANDIDATE_CONTEXT.test(text)) return false;
+  if (lastScope === "general" && text.length < 140 && GENERAL_FOLLOW_UP.test(text)) return true;
+  return GENERAL_INTENT.test(text);
+}
+
 /**
  * Most questions are candidate-only and must not pay for a routing call.
  * Only comparison and role-wide language reaches the router.

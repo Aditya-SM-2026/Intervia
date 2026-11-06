@@ -530,6 +530,18 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
     }, 1800);
   }
 
+  /** Scrolls to a report section cited by the assistant and flashes it. */
+  function jumpToReportSection(sectionId: string) {
+    const section = document.getElementById(sectionId);
+    if (!section) return;
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (window.innerWidth < 640) setAssistantOpen(false);
+    section.classList.add("ring-2", "ring-blue-400", "ring-offset-2");
+    window.setTimeout(() => {
+      section.classList.remove("ring-2", "ring-blue-400", "ring-offset-2");
+    }, 1800);
+  }
+
   if (error && !detail) {
     return (
       <div className="mx-auto max-w-7xl grid gap-4">
@@ -754,6 +766,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
         open={assistantOpen}
         onClose={closeAssistant}
         onJumpToTurn={jumpToCitedTurn}
+        onJumpToReportSection={jumpToReportSection}
       />
       </div>
 
@@ -1565,7 +1578,7 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
   const barTone = total === null ? "bg-slate-300" : total >= 75 ? "bg-emerald-500" : total >= 50 ? "bg-amber-500" : "bg-rose-500";
 
   return (
-    <section id="custom-parameters" className={`${cardClasses} scroll-mt-32`}>
+    <section id="custom" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
         icon={SlidersHorizontal}
         iconColor="indigo"

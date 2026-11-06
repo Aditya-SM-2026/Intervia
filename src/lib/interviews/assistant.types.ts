@@ -7,9 +7,48 @@
  * candidate's words are never presented as another's.
  */
 
-export type AssistantScope = "candidate" | "comparison" | "portfolio";
+export type AssistantScope = "candidate" | "comparison" | "portfolio" | "general";
 
 export type AssistantConfidence = "high" | "medium" | "low";
+
+/** How the answer was produced, so the recruiter can read it correctly. */
+export type AssistantBasis = "report" | "inferred" | "general" | "estimate";
+
+/** A destination the UI can jump to from an evidence citation. */
+export type AssistantReportSection =
+  | "overview"
+  | "summary"
+  | "answers"
+  | "custom"
+  | "resume"
+  | "authenticity"
+  | "recording"
+  | "transcript"
+  | "video"
+  | "voice"
+  | "comments"
+  | "peers";
+
+/** One clickable source shown beside an answer. */
+export interface AssistantCitation {
+  /** The number shown in the answer as [1], [2], and so on. */
+  index: number;
+  kind: "transcript" | "resume" | "report";
+  label: string;
+  turnSeq?: number;
+  sectionId?: AssistantReportSection;
+  quote?: string;
+  note?: string;
+}
+
+/** A skill-level score inferred from evidence, never an official report score. */
+export interface AssistantSkillEstimate {
+  skill: string;
+  score: number;
+  band: string;
+  official: boolean;
+  rationale: string;
+}
 
 export interface AssistantResumeEvidence {
   quote: string;
@@ -24,7 +63,13 @@ export interface AssistantTurnEvidence {
 
 export interface AssistantCandidateAnswer {
   kind: "candidate";
+  /** Short conversational answer. Legacy saved answers may not have it. */
+  basis?: AssistantBasis;
   assessment: string;
+  /** Inline sources, including report sections. Legacy answers may not have it. */
+  citations?: AssistantCitation[];
+  /** Present only when the recruiter asked for a skill-level score. */
+  estimatedSkill?: AssistantSkillEstimate | null;
   resumeEvidence: {
     found: boolean;
     items: AssistantResumeEvidence[];
@@ -101,6 +146,12 @@ export interface AssistantPortfolioAnswer {
   caveats: string[];
 }
 
+/** A normal general-knowledge reply, with no candidate evidence attached. */
+export interface AssistantGeneralAnswer {
+  kind: "general";
+  answer: string;
+}
+
 /** A clarification or "no matching candidate" reply, saved like any other. */
 export interface AssistantNoticeAnswer {
   kind: "notice";
@@ -112,6 +163,7 @@ export type AssistantAnswer =
   | AssistantCandidateAnswer
   | AssistantComparisonAnswer
   | AssistantPortfolioAnswer
+  | AssistantGeneralAnswer
   | AssistantNoticeAnswer;
 
 export interface AssistantConversation {
