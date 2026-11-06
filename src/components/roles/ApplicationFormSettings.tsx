@@ -410,7 +410,7 @@ export function ApplicationFormSettings({
           <div className="mt-3 grid grid-cols-2 gap-2">
             {whatsappHref && (
               <a href={whatsappHref} target="_blank" rel="noreferrer" className={ghostButton}>
-                Share on WhatsApp
+                WhatsApp
               </a>
             )}
             <button type="button" onClick={() => openPanel("questions")} className={ghostButton}>
