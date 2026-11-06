@@ -347,8 +347,8 @@ export function CandidateAssistant({
                   Ask anything about this candidate
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-blue-900/80 dark:text-blue-100/80">
-                  I read {candidateName || "this candidate"}&apos;s report, transcript and resume, and
-                  I can estimate a skill score when the report has no official one.
+                  I answer only from {candidateName || "this candidate"}&apos;s report, transcript,
+                  resume and scores, with clickable evidence for every answer.
                 </p>
               </div>
               <div className="grid gap-2">
@@ -706,70 +706,36 @@ function CitationSources({
   onJumpToSection?: (sectionId: string) => void;
 }) {
   return (
-    <details className="group rounded-xl border border-slate-200 bg-white/70 dark:border-border dark:bg-slate-900/30">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-        <span className="flex items-center gap-1.5">
-          <Quote className="size-3 text-slate-400" />
-          Sources
-          <span className="rounded-full bg-slate-100 px-1.5 text-[9px] text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-            {citations.length}
-          </span>
-        </span>
-        <ChevronDown className="size-3.5 text-slate-400 transition group-open:rotate-180" />
-      </summary>
-      <div className="grid gap-1 border-t border-slate-200 p-2 dark:border-border">
-        {citations.map((citation) => (
-          <CitationRow
-            key={`${citation.kind}-${citation.index}`}
-            citation={citation}
-            onJumpToTurn={onJumpToTurn}
-            onJumpToSection={onJumpToSection}
-          />
-        ))}
+    <div className="grid gap-1.5">
+      <p className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <Quote className="size-3" />
+        Evidence
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {citations.map((citation) => {
+          const target =
+            citation.kind === "transcript"
+              ? citation.turnSeq !== undefined
+              : Boolean(citation.sectionId);
+          return (
+            <button
+              key={`${citation.kind}-${citation.index}`}
+              type="button"
+              disabled={!target}
+              onClick={() => jumpCitation(citation, onJumpToTurn, onJumpToSection)}
+              title={citation.quote || citation.note || citation.label}
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50/80 py-1 pl-1 pr-2.5 text-[10px] font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-default dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300"
+            >
+              <span className="grid size-4 shrink-0 place-items-center rounded-full bg-white text-[9px] font-bold text-blue-700 shadow-sm dark:bg-slate-900 dark:text-blue-300">
+                {citation.index}
+              </span>
+              <span className="truncate">{citation.label}</span>
+              {target && <ArrowUpRight className="size-3 shrink-0 opacity-70" />}
+            </button>
+          );
+        })}
       </div>
-    </details>
-  );
-}
-
-function CitationRow({
-  citation,
-  onJumpToTurn,
-  onJumpToSection,
-}: {
-  citation: AssistantCitation;
-  onJumpToTurn?: (seq: number) => void;
-  onJumpToSection?: (sectionId: string) => void;
-}) {
-  const target =
-    citation.kind === "transcript"
-      ? citation.turnSeq !== undefined
-      : Boolean(citation.sectionId);
-  return (
-    <button
-      type="button"
-      disabled={!target}
-      onClick={() => jumpCitation(citation, onJumpToTurn, onJumpToSection)}
-      className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-slate-50 disabled:cursor-default dark:hover:bg-slate-800/50"
-    >
-      <span className="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full bg-blue-100 text-[9px] font-bold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
-        {citation.index}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[10px] font-semibold text-slate-700 dark:text-slate-200">
-          {citation.label}
-        </span>
-        {citation.quote && (
-          <span className="mt-0.5 line-clamp-2 block text-[10px] italic leading-relaxed text-slate-500 dark:text-slate-400">
-            “{citation.quote}”
-          </span>
-        )}
-        {citation.note && (
-          <span className="mt-0.5 block text-[9px] leading-relaxed text-slate-400 dark:text-slate-500">
-            {citation.note}
-          </span>
-        )}
-      </span>
-    </button>
+    </div>
   );
 }
 
