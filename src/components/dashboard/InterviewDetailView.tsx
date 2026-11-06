@@ -2275,9 +2275,9 @@ function PeersSection({ peers, currentId }: { peers: PeerSummary[]; currentId: s
                 </span>
               </span>
               <span className="h-1.5 overflow-hidden rounded-full bg-foreground/[0.07]">
-                {score !== null && <span className={`block h-full rounded-full ${TONE_BAR[tone]}`} style={{ width: `${score}%` }} />}
+                {score !== null && <span className={`block h-full rounded-full ${isCurrent ? "bg-accent" : "bg-foreground/60"}`} style={{ width: `${score}%` }} />}
               </span>
-              <span className="text-right font-semibold">{score ?? "—"}</span>
+              <span className={`text-right font-semibold tabular-nums ${score !== null ? TONE_TEXT[tone] : ""}`}>{score ?? "—"}</span>
               <span className="text-right text-xs text-muted">
                 {peer.decision ? DECISION_LABELS[peer.decision.outcome] : "No decision"}
               </span>
