@@ -32,6 +32,7 @@ import { CandidateAssistant } from "./CandidateAssistant";
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowRight,
   Briefcase,
   Calendar,
   Check,
@@ -127,6 +128,13 @@ const VERDICT_STYLES: Record<
     border: "border-border dark:border-slate-800",
     icon: Minus,
   },
+};
+
+const TONE_TEXT: Record<Tone, string> = {
+  good: "text-emerald-700 dark:text-emerald-400",
+  warn: "text-amber-700 dark:text-amber-400",
+  bad: "text-rose-700 dark:text-rose-400",
+  muted: "text-muted",
 };
 
 const cardClasses = "border-t border-border py-10 first:border-t-0 first:pt-8";
@@ -550,7 +558,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
         <article className="min-w-0 rounded-2xl border border-border bg-surface px-5 shadow-sm shadow-black/[0.03] sm:px-10">
           {scorecard ? (
             <>
-              <OverallAssessment scorecard={scorecard} insights={insights} />
+              <OverallAssessment scorecard={scorecard} insights={insights} peers={peers} roomId={roomId} />
               <SummarySection scorecard={scorecard} insights={insights} />
               <AnswerQualityTable
                 scorecard={scorecard}
@@ -826,25 +834,28 @@ function CandidateHeader({
 function OverallAssessment({
   scorecard,
   insights,
+  peers,
+  roomId,
 }: {
   scorecard: Scorecard;
   insights: ReportInsights | null;
+  peers: PeerSummary[];
+  roomId: string;
 }) {
-  const [expandedFactor, setExpandedFactor] = useState<FactorId | null>(null);
   const reduce = useReducedMotion();
   const overall = scorecard.overall;
 
   if (!overall) {
     return (
       <section id="overview" className={`${cardClasses} scroll-mt-32`}>
-        <CardHeading icon={Gauge} iconColor="amber" title="Overall assessment" />
+        <CardHeading title="Overall assessment" />
         <p className="mt-4 text-5xl font-semibold leading-none tabular-nums">
           {scorecard.overallScore === null ? "–" : scorecard.overallScore.toFixed(1)}
           <span className="text-lg font-normal text-muted"> of 5</span>
         </p>
         <p className="mt-3 max-w-xl text-sm text-muted">
-          This scorecard was generated before multi-factor evaluation was added. Use Regenerate scorecard
-          below to produce the 0-100 score and factor breakdowns.
+          This report was made before the 0–100 score existed. Re-score it from the menu at the top to get the full
+          breakdown.
         </p>
       </section>
     );
@@ -852,58 +863,145 @@ function OverallAssessment({
 
   const score = overall.score;
   const band = scoreBand(score);
+  const verdict = insights?.hireBand.label ?? band.label;
+  const verdictTone: Tone =
+    insights?.hireBand.band === "strong-hire" || insights?.hireBand.band === "hire"
+      ? "good"
+      : insights?.hireBand.band === "insufficient"
+        ? "muted"
+        : insights
+          ? "bad"
+          : band.tone;
+
+  const claims = scorecard.resumeMatch?.claims ?? [];
+  const backed = claims.filter((claim) => claim.verdict === "confirmed").length;
+  const partly = claims.filter((claim) => claim.verdict === "partly_supported").length;
+  const contradicted = claims.filter((claim) => claim.verdict === "not_supported").length;
+  const ranked = [...peers].sort((x, y) => (y.overall?.score ?? -1) - (x.overall?.score ?? -1));
+  const rank = ranked.findIndex((peer) => peer.roomId === roomId) + 1;
+  const flags = insights?.redFlags.items ?? [];
+  const coverage = insights?.coverage;
+  const talk = insights?.talk.candidatePercent ?? null;
+  const medianAnswer = insights?.speaking.medianAnswerSeconds ?? null;
+
+  const outcomes: { label: string; value: string; note: string; tone: Tone; href?: string }[] = [
+    {
+      label: "Topics covered",
+      value: coverage && coverage.planned > 0 ? `${coverage.scored} of ${coverage.planned}` : "—",
+      note:
+        coverage && coverage.planned > 0
+          ? coverage.scored < coverage.planned
+            ? "The interview ended early"
+            : "Every planned topic"
+          : "No plan recorded",
+      tone: coverage && coverage.planned > 0 && coverage.scored < coverage.planned ? "warn" : "muted",
+      href: "#answers",
+    },
+    {
+      label: "Resume claims backed up",
+      value: claims.length > 0 ? `${backed} of ${claims.length}` : "—",
+      note:
+        claims.length === 0
+          ? "Resume not checked"
+          : contradicted > 0
+            ? `${contradicted} contradicted`
+            : partly > 0
+              ? `${partly} only partly`
+              : "No contradictions",
+      tone: contradicted > 0 ? "bad" : partly > 0 ? "warn" : "muted",
+      href: "#resume",
+    },
+    {
+      label: "Red flags",
+      value: flags.length === 0 ? "None" : String(flags.length),
+      note: flags.length === 0 ? "Nothing unusual" : flags[0],
+      tone: flags.length === 0 ? "muted" : insights?.redFlags.level === "high" ? "bad" : "warn",
+      href: "#authenticity",
+    },
+    {
+      label: "Rank for this role",
+      value: rank > 0 && peers.length > 1 ? `${rank} of ${peers.length}` : "—",
+      note:
+        insights?.benchmark.average != null
+          ? `Role average ${Math.round(insights.benchmark.average)}`
+          : peers.length > 1
+            ? "Among interviewed"
+            : "Only candidate so far",
+      tone: "muted",
+      href: "#peers",
+    },
+    {
+      label: "Candidate talk time",
+      value: talk !== null ? `${talk}%` : "—",
+      note: medianAnswer !== null ? `About ${Math.round(medianAnswer)}s per answer` : "Not measured",
+      tone: talk !== null && talk < 40 ? "warn" : "muted",
+      href: "#recording",
+    },
+  ];
 
   return (
     <section id="overview" className={`${cardClasses} scroll-mt-32`}>
-      <div className="grid gap-10 lg:grid-cols-[13rem_minmax(0,1fr)]">
+      <div className="grid gap-8 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-12">
         <div>
-          <h2 className="text-sm text-muted">Overall score</h2>
-          <p className="mt-3 flex items-baseline gap-1">
-            <motion.span
-              className="text-[64px] font-semibold leading-[0.85] tracking-[-0.045em] tabular-nums"
-              initial={reduce ? false : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, ease: EASE_OUT }}
-            >
-              {score ?? "–"}
-            </motion.span>
-            <span className="text-base text-muted">/100</span>
+          <p className="text-sm text-muted">Recommendation</p>
+          <motion.p
+            className={`mt-1.5 text-[34px] font-semibold leading-tight tracking-[-0.03em] ${TONE_TEXT[verdictTone]}`}
+            initial={reduce ? false : { opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, ease: EASE_OUT }}
+          >
+            {verdict}
+          </motion.p>
+          <p className="mt-3 flex items-baseline gap-1.5">
+            <span className="text-2xl font-semibold tabular-nums tracking-[-0.02em]">{score ?? "–"}</span>
+            <span className="text-sm text-muted">/100 overall, {band.label.toLowerCase()}</span>
           </p>
-          <p className={`mt-4 text-[15px] font-medium ${TONE_TEXT[band.tone]}`}>{band.label}</p>
-          {insights?.hireBand.label && (
-            <p className="mt-0.5 text-sm text-muted">Suggested: {insights.hireBand.label.toLowerCase()}</p>
-          )}
         </div>
 
-        <div>
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-lg font-semibold tracking-[-0.01em]">How the score is made</h2>
-            <span className="text-xs text-muted">Click a row for what it measures</span>
-          </div>
-          <div className="mt-3 divide-y divide-border border-y border-border">
-            {overall.factors.map((factor, index) => {
-              const meta = FACTOR_META[factor.id];
-              const chip = factorChip(factor.id, factor.score);
-              const isExpanded = expandedFactor === factor.id;
-              return (
-                <FactorRow
-                  key={factor.id}
-                  name={meta.name}
-                  score={factor.score}
-                  label={chip.label}
-                  tone={chip.tone}
-                  weight={factor.weight}
-                  explains={meta.explains}
-                  href={`#${factorLink(factor.id)}`}
-                  expanded={isExpanded}
-                  delay={0.15 + index * 0.07}
-                  onToggle={() => setExpandedFactor(isExpanded ? null : factor.id)}
-                />
-              );
-            })}
-          </div>
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-border sm:grid-cols-4">
+          {overall.factors.map((factor, index) => {
+            const meta = FACTOR_META[factor.id];
+            const chip = factorChip(factor.id, factor.score);
+            return (
+              <a
+                key={factor.id}
+                href={`#${factorLink(factor.id)}`}
+                title={meta.explains}
+                className="group bg-surface p-4 transition-colors hover:bg-foreground/[0.02]"
+              >
+                <span className="block text-xs text-muted">{meta.name}</span>
+                <span className="mt-2 block text-2xl font-semibold tabular-nums tracking-[-0.02em]">
+                  {factor.score ?? "—"}
+                </span>
+                <span className="mt-2 block h-1 overflow-hidden rounded-full bg-foreground/[0.07]">
+                  {factor.score !== null && (
+                    <motion.span
+                      className="block h-full rounded-full bg-foreground/70"
+                      initial={reduce ? false : { width: 0 }}
+                      animate={{ width: `${Math.max(2, factor.score)}%` }}
+                      transition={{ duration: 0.8, delay: 0.15 + index * 0.07, ease: EASE_OUT }}
+                    />
+                  )}
+                </span>
+                <span className={`mt-2 block text-xs font-medium ${TONE_TEXT[chip.tone]}`}>{chip.label}</span>
+                <span className="mt-0.5 block text-[11px] text-muted">{factor.weight}% of the score</span>
+              </a>
+            );
+          })}
         </div>
       </div>
+
+      <dl className="mt-8 grid grid-cols-2 gap-x-6 gap-y-5 border-t border-border pt-6 sm:grid-cols-3 lg:grid-cols-5">
+        {outcomes.map((item) => (
+          <a key={item.label} href={item.href} className="group min-w-0">
+            <dt className="text-xs text-muted group-hover:text-foreground">{item.label}</dt>
+            <dd className="mt-1 text-lg font-semibold tabular-nums tracking-[-0.01em]">{item.value}</dd>
+            <dd className={`mt-0.5 truncate text-xs ${item.tone === "muted" ? "text-muted" : TONE_TEXT[item.tone]}`} title={item.note}>
+              {item.note}
+            </dd>
+          </a>
+        ))}
+      </dl>
 
       {scorecard.needsHumanReview && (
         <p className="mt-6 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
@@ -915,91 +1013,67 @@ function OverallAssessment({
   );
 }
 
-
-const TONE_TEXT: Record<Tone, string> = {
-  good: "text-emerald-700 dark:text-emerald-400",
-  warn: "text-amber-700 dark:text-amber-400",
-  bad: "text-rose-700 dark:text-rose-400",
-  muted: "text-muted",
-};
-
-function FactorRow({
-  name,
-  score,
-  label,
-  tone,
-  weight,
-  explains,
-  href,
-  expanded,
-  delay,
-  onToggle,
-}: {
-  name: string;
-  score: number | null;
-  label: string;
-  tone: Tone;
-  weight: number;
-  explains: string;
-  href: string;
-  expanded: boolean;
-  delay: number;
-  onToggle: () => void;
-}) {
-  const reduce = useReducedMotion();
+/** Clamped text with a quiet "More" toggle, for long model-written notes. */
+function Clamp({ text, lines = 2, className }: { text: string; lines?: 1 | 2 | 3; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > (lines === 1 ? 90 : lines === 2 ? 170 : 260);
+  const clamp = lines === 1 ? "line-clamp-1" : lines === 2 ? "line-clamp-2" : "line-clamp-3";
   return (
-    <div>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-2 py-3.5 text-left sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_8.5rem_2.5rem_1rem]"
-      >
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-medium group-hover:text-accent">{name}</span>
-          <span className="block text-xs text-muted">{weight}% of the score</span>
-        </span>
-        <span className="hidden h-1 overflow-hidden rounded-full bg-foreground/[0.08] sm:block">
-          {score !== null && (
-            <motion.span
-              className="block h-full rounded-full bg-foreground/75"
-              initial={reduce ? false : { width: 0 }}
-              animate={{ width: `${Math.max(2, score)}%` }}
-              transition={{ duration: 0.8, delay, ease: EASE_OUT }}
-            />
-          )}
-        </span>
-        <span className={`hidden text-sm sm:block ${TONE_TEXT[tone]}`}>{label}</span>
-        <span className="text-right text-[15px] font-semibold tabular-nums">{score === null ? "—" : score}</span>
-        <ChevronDown className={`hidden size-4 text-muted transition-transform sm:block ${expanded ? "rotate-180" : ""}`} aria-hidden />
-      </button>
-      {expanded && (
-        <div className="animate-pop-in max-w-prose pb-4 text-sm leading-6 text-muted">
-          <p>{explains}</p>
-          <a href={href} className="mt-1.5 inline-block font-medium text-accent hover:underline">
-            Go to the details
-          </a>
-        </div>
+    <div className={className}>
+      <p className={!open && long ? clamp : undefined}>{text}</p>
+      {long && (
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          className="mt-1 text-xs font-medium text-muted transition hover:text-foreground"
+        >
+          {open ? "Less" : "More"}
+        </button>
       )}
     </div>
   );
 }
 
-/** Summary: what happened, what went well, what to probe. */
-function EvidenceList({ title, items, empty }: { title: string; items: string[]; empty: string }) {
+/** Takeaways: the lead sentence, then short lists of what matters. */
+function TakeawayList({
+  title,
+  icon,
+  items,
+  empty,
+}: {
+  title: string;
+  icon: ReactNode;
+  items: string[];
+  empty: string;
+}) {
+  const [all, setAll] = useState(false);
+  const shown = all ? items : items.slice(0, 3);
   return (
-    <div>
-      <h3 className="text-sm font-semibold">{title}</h3>
+    <div className="min-w-0">
+      <h3 className="flex items-center gap-2 text-sm font-semibold">
+        {title}
+        <span className="text-xs font-normal tabular-nums text-muted">{items.length}</span>
+      </h3>
       {items.length === 0 ? (
-        <p className="mt-2 text-sm text-muted">{empty}</p>
+        <p className="mt-3 text-sm text-muted">{empty}</p>
       ) : (
-        <ul className="mt-3 list-disc space-y-2.5 pl-4 text-[15px] leading-6 text-foreground/85 marker:text-foreground/30">
-          {items.map((item, index) => (
-            <li key={index} className="pl-1">
-              {item}
+        <ul className="mt-3 space-y-3">
+          {shown.map((item, index) => (
+            <li key={index} className="flex gap-2.5 text-sm leading-6 text-foreground/85">
+              <span className="mt-1 shrink-0">{icon}</span>
+              <Clamp text={item} lines={2} />
             </li>
           ))}
         </ul>
+      )}
+      {items.length > 3 && (
+        <button
+          type="button"
+          onClick={() => setAll((current) => !current)}
+          className="mt-3 text-xs font-medium text-accent hover:underline"
+        >
+          {all ? "Show fewer" : `Show all ${items.length}`}
+        </button>
       )}
     </div>
   );
@@ -1012,29 +1086,54 @@ function SummarySection({
   scorecard: Scorecard;
   insights: ReportInsights | null;
 }) {
+  const [full, setFull] = useState(false);
   const integrity = scorecard.integrity;
+  const summary = plain(scorecard.summary);
+  const lead = firstSentence(summary);
+  const rest = summary.slice(lead.length).trim();
+  const nextSteps = insights?.nextSteps ?? [];
+
   return (
     <section id="summary" className={`${cardClasses} scroll-mt-32`}>
-      <CardHeading title="Summary" />
-      <p className="mt-4 max-w-[68ch] text-[15px] leading-7 text-foreground/85">{plain(scorecard.summary)}</p>
-
-      <div className="mt-8 grid gap-8 sm:grid-cols-2 sm:gap-12">
-        <EvidenceList title="What went well" items={scorecard.strengths} empty="Nothing stood out." />
-        <EvidenceList title="What to probe further" items={scorecard.concerns} empty="No concerns were raised." />
-      </div>
-
-      {insights && insights.nextSteps.length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-sm font-semibold">Suggested next steps</h3>
-          <ol className="mt-3 list-decimal space-y-2 pl-4 text-[15px] leading-6 text-foreground/85 marker:text-muted">
-            {insights.nextSteps.map((step) => (
-              <li key={step} className="pl-1">
-                {step}
-              </li>
-            ))}
-          </ol>
-        </div>
+      <CardHeading title="Takeaways" />
+      <p className="mt-4 max-w-[70ch] text-[17px] font-medium leading-7 tracking-[-0.005em] text-foreground">{lead}</p>
+      {rest && (
+        <>
+          {full && <p className="mt-3 max-w-[70ch] text-[15px] leading-7 text-foreground/75">{rest}</p>}
+          <button
+            type="button"
+            onClick={() => setFull((current) => !current)}
+            aria-expanded={full}
+            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-muted transition hover:text-foreground"
+          >
+            {full ? "Hide the full summary" : "Read the full summary"}
+            <ChevronDown className={`size-3.5 transition-transform ${full ? "rotate-180" : ""}`} aria-hidden />
+          </button>
+        </>
       )}
+
+      <div className={`mt-8 grid gap-8 ${nextSteps.length > 0 ? "lg:grid-cols-3" : "sm:grid-cols-2"} lg:gap-10`}>
+        <TakeawayList
+          title="Strengths"
+          icon={<Check className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />}
+          items={scorecard.strengths}
+          empty="Nothing stood out."
+        />
+        <TakeawayList
+          title="Concerns"
+          icon={<AlertCircle className="size-3.5 text-amber-600 dark:text-amber-400" aria-hidden />}
+          items={scorecard.concerns}
+          empty="No concerns were raised."
+        />
+        {nextSteps.length > 0 && (
+          <TakeawayList
+            title="Ask in the next round"
+            icon={<ArrowRight className="size-3.5 text-accent" aria-hidden />}
+            items={nextSteps}
+            empty=""
+          />
+        )}
+      </div>
 
       <details className="group mt-8">
         <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-sm text-muted transition hover:text-foreground">
@@ -1148,7 +1247,7 @@ function AnswerQualityTable({
                       {scoreOut10 !== null && <span className="text-xs text-muted">/10</span>}
                     </td>
                     <td className="px-3 py-4 text-foreground/80">
-                      <p className="leading-relaxed">{item.rationale}</p>
+                      <Clamp text={plain(item.rationale)} lines={2} className="max-w-[60ch] leading-6" />
                     </td>
                     <td className="px-3 py-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
@@ -1282,6 +1381,36 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
   );
 }
 
+/** Counts of each verdict as one bar, so the resume check reads at a glance. */
+function VerdictTally({ claims }: { claims: { verdict: ResumeVerdict }[] }) {
+  const order: { verdict: ResumeVerdict; bar: string }[] = [
+    { verdict: "confirmed", bar: "bg-emerald-500" },
+    { verdict: "partly_supported", bar: "bg-amber-400" },
+    { verdict: "not_supported", bar: "bg-rose-500" },
+    { verdict: "not_discussed", bar: "bg-foreground/15" },
+  ];
+  const total = claims.length;
+  return (
+    <div className="mt-6">
+      <div className="flex h-2 gap-0.5 overflow-hidden rounded-full">
+        {order.map(({ verdict, bar }) => {
+          const count = claims.filter((claim) => claim.verdict === verdict).length;
+          return count > 0 ? <span key={verdict} className={bar} style={{ width: `${(count / total) * 100}%` }} /> : null;
+        })}
+      </div>
+      <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+        {order.map(({ verdict, bar }) => (
+          <div key={verdict} className="flex items-center gap-2">
+            <span aria-hidden className={`size-2 rounded-full ${bar}`} />
+            <dt className="text-muted">{VERDICT_LABELS[verdict]}</dt>
+            <dd className="font-semibold tabular-nums">{claims.filter((claim) => claim.verdict === verdict).length}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 /** 4. Resume Match Section: Table showing claims, verdict badges, interview evidence, and notes */
 function ResumeTable({
   scorecard,
@@ -1318,6 +1447,8 @@ function ResumeTable({
         subtitle="Claims from the resume, checked against what the candidate said."
         right={<HeadingScore score={resume.score} tone={chip.tone} label={chip.label} />}
       />
+
+      {resume.claims.length > 0 && <VerdictTally claims={resume.claims} />}
 
       {resume.claims.length === 0 ? (
         <p className="mt-4 text-xs text-muted">
@@ -1363,7 +1494,7 @@ function ResumeTable({
                         : `Discussed in ${questions.map((q) => `Q${q}`).join(", ")}`}
                     </td>
                     <td className="px-3 py-4 text-muted">
-                      {claim.note || "—"}
+                      {claim.note ? <Clamp text={claim.note} lines={2} /> : "—"}
                     </td>
                   </tr>
                 );
