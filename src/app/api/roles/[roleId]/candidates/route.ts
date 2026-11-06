@@ -33,6 +33,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       total: page.total,
       limit,
       offset,
+      counts: page.counts,
     };
     return NextResponse.json(body);
   } catch (error) {

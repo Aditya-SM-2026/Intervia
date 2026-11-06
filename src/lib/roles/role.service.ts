@@ -132,10 +132,15 @@ export async function listRoleCandidates(
   roleId: string,
   limit: number,
   offset: number,
-): Promise<{ candidates: RoleCandidateSummary[]; total: number } | null> {
+): Promise<{
+  candidates: RoleCandidateSummary[];
+  total: number;
+  counts: { applied: number; interview: number };
+} | null> {
   const role = await repository().getRole(roleId);
   if (!role) return null;
   const page = await repository().listRoleCandidates(roleId, role.title, limit, offset);
+  const counts = await repository().getRoleCandidateCounts(roleId, role.title);
   const candidates: RoleCandidateSummary[] = page.candidates.map((row) => ({
     candidateId: row.candidateId,
     candidateEmail: row.candidateEmail,
@@ -145,6 +150,8 @@ export async function listRoleCandidates(
     pending: row.interviews - row.completed,
     latestInterviewId: row.roomId,
     latestInterviewAt: row.latestInterviewAt,
+    scheduledAt: row.scheduledAt ?? null,
+    completedAt: row.completedAt ?? null,
     latestStatus: row.latestStatus,
     overallScore: row.overallScore,
     suggestion: row.suggestion,
@@ -156,7 +163,7 @@ export async function listRoleCandidates(
     candidateCollegeId: row.candidateCollegeId ?? null,
     answers: row.answers ?? null,
   }));
-  return { candidates, total: page.total };
+  return { candidates, total: page.total, counts };
 }
 
 /** One candidate's full profile inside a role. */

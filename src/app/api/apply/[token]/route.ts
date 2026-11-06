@@ -1,9 +1,10 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import {
-  getPublicApplicationForm,
+  getPublicApplicationState,
   submitApplication,
 } from "@/lib/roles/application.service";
+import { closedReasonMessage } from "@/lib/roles/form-link-status";
 
 type RouteContext = { params: Promise<{ token: string }> };
 
@@ -40,14 +41,19 @@ function clientIp(request: NextRequest): string {
 /** What the public form needs: the role, its description and its questions. */
 export async function GET(_request: NextRequest, context: RouteContext) {
   const { token } = await context.params;
-  const form = await getPublicApplicationForm(token);
-  if (!form) {
+  const state = await getPublicApplicationState(token);
+  if (!state.form) {
     return NextResponse.json(
-      { error: { code: "NOT_FOUND", message: "This application link is no longer open." } },
+      {
+        error: {
+          code: "NOT_FOUND",
+          message: closedReasonMessage(state.closedReason),
+        },
+      },
       { status: 404 },
     );
   }
-  return NextResponse.json(form);
+  return NextResponse.json(state.form);
 }
 
 /**
@@ -74,7 +80,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const result = await submitApplication(token, form);
   if (result.ok) return NextResponse.json({ ok: true, applicationId: result.applicationId });
 
-  const status = result.code === "token" ? 404 : result.code === "duplicate" ? 409 : 400;
+  const status =
+    result.code === "token" ? 404 : result.code === "duplicate" ? 409 : result.code === "closed" ? 410 : 400;
   return NextResponse.json(
     { error: { code: result.code.toUpperCase(), message: result.message } },
     { status },

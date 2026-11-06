@@ -9,6 +9,7 @@ import type { Scorecard } from "@/lib/interviews/scorecard.types";
 import type { InterviewRoom } from "@/lib/interviews/interview.types";
 import type {
   Role,
+  RoleCandidateStageCounts,
   RoleStats,
   RoleStatus,
 } from "@/lib/roles/role.types";
@@ -96,6 +97,11 @@ export interface RoleRepository {
     limit: number,
     offset: number,
   ): Promise<{ candidates: CandidateRow[]; total: number }>;
+  /** Live candidate totals per primary stage for the whole role. */
+  getRoleCandidateCounts(
+    roleId: string,
+    roleTitle: string,
+  ): Promise<RoleCandidateStageCounts>;
   getCandidateInterviews(
     roleId: string,
     roleTitle: string,
@@ -117,6 +123,18 @@ export interface RoleRepository {
   updateFormLinkFields(roleId: string, fields: ApplicationField[]): Promise<RoleFormLink | null>;
   /** Stops a link working without throwing away the applications it collected. */
   revokeFormLink(roleId: string): Promise<void>;
+  /** Stores the link's own limits: cap on applications and deadline in hours. */
+  updateFormLinkSettings(
+    roleId: string,
+    settings: { maxApplications: number | null; expiresAfterHours: number | null },
+  ): Promise<RoleFormLink | null>;
+  /**
+   * Issues a brand-new token, resets this round's counter and reopens the link.
+   * The previous token stops resolving, so old shared links stay dead.
+   */
+  rotateFormLink(roleId: string): Promise<RoleFormLink | null>;
+  /** Applications received at or after a moment, for the link's own counter. */
+  countApplicationsSince(roleId: string, since: string | null): Promise<number>;
   /** The role a public token belongs to; only active links resolve. */
   getRoleByFormToken(token: string): Promise<Role | null>;
   /** Inserts an application; null when this email already applied to the role. */
@@ -186,8 +204,17 @@ CREATE TABLE IF NOT EXISTS role_form_links (
   token TEXT NOT NULL UNIQUE,
   fields JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  revoked_at TIMESTAMPTZ
+  revoked_at TIMESTAMPTZ,
+  max_applications INT,
+  expires_after_hours INT,
+  round_started_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE role_form_links ADD COLUMN IF NOT EXISTS max_applications INT;
+ALTER TABLE role_form_links ADD COLUMN IF NOT EXISTS expires_after_hours INT;
+ALTER TABLE role_form_links ADD COLUMN IF NOT EXISTS round_started_at TIMESTAMPTZ;
+UPDATE role_form_links SET round_started_at = created_at WHERE round_started_at IS NULL;
+ALTER TABLE role_form_links ALTER COLUMN round_started_at SET DEFAULT now();
+ALTER TABLE role_form_links ALTER COLUMN round_started_at SET NOT NULL;
 CREATE TABLE IF NOT EXISTS role_applications (
   id TEXT PRIMARY KEY,
   role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
@@ -257,12 +284,18 @@ function rowToRole(row: RolePgRow): Role {
   };
 }
 
+const FORM_LINK_COLUMNS =
+  "role_id, token, fields, created_at, revoked_at, max_applications, expires_after_hours, round_started_at";
+
 interface FormLinkPgRow {
   role_id: string;
   token: string;
   fields: unknown;
   created_at: Date;
   revoked_at: Date | null;
+  max_applications: number | null;
+  expires_after_hours: number | null;
+  round_started_at: Date;
 }
 
 function rowToFormLink(row: FormLinkPgRow): RoleFormLink {
@@ -272,6 +305,9 @@ function rowToFormLink(row: FormLinkPgRow): RoleFormLink {
     fields: Array.isArray(row.fields) ? (row.fields as ApplicationField[]) : [],
     createdAt: row.created_at.toISOString(),
     revokedAt: row.revoked_at ? row.revoked_at.toISOString() : null,
+    maxApplications: row.max_applications ?? null,
+    expiresAfterHours: row.expires_after_hours ?? null,
+    roundStartedAt: row.round_started_at.toISOString(),
   };
 }
 
@@ -515,7 +551,8 @@ export function getPostgresRolesRepository(): RoleRepository {
       await ensureSchema();
       const result = await getPool().query(
         `WITH assoc AS (
-           SELECT i.id, i.candidate_name, i.candidate_email, i.status, i.created_at, i.decision
+           SELECT i.id, i.candidate_name, i.candidate_email, i.status, i.created_at, i.decision,
+             i.scheduled_at, i.completed_at
            FROM interviews i
            WHERE (i.role_id = $1 OR (i.role_id IS NULL AND lower(i.role_title) = lower($2)))
              AND i.candidate_email IS NOT NULL AND i.candidate_email <> ''
@@ -532,6 +569,8 @@ export function getPostgresRolesRepository(): RoleRepository {
              l.status,
              l.created_at,
              l.decision,
+             l.scheduled_at,
+             l.completed_at,
              (SELECT a.candidate_name FROM assoc a
                WHERE LOWER(a.candidate_email) = LOWER(l.candidate_email)
                  AND a.candidate_name IS NOT NULL
@@ -561,6 +600,8 @@ export function getPostgresRolesRepository(): RoleRepository {
              'scheduled'::text AS status,
              a.created_at,
              NULL::jsonb AS decision,
+             NULL::timestamptz AS scheduled_at,
+             NULL::timestamptz AS completed_at,
              a.name AS candidate_name,
              0 AS interviews,
              0 AS completed,
@@ -589,6 +630,8 @@ export function getPostgresRolesRepository(): RoleRepository {
         status: string;
         created_at: Date;
         decision: unknown;
+        scheduled_at: Date | null;
+        completed_at: Date | null;
         interviews: number;
         completed: number;
         overall: string | null;
@@ -610,6 +653,8 @@ export function getPostgresRolesRepository(): RoleRepository {
         completed: Number(row.completed ?? 0),
         latestStatus: row.status as InterviewStatus,
         latestInterviewAt: row.created_at.toISOString(),
+        scheduledAt: row.scheduled_at ? row.scheduled_at.toISOString() : null,
+        completedAt: row.completed_at ? row.completed_at.toISOString() : null,
         overallScore: row.overall === null ? null : Math.round(Number(row.overall)),
         suggestion: parseSuggestion(row.suggestion),
         decision: decisionFromJson(row.decision),
@@ -633,6 +678,32 @@ export function getPostgresRolesRepository(): RoleRepository {
             : null,
       }));
       return { candidates, total: rows.length > 0 ? Number(rows[0].total) : 0 };
+    },
+
+    async getRoleCandidateCounts(
+      roleId: string,
+      roleTitle: string,
+    ): Promise<RoleCandidateStageCounts> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `WITH assoc AS (
+           SELECT DISTINCT LOWER(i.candidate_email) AS email
+           FROM interviews i
+           WHERE (i.role_id = $1 OR (i.role_id IS NULL AND lower(i.role_title) = lower($2)))
+             AND i.candidate_email IS NOT NULL AND i.candidate_email <> ''
+         )
+         SELECT
+           (SELECT COUNT(*)::int FROM assoc) AS interview,
+           (SELECT COUNT(*)::int FROM role_applications a
+             WHERE a.role_id = $1
+               AND LOWER(a.email) NOT IN (SELECT email FROM assoc)) AS applied`,
+        [roleId, roleTitle],
+      );
+      const row = result.rows[0] as { applied: number; interview: number } | undefined;
+      return {
+        applied: Number(row?.applied ?? 0),
+        interview: Number(row?.interview ?? 0),
+      };
     },
 
     async getCandidateInterviews(
@@ -708,7 +779,7 @@ export function getPostgresRolesRepository(): RoleRepository {
     async getFormLink(roleId: string): Promise<RoleFormLink | null> {
       await ensureSchema();
       const result = await getPool().query(
-        `SELECT role_id, token, fields, created_at, revoked_at
+        `SELECT ${FORM_LINK_COLUMNS}
          FROM role_form_links WHERE role_id = $1`,
         [roleId],
       );
@@ -719,7 +790,7 @@ export function getPostgresRolesRepository(): RoleRepository {
     async getOrCreateFormLink(roleId: string): Promise<RoleFormLink> {
       await ensureSchema();
       const found = await getPool().query(
-        `SELECT role_id, token, fields, created_at, revoked_at
+        `SELECT ${FORM_LINK_COLUMNS}
          FROM role_form_links WHERE role_id = $1`,
         [roleId],
       );
@@ -731,7 +802,7 @@ export function getPostgresRolesRepository(): RoleRepository {
         // group that already has it does not need a fresh one.
         const restored = await getPool().query(
           `UPDATE role_form_links SET revoked_at = NULL WHERE role_id = $1
-           RETURNING role_id, token, fields, created_at, revoked_at`,
+           RETURNING ${FORM_LINK_COLUMNS}`,
           [roleId],
         );
         return rowToFormLink(restored.rows[0] as FormLinkPgRow);
@@ -742,7 +813,7 @@ export function getPostgresRolesRepository(): RoleRepository {
           const created = await getPool().query(
             `INSERT INTO role_form_links (role_id, token)
              VALUES ($1, $2)
-             RETURNING role_id, token, fields, created_at, revoked_at`,
+             RETURNING ${FORM_LINK_COLUMNS}`,
             [roleId, newFormToken()],
           );
           return rowToFormLink(created.rows[0] as FormLinkPgRow);
@@ -761,7 +832,7 @@ export function getPostgresRolesRepository(): RoleRepository {
       const result = await getPool().query(
         `UPDATE role_form_links SET fields = $2::jsonb
          WHERE role_id = $1
-         RETURNING role_id, token, fields, created_at, revoked_at`,
+         RETURNING ${FORM_LINK_COLUMNS}`,
         [roleId, JSON.stringify(fields)],
       );
       const row = result.rows[0] as FormLinkPgRow | undefined;
@@ -774,6 +845,57 @@ export function getPostgresRolesRepository(): RoleRepository {
         `UPDATE role_form_links SET revoked_at = now() WHERE role_id = $1 AND revoked_at IS NULL`,
         [roleId],
       );
+    },
+
+    async updateFormLinkSettings(
+      roleId: string,
+      settings: { maxApplications: number | null; expiresAfterHours: number | null },
+    ): Promise<RoleFormLink | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `UPDATE role_form_links
+         SET max_applications = $2, expires_after_hours = $3
+         WHERE role_id = $1
+         RETURNING ${FORM_LINK_COLUMNS}`,
+        [roleId, settings.maxApplications, settings.expiresAfterHours],
+      );
+      const row = result.rows[0] as FormLinkPgRow | undefined;
+      return row ? rowToFormLink(row) : null;
+    },
+
+    async rotateFormLink(roleId: string): Promise<RoleFormLink | null> {
+      await ensureSchema();
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          const result = await getPool().query(
+            `UPDATE role_form_links
+             SET token = $2, revoked_at = NULL, created_at = now(), round_started_at = now()
+             WHERE role_id = $1
+             RETURNING ${FORM_LINK_COLUMNS}`,
+            [roleId, newFormToken()],
+          );
+          const row = result.rows[0] as FormLinkPgRow | undefined;
+          return row ? rowToFormLink(row) : null;
+        } catch (error) {
+          if ((error as { code?: string }).code !== "23505") throw error;
+        }
+      }
+      throw new Error("Could not allocate a unique form token.");
+    },
+
+    async countApplicationsSince(roleId: string, since: string | null): Promise<number> {
+      await ensureSchema();
+      const result = since
+        ? await getPool().query(
+            `SELECT COUNT(*)::int AS total FROM role_applications
+             WHERE role_id = $1 AND created_at >= $2`,
+            [roleId, since],
+          )
+        : await getPool().query(
+            `SELECT COUNT(*)::int AS total FROM role_applications WHERE role_id = $1`,
+            [roleId],
+          );
+      return Number((result.rows[0] as { total: number } | undefined)?.total ?? 0);
     },
 
     async getRoleByFormToken(token: string): Promise<Role | null> {
@@ -924,6 +1046,7 @@ function toAggregationInterview(room: InterviewRoom): AggregationInterview {
     status: room.status,
     createdAt: room.createdAt,
     completedAt: room.completedAt,
+    scheduledAt: room.scheduledAt,
     decision: room.decision,
     resumeFileName: room.resume?.fileName ?? null,
     resumeText: room.resume?.text ?? null,
@@ -941,6 +1064,16 @@ function toAggregationScorecard(scorecard: Scorecard): AggregationScorecard {
   };
 }
 
+/** Fills limits added after a link was stored, so older links keep working. */
+function normaliseFormLink(link: RoleFormLink): RoleFormLink {
+  return {
+    ...link,
+    maxApplications: link.maxApplications ?? null,
+    expiresAfterHours: link.expiresAfterHours ?? null,
+    roundStartedAt: link.roundStartedAt ?? link.createdAt,
+  };
+}
+
 /** Application-only candidate row, shaped like an aggregated interview row. */
 function applicationToCandidate(application: RoleApplication): CandidateRow {
   return {
@@ -952,6 +1085,8 @@ function applicationToCandidate(application: RoleApplication): CandidateRow {
     completed: 0,
     latestStatus: "scheduled",
     latestInterviewAt: application.createdAt,
+    scheduledAt: null,
+    completedAt: null,
     overallScore: null,
     suggestion: null,
     decision: null,
@@ -1079,6 +1214,25 @@ export function getInMemoryRolesRepository(): RoleRepository {
       return { candidates: merged.slice(offset, offset + limit), total: merged.length };
     },
 
+    async getRoleCandidateCounts(
+      roleId: string,
+      roleTitle: string,
+    ): Promise<RoleCandidateStageCounts> {
+      const store = getInterviewStore();
+      const emails = new Set<string>();
+      for (const room of store.rooms.values()) {
+        if (!matchesRoleAssociation(roleId, roleTitle, room)) continue;
+        const email = room.candidateEmail?.trim().toLowerCase();
+        if (email) emails.add(email);
+      }
+      const applied = [...getStore().applications.values()].filter(
+        (application) =>
+          application.roleId === roleId &&
+          !emails.has(application.email.toLowerCase()),
+      ).length;
+      return { applied, interview: emails.size };
+    },
+
     async getCandidateInterviews(
       roleId: string,
       roleTitle: string,
@@ -1132,24 +1286,29 @@ export function getInMemoryRolesRepository(): RoleRepository {
     },
 
     async getFormLink(roleId: string): Promise<RoleFormLink | null> {
-      return getStore().formLinks.get(roleId) ?? null;
+      const stored = getStore().formLinks.get(roleId);
+      return stored ? normaliseFormLink(stored) : null;
     },
 
     async getOrCreateFormLink(roleId: string): Promise<RoleFormLink> {
       const store = getStore();
       const existing = store.formLinks.get(roleId);
       if (existing) {
-        if (existing.revokedAt === null) return existing;
-        const restored = { ...existing, revokedAt: null };
+        if (existing.revokedAt === null) return normaliseFormLink(existing);
+        const restored = { ...normaliseFormLink(existing), revokedAt: null };
         store.formLinks.set(roleId, restored);
         return restored;
       }
+      const created = new Date().toISOString();
       const link: RoleFormLink = {
         roleId,
         token: newFormToken(),
         fields: [],
-        createdAt: new Date().toISOString(),
+        createdAt: created,
         revokedAt: null,
+        maxApplications: null,
+        expiresAfterHours: null,
+        roundStartedAt: created,
       };
       store.formLinks.set(roleId, link);
       return link;
@@ -1173,6 +1332,41 @@ export function getInMemoryRolesRepository(): RoleRepository {
       if (existing) {
         store.formLinks.set(roleId, { ...existing, revokedAt: new Date().toISOString() });
       }
+    },
+
+    async updateFormLinkSettings(
+      roleId: string,
+      settings: { maxApplications: number | null; expiresAfterHours: number | null },
+    ): Promise<RoleFormLink | null> {
+      const store = getStore();
+      const existing = store.formLinks.get(roleId);
+      if (!existing) return null;
+      const updated = { ...normaliseFormLink(existing), ...settings };
+      store.formLinks.set(roleId, updated);
+      return updated;
+    },
+
+    async rotateFormLink(roleId: string): Promise<RoleFormLink | null> {
+      const store = getStore();
+      const existing = store.formLinks.get(roleId);
+      if (!existing) return null;
+      const now = new Date().toISOString();
+      const updated: RoleFormLink = {
+        ...normaliseFormLink(existing),
+        token: newFormToken(),
+        revokedAt: null,
+        createdAt: now,
+        roundStartedAt: now,
+      };
+      store.formLinks.set(roleId, updated);
+      return updated;
+    },
+
+    async countApplicationsSince(roleId: string, since: string | null): Promise<number> {
+      return [...getStore().applications.values()].filter(
+        (application) =>
+          application.roleId === roleId && (!since || application.createdAt >= since),
+      ).length;
     },
 
     async getRoleByFormToken(token: string): Promise<Role | null> {

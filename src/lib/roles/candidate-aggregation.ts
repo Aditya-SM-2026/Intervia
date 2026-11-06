@@ -20,6 +20,7 @@ export interface AggregationInterview {
   status: string;
   createdAt: string;
   completedAt: string | null;
+  scheduledAt?: string | null;
   decision: HumanDecision | null;
   resumeFileName: string | null;
   resumeText: string | null;
@@ -68,6 +69,10 @@ export interface AggregatedCandidate {
   completed: number;
   latestStatus: InterviewStatus;
   latestInterviewAt: string;
+  /** Scheduled moment of the latest interview; null when it may start any time. */
+  scheduledAt?: string | null;
+  /** When the latest interview actually ended; null until completed. */
+  completedAt?: string | null;
   overallScore: number | null;
   suggestion: ScoreSuggestion | null;
   decision: HumanDecision | null;
@@ -141,6 +146,8 @@ export function aggregateCandidates(
       completed: count.completed,
       latestStatus: interview.status as InterviewStatus,
       latestInterviewAt: interview.createdAt,
+      scheduledAt: interview.scheduledAt ?? null,
+      completedAt: interview.completedAt,
       overallScore: scorecard?.overallScore ?? null,
       suggestion: parseSuggestion(scorecard?.suggestion ?? null),
       decision: interview.decision,

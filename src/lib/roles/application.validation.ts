@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { ApplicationField } from "@/lib/roles/application.types";
+import {
+  BASE_APPLICATION_FIELD_IDS,
+  BASE_APPLICATION_FIELDS,
+  MANDATORY_BASE_FIELD_IDS,
+  isBaseFieldId,
+  type ApplicationField,
+} from "./application.types.ts";
 
 /**
  * Validation for the public application form. Pure, so the rules stay
@@ -13,7 +19,7 @@ const MAX_ANSWER_LENGTH = 2_000;
 const MAX_COLLEGE_ID_LENGTH = 60;
 
 /** Field ids are generated slugs; answers are stored against them. */
-export const FIELD_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+export const FIELD_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
 
 export const applicationFieldSchema = z
   .object({
@@ -54,6 +60,116 @@ export const applicationFieldsSchema = z
       seen.add(field.id);
     }
   });
+
+// ---------------------------------------------------------------------------
+// The complete form: built-in fields and extra questions in one ordered list.
+// ---------------------------------------------------------------------------
+
+const MAX_FORM_FIELDS = MAX_FIELDS + BASE_APPLICATION_FIELDS.length;
+
+const formFieldSchema = z.object({
+  id: z.string().trim().regex(FIELD_ID_PATTERN, "A field id must be a short slug."),
+  label: z
+    .string()
+    .trim()
+    .min(1, "Every field needs a label.")
+    .max(MAX_LABEL_LENGTH, `A field label must be at most ${MAX_LABEL_LENGTH} characters.`),
+  type: z.enum(["text", "textarea", "number", "select", "yesno", "file"]),
+  required: z.boolean().default(false),
+  options: z
+    .array(z.string().trim().min(1).max(MAX_LABEL_LENGTH))
+    .max(MAX_OPTIONS, `A dropdown can offer at most ${MAX_OPTIONS} choices.`)
+    .optional(),
+  hint: z.string().trim().max(200).optional(),
+  system: z.boolean().optional(),
+});
+
+/** One item of a complete form: a built-in field or a recruiter question. */
+export const applicationFormFieldSchema = formFieldSchema.superRefine((field, ctx) => {
+  if (field.system) {
+    if (!isBaseFieldId(field.id)) {
+      ctx.addIssue({ code: "custom", message: `"${field.id}" is not a built-in field.` });
+      return;
+    }
+    const base = BASE_APPLICATION_FIELDS.find((candidate) => candidate.id === field.id);
+    if (base && field.type !== base.type) {
+      ctx.addIssue({
+        code: "custom",
+        message: `The ${base.label} field cannot change its input type.`,
+        path: ["type"],
+      });
+    }
+    if ((MANDATORY_BASE_FIELD_IDS as readonly string[]).includes(field.id) && !field.required) {
+      ctx.addIssue({
+        code: "custom",
+        message: `${base?.label ?? field.label} is required for every application.`,
+        path: ["required"],
+      });
+    }
+    return;
+  }
+  if (isBaseFieldId(field.id)) {
+    ctx.addIssue({
+      code: "custom",
+      message: `"${field.id}" is reserved for a built-in field.`,
+      path: ["id"],
+    });
+    return;
+  }
+  if (field.type === "file") {
+    ctx.addIssue({
+      code: "custom",
+      message: "Only the resume field can accept a file.",
+      path: ["type"],
+    });
+  }
+  if (field.type === "select" && (!field.options || field.options.length === 0)) {
+    ctx.addIssue({
+      code: "custom",
+      message: `The dropdown "${field.label}" needs at least one choice.`,
+      path: ["options"],
+    });
+  }
+});
+
+/** A whole form, including the built-in fields it must keep. */
+export const applicationFormFieldsSchema = z
+  .array(applicationFormFieldSchema)
+  .max(MAX_FORM_FIELDS, `A form can have at most ${MAX_FORM_FIELDS} questions.`)
+  .superRefine((fields, ctx) => {
+    const seen = new Set<string>();
+    for (const field of fields) {
+      if (seen.has(field.id)) {
+        ctx.addIssue({ code: "custom", message: "Two questions share the same id." });
+        return;
+      }
+      seen.add(field.id);
+    }
+    if (!fields.some((field) => field.system)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "The form must keep its built-in fields.",
+      });
+      return;
+    }
+    for (const id of MANDATORY_BASE_FIELD_IDS) {
+      if (!seen.has(id)) {
+        const label = BASE_APPLICATION_FIELDS.find((field) => field.id === id)?.label ?? id;
+        ctx.addIssue({
+          code: "custom",
+          message: `${label} cannot be removed from the form.`,
+        });
+      }
+    }
+  });
+
+/** True when a form is the built-in fields plus questions (the current shape). */
+export function hasSystemApplicationFields(fields: readonly ApplicationField[]): boolean {
+  return fields.some((field) => field.system === true);
+}
+
+/** Built-in field ids, exposed for validation helpers in tests. */
+export const RESERVED_FIELD_IDS = BASE_APPLICATION_FIELD_IDS;
 
 /** Phone numbers as people type them: digits, spaces, +, - and brackets. */
 const PHONE_PATTERN = /^\+?[\d\s()-]{7,20}$/;
@@ -110,8 +226,7 @@ export const applicationIdentitySchema = z.object({
 
 export type ApplicationIdentity = z.infer<typeof applicationIdentitySchema>;
 
-/**
- * Answers to the recruiter's own fields: required ones must be present, and
+/** Answers to the recruiter's own fields: required ones must be present, and
  * dropdown answers must be one of the offered choices.
  */
 export function validateAnswers(
@@ -120,6 +235,7 @@ export function validateAnswers(
 ): string[] {
   const errors: string[] = [];
   for (const field of fields) {
+    if (field.system) continue;
     const value = (answers[field.id] ?? "").trim();
     if (field.required && value === "") {
       errors.push(`${field.label} is required.`);
@@ -135,6 +251,34 @@ export function validateAnswers(
     }
     if (value.length > MAX_ANSWER_LENGTH) {
       errors.push(`${field.label} is too long.`);
+    }
+  }
+  return errors;
+}
+
+/** Extra questions only, in form order. */
+export function customApplicationFields(
+  fields: readonly ApplicationField[],
+): ApplicationField[] {
+  return fields.filter((field) => !field.system);
+}
+
+/**
+ * Required built-in fields that a submitted application left empty. Name,
+ * email and phone are also validated by applicationIdentitySchema; this check
+ * covers the recruiter-made decision about the college roll number and keeps
+ * the label the applicant saw.
+ */
+export function validateRequiredProfileFields(
+  fields: readonly ApplicationField[],
+  values: { name?: string; phone?: string; email?: string; collegeId?: string },
+): string[] {
+  const errors: string[] = [];
+  for (const field of fields) {
+    if (!field.system || !field.required || field.id === "resume") continue;
+    const value = values[field.id as keyof typeof values];
+    if (!value || value.trim() === "") {
+      errors.push(`${field.label} is required.`);
     }
   }
   return errors;

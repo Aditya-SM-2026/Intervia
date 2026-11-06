@@ -1,13 +1,21 @@
 /**
  * Public application form: one revocable link per role, and the applications
- * it collects. The five identity fields are fixed; anything else in a form is
- * a recruiter-defined extra field stored with the link.
+ * it collects. The five identity fields are built in; everything else is a
+ * recruiter-defined extra field stored with the link. Both kinds live in the
+ * same ordered list so the editor can reorder them freely, with `system` true
+ * marking the built-in fields.
  */
 
-/** Input types a recruiter can add on top of the fixed identity fields. */
-export type ApplicationFieldType = "text" | "textarea" | "number" | "select" | "yesno";
+/** Input types on an application form. "file" belongs to the resume only. */
+export type ApplicationFieldType =
+  | "text"
+  | "textarea"
+  | "number"
+  | "select"
+  | "yesno"
+  | "file";
 
-/** One recruiter-defined question on a role's form. */
+/** One question on a role's form. */
 export interface ApplicationField {
   /** Stable slug used as the answer key; never shown to the applicant. */
   id: string;
@@ -18,16 +26,81 @@ export interface ApplicationField {
   options?: string[];
   /** Optional helper text under the label. */
   hint?: string;
+  /**
+   * True for the built-in fields (name, phone, email, college roll number,
+   * resume). They are stored in the same list so order is preserved, but
+   * answers to them live in their own application columns.
+   */
+  system?: boolean;
 }
 
-/** Fixed fields every form asks for; they cannot be removed. */
-export const BASE_APPLICATION_FIELDS = [
-  { id: "name", label: "Full name" },
-  { id: "phone", label: "Phone number" },
-  { id: "email", label: "Email address" },
-  { id: "collegeId", label: "College roll number" },
-  { id: "resume", label: "Resume" },
-] as const;
+/** Ids of the built-in fields. */
+export type BaseApplicationFieldId = "name" | "phone" | "email" | "collegeId" | "resume";
+
+/**
+ * Built-in fields that must always be on the form: an application cannot be
+ * created or followed up without them, so the editor never offers to remove
+ * them or make them optional.
+ */
+export const MANDATORY_BASE_FIELD_IDS = ["name", "phone", "email", "resume"] as const;
+
+/** Built-in fields a recruiter may remove or mark optional. */
+export const OPTIONAL_BASE_FIELD_IDS = ["collegeId"] as const;
+
+/** Every built-in field id. */
+export const BASE_APPLICATION_FIELD_IDS: readonly BaseApplicationFieldId[] = [
+  "name",
+  "phone",
+  "email",
+  "collegeId",
+  "resume",
+];
+
+/** The built-in fields every role's form starts with, in display order. */
+export const BASE_APPLICATION_FIELDS: readonly ApplicationField[] = [
+  { id: "name", label: "Full name", type: "text", required: true, system: true },
+  { id: "phone", label: "Phone number", type: "text", required: true, system: true },
+  { id: "email", label: "Email address", type: "text", required: true, system: true },
+  { id: "collegeId", label: "College roll number", type: "text", required: false, system: true },
+  { id: "resume", label: "Resume", type: "file", required: true, system: true },
+];
+
+export function isBaseFieldId(id: string): id is BaseApplicationFieldId {
+  return (BASE_APPLICATION_FIELD_IDS as readonly string[]).includes(id);
+}
+
+/** True when the built-in field can never be removed or made optional. */
+export function isMandatoryBaseField(id: string): boolean {
+  return (MANDATORY_BASE_FIELD_IDS as readonly string[]).includes(id);
+}
+
+/** A fresh copy of the default form fields. */
+export function defaultApplicationFormFields(): ApplicationField[] {
+  return BASE_APPLICATION_FIELDS.map((field) => ({ ...field }));
+}
+
+/**
+ * The published form for a role. Rows saved before the editor showed built-in
+ * fields contain only extra questions; those are returned after the default
+ * built-in fields. Mandatory built-ins are re-added if a stored form is
+ * missing one, so a candidate can always identify themselves.
+ */
+export function resolveApplicationFormFields(
+  stored: readonly ApplicationField[] | null | undefined,
+): ApplicationField[] {
+  const list = Array.isArray(stored) ? [...stored] : [];
+  const hasSystem = list.some((field) => field.system === true);
+  if (!hasSystem) {
+    return [...BASE_APPLICATION_FIELDS.map((field) => ({ ...field })), ...list];
+  }
+  const present = new Set(list.map((field) => field.id));
+  for (const field of BASE_APPLICATION_FIELDS) {
+    if ((MANDATORY_BASE_FIELD_IDS as readonly string[]).includes(field.id) && !present.has(field.id)) {
+      list.push({ ...field });
+    }
+  }
+  return list;
+}
 
 /** Where an application stands. "scheduled" means an interview was booked. */
 export type ApplicationStatus = "new" | "scheduled" | "rejected";
@@ -60,6 +133,27 @@ export interface RoleFormLink {
   fields: ApplicationField[];
   createdAt: string;
   revokedAt: string | null;
+  /** Close the link once this many applications have arrived. Null = no cap. */
+  maxApplications: number | null;
+  /** Close the link this many hours after it (re)started. Null = no deadline. */
+  expiresAfterHours: number | null;
+  /** When this link started collecting; a new link resets it. */
+  roundStartedAt: string;
+}
+
+/** Why a form link is not accepting applications. */
+export type FormLinkClosedReason = "revoked" | "expired" | "limit";
+
+/** Live state of one link: whether it is open, why not, and how many arrived. */
+export interface FormLinkStatus {
+  open: boolean;
+  closedReason: FormLinkClosedReason | null;
+  applicationsReceived: number;
+  maxApplications: number | null;
+  expiresAfterHours: number | null;
+  /** Computed from roundStartedAt + expiresAfterHours, or null without a deadline. */
+  expiresAt: string | null;
+  roundStartedAt: string;
 }
 
 /** What a visitor sees after opening /apply/<token>. */
@@ -69,11 +163,18 @@ export interface PublicApplicationForm {
   fields: ApplicationField[];
 }
 
+/** Result of resolving a public token, including why a closed one is closed. */
+export interface PublicApplicationState {
+  form: PublicApplicationForm | null;
+  closedReason: FormLinkClosedReason | null;
+}
+
 /** Shape of GET/POST /api/roles/[roleId]/form-link. */
 export interface RoleFormLinkResponse {
   token: string;
   url: string;
   fields: ApplicationField[];
+  status: FormLinkStatus;
 }
 
 /** Shape of GET /api/roles/[roleId]/applications. */

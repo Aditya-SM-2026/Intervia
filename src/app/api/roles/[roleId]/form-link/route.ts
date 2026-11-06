@@ -6,8 +6,11 @@ import { describeRoleError, roleErrorResponse } from "@/lib/roles/role-errors";
 import {
   getRoleFormLink,
   readRoleFormFields,
+  reEnableRoleFormLink,
   revokeRoleFormLink,
+  rotateRoleFormLink,
   saveApplicationFields,
+  saveFormLinkSettings,
 } from "@/lib/roles/application.service";
 import { ZodError } from "zod";
 import { formatRoleValidationIssues } from "@/lib/roles/role.validation";
@@ -49,7 +52,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return roleErrorResponse("INVALID_INPUT", "This role ID is invalid.");
   }
 
-  const body = (await request.json().catch(() => null)) as { fields?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as
+    | {
+        fields?: unknown;
+        settings?: unknown;
+        rotate?: unknown;
+        reenable?: unknown;
+      }
+    | null;
   // Behind Cloud Run the request's own origin is 0.0.0.0:8080, which is not a
   // link anyone can open. Resolve the public base URL instead.
   const origin = resolveAppOrigin({
@@ -60,10 +70,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   });
 
   try {
-    const link =
-      body && "fields" in body
-        ? await saveApplicationFields(roleId, body.fields, origin)
-        : await getRoleFormLink(roleId, origin);
+    let link;
+    if (body && body.rotate === true) {
+      link = await rotateRoleFormLink(roleId, origin);
+    } else if (body && body.reenable === true) {
+      link = await reEnableRoleFormLink(roleId, origin);
+    } else if (body && body.settings !== undefined) {
+      const settings = (body.settings ?? {}) as {
+        maxApplications?: unknown;
+        expiresAfterHours?: unknown;
+      };
+      link = await saveFormLinkSettings(roleId, settings, origin);
+    } else if (body && "fields" in body) {
+      link = await saveApplicationFields(roleId, body.fields, origin);
+    } else {
+      link = await getRoleFormLink(roleId, origin);
+    }
     if (!link) return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
     return NextResponse.json(link);
   } catch (error) {

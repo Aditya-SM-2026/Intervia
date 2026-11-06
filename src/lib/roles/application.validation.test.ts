@@ -3,11 +3,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   applicationFieldsSchema,
+  applicationFormFieldsSchema,
   applicationIdentitySchema,
   parseAnswersInput,
   validateAnswers,
+  validateRequiredProfileFields,
 } from "./application.validation.ts";
-import { suggestFieldId } from "./application.types.ts";
+import {
+  BASE_APPLICATION_FIELDS,
+  defaultApplicationFormFields,
+  resolveApplicationFormFields,
+  suggestFieldId,
+} from "./application.types.ts";
 import { deriveApplicationStage } from "./hire-stage.ts";
 
 const field = {
@@ -92,3 +99,71 @@ test("application stage starts Waiting and only Rejected is final", () => {
   assert.equal(deriveApplicationStage("scheduled"), "waiting");
   assert.equal(deriveApplicationStage("rejected"), "rejected");
 });
+
+test("a role with no saved form still shows the built-in fields", () => {
+  const fields = resolveApplicationFormFields(null);
+  assert.deepEqual(
+    fields.map((field) => field.id),
+    BASE_APPLICATION_FIELDS.map((field) => field.id),
+  );
+  assert.ok(fields.every((field) => field.system === true));
+});
+
+test("legacy extra questions keep their order after the built-in fields", () => {
+  const fields = resolveApplicationFormFields([
+    { id: "cgpa", label: "CGPA", type: "number", required: true },
+  ]);
+  assert.equal(fields.length, BASE_APPLICATION_FIELDS.length + 1);
+  assert.equal(fields.at(-1)?.id, "cgpa");
+});
+
+test("a full form keeps built-in and custom questions in the saved order", () => {
+  const fields = defaultApplicationFormFields();
+  const custom = { id: "cgpa", label: "CGPA", type: "number" as const, required: true };
+  const reordered = [fields[0], custom, ...fields.slice(1)];
+  const parsed = applicationFormFieldsSchema.parse(reordered);
+  assert.deepEqual(parsed.map((field) => field.id), reordered.map((field) => field.id));
+});
+
+test("essential built-in fields cannot be removed or made optional", () => {
+  const withoutEmail = defaultApplicationFormFields().filter((field) => field.id !== "email");
+  assert.throws(() => applicationFormFieldsSchema.parse(withoutEmail));
+
+  const optionalEmail = defaultApplicationFormFields().map((field) =>
+    field.id === "email" ? { ...field, required: false } : field,
+  );
+  assert.throws(() => applicationFormFieldsSchema.parse(optionalEmail));
+});
+
+test("the roll number is optional and may be removed", () => {
+  const withoutCollege = defaultApplicationFormFields().filter(
+    (field) => field.id !== "collegeId",
+  );
+  assert.doesNotThrow(() => applicationFormFieldsSchema.parse(withoutCollege));
+
+  const requiredCollege = defaultApplicationFormFields().map((field) =>
+    field.id === "collegeId" ? { ...field, required: true } : field,
+  );
+  const parsed = applicationFormFieldsSchema.parse(requiredCollege);
+  assert.equal(parsed.find((field) => field.id === "collegeId")?.required, true);
+  assert.deepEqual(
+    validateRequiredProfileFields(parsed, { name: "A", phone: "9876543210", email: "a@b.co" }),
+    ["College roll number is required."],
+  );
+});
+
+test("custom questions cannot use a built-in id or the file type", () => {
+  assert.throws(() =>
+    applicationFormFieldsSchema.parse([
+      ...defaultApplicationFormFields(),
+      { id: "email", label: "Shadow email", type: "text", required: false },
+    ]),
+  );
+  assert.throws(() =>
+    applicationFormFieldsSchema.parse([
+      ...defaultApplicationFormFields(),
+      { id: "portfolio", label: "Portfolio file", type: "file", required: false },
+    ]),
+  );
+});
+

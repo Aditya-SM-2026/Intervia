@@ -51,7 +51,7 @@ interface CreateInterviewFormProps {
 }
 
 const inputClasses =
-  "h-11 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20";
+  "h-11 w-full min-w-0 rounded-lg border border-border bg-surface px-3 text-sm outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-2 focus:ring-accent/20";
 
 const labelClasses = "mb-1.5 block text-sm font-medium";
 
@@ -284,9 +284,9 @@ export function CreateInterviewForm({
 
   return (
     <form onSubmit={handleSubmit} className="grid gap-6">
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
-        <div className="grid content-start gap-6">
-          <fieldset className="grid gap-4 rounded-2xl border border-border bg-surface p-5 sm:p-6">
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+        <div className="grid min-w-0 content-start gap-6">
+          <fieldset className="grid min-w-0 gap-4 rounded-2xl border border-border bg-surface p-5 sm:p-6 [&>*]:min-w-0">
             <legend className="sr-only">Candidate and role</legend>
             <h2 className="text-lg font-semibold">Candidate and role</h2>
             {roles.length > 0 && (
@@ -407,7 +407,7 @@ export function CreateInterviewForm({
             </div>
           </fieldset>
 
-          <fieldset className="grid gap-5 rounded-2xl border border-border bg-surface p-5 sm:p-6">
+          <fieldset className="grid min-w-0 gap-5 rounded-2xl border border-border bg-surface p-5 sm:p-6 [&>*]:min-w-0">
             <legend className="sr-only">How the interview runs</legend>
             <h2 className="text-lg font-semibold">How the interview runs</h2>
 
@@ -483,7 +483,7 @@ export function CreateInterviewForm({
           </fieldset>
         </div>
 
-        <fieldset className="grid content-start gap-5 rounded-2xl border border-border bg-surface p-5 sm:p-6">
+        <fieldset className="grid min-w-0 content-start gap-5 rounded-2xl border border-border bg-surface p-5 sm:p-6 [&>*]:min-w-0">
           <legend className="sr-only">What the interviewer should know</legend>
           <div>
             <h2 className="text-lg font-semibold">What the interviewer should know</h2>

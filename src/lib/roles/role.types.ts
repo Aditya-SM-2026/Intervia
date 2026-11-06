@@ -50,6 +50,10 @@ export interface RoleCandidateSummary {
   latestInterviewId: string;
   /** ISO 8601 creation timestamp of that interview. */
   latestInterviewAt: string;
+  /** ISO 8601 moment the latest interview is scheduled for; null when any time. */
+  scheduledAt?: string | null;
+  /** ISO 8601 moment the latest interview finished; null until completed. */
+  completedAt?: string | null;
   latestStatus: InterviewStatus;
   /** Overall score of that candidate's latest scored interview; null when unscored. */
   overallScore: number | null;
@@ -112,6 +116,16 @@ export interface RoleCandidatesResponse {
   total: number;
   limit: number;
   offset: number;
+  /** Live stage totals for the whole role, unaffected by search and paging. */
+  counts: RoleCandidateStageCounts;
+}
+
+/** How many candidates sit in each primary recruitment stage. */
+export interface RoleCandidateStageCounts {
+  /** Applications received that have no interview yet. */
+  applied: number;
+  /** Candidates with at least one interview in the role. */
+  interview: number;
 }
 
 /** Shape of GET /api/roles/[roleId]/candidates/[candidateId]. */
