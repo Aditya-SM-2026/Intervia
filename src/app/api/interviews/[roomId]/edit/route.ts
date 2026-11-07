@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
+import { accountDisplayName } from "@/lib/auth/session";
 import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
 import {
   getInterviewEditState,
@@ -63,7 +64,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   };
 
   const parsed = createInterviewSchema.safeParse({
-    recruiterName: text("recruiterName"),
+    // Keeps whoever arranged it; older interviews without one take the account name.
+    recruiterName: state.room.recruiterName || accountDisplayName(),
     candidateName: text("candidateName"),
     candidateEmail: text("candidateEmail"),
     roleTitle: text("roleTitle"),

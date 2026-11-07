@@ -81,6 +81,19 @@ export function expectedUsername(): string {
   return process.env.ADMIN_USERNAME?.trim() || "admin";
 }
 
+/**
+ * The name of the signed-in account, used wherever the product says who
+ * arranged an interview. There is one shared account for now, so this is
+ * ADMIN_DISPLAY_NAME when set, otherwise the login ID ("admin" becomes
+ * "Admin"). When individual accounts arrive, this becomes the user's name.
+ */
+export function accountDisplayName(): string {
+  const configured = process.env.ADMIN_DISPLAY_NAME?.trim();
+  if (configured) return configured;
+  const login = expectedUsername();
+  return login.charAt(0).toUpperCase() + login.slice(1);
+}
+
 /** Length-independent, constant-shape comparison for the login ID too. */
 export async function isUsernameCorrect(candidate: string): Promise<boolean> {
   return safeEqual(await hmacHex(`username:${candidate}`), await hmacHex(`username:${expectedUsername()}`));

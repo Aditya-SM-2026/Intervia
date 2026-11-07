@@ -9,6 +9,7 @@ import {
 import type { InterviewApiError } from "@/lib/interviews/interview.types";
 import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
 import { requireRecruiter } from "@/lib/auth/guards";
+import { accountDisplayName } from "@/lib/auth/session";
 import { getAgentPersonality } from "@/lib/agent/personality.service";
 import { ensureRoleForTitle, getRoleForForm } from "@/lib/roles/role.service";
 import { describeRoleError } from "@/lib/roles/role-errors";
@@ -48,7 +49,8 @@ export async function POST(request: NextRequest) {
 
   const parsed = createInterviewSchema.safeParse({
     title: text("title"),
-    recruiterName: text("recruiterName"),
+    // Whoever is signed in arranged the interview; the form does not ask.
+    recruiterName: accountDisplayName(),
     candidateName: text("candidateName"),
     candidateEmail: text("candidateEmail"),
     roleTitle: text("roleTitle"),

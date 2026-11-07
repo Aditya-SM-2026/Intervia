@@ -2,10 +2,9 @@
 
 import { useId, useRef, useState } from "react";
 import type { DifficultyLevel } from "@/lib/interviews/interview.types";
-import { normalizeSkillFocus, type SkillFocus } from "@/lib/interviews/skill-focus";
+import { DEFAULT_SKILL_WEIGHT, normalizeSkillFocus, type SkillFocus } from "@/lib/interviews/skill-focus";
 import type { InterviewRoleDefaults } from "@/lib/roles/interview-role-defaults";
-import { ChevronDown, Loader2, SlidersHorizontal } from "lucide-react";
-import { CustomScoringDialog } from "./CustomScoringDialog";
+import { ChevronDown, Loader2, Plus, X } from "lucide-react";
 import { DocumentText } from "@/components/ui/DocumentText";
 import { SegmentedTabs } from "@/components/ui/animated";
 import {
@@ -168,7 +167,6 @@ export function CreateInterviewForm({
   submittingLabel = "Building the interview plan…",
   footerNote,
 }: CreateInterviewFormProps) {
-  const [recruiterName, setRecruiterName] = useState(initial?.recruiterName ?? "");
   const [candidateName, setCandidateName] = useState(initial?.candidateName ?? "");
   const [candidateEmail, setCandidateEmail] = useState(initial?.candidateEmail ?? "");
   const [roleTitle, setRoleTitle] = useState(
@@ -191,7 +189,6 @@ export function CreateInterviewForm({
   const [skillFocus, setSkillFocus] = useState<SkillFocus[]>(
     () => initial?.skillFocus ?? initialRole?.skills.map((skill) => ({ skill, weight: 50 })) ?? [],
   );
-  const [scoringOpen, setScoringOpen] = useState(false);
 
   const style = DIFFICULTY_OPTIONS.find((option) => option.value === difficulty);
   const selectedRole = roles.find((role) => role.id === roleChoice) ?? null;
@@ -200,14 +197,10 @@ export function CreateInterviewForm({
   // the recruiter chose to create a new one).
   const showRoleTitleInput = roles.length === 0 || selectedRole === null;
 
-  /** Compact summary shown on the custom-scoring row. */
-  const customScoringSummary =
-    skillFocus.length === 0
-      ? "The interviewer spends more time on heavier skills."
-      : skillFocus
-          .slice(0, 4)
-          .map((item) => `${item.skill} ${item.weight}`)
-          .join(", ") + (skillFocus.length > 4 ? `, +${skillFocus.length - 4} more` : "");
+  /** The skills shown in the focus step: the saved weights, or the role's skills at normal weight. */
+  const focusRows: SkillFocus[] =
+    skillFocus.length > 0 ? skillFocus : roleSkills.map((skill) => ({ skill, weight: DEFAULT_SKILL_WEIGHT }));
+  const heavySkills = focusRows.filter((row) => row.weight > DEFAULT_SKILL_WEIGHT).map((row) => row.skill);
 
   /**
    * Picking an existing role replaces the title and job description with that
@@ -247,7 +240,8 @@ export function CreateInterviewForm({
     }
 
     onSubmit({
-      recruiterName: recruiterName.trim(),
+      // The server fills this in from the signed-in account.
+      recruiterName: initial?.recruiterName ?? "",
       candidateName: candidateName.trim(),
       candidateEmail: candidateEmail.trim(),
       roleTitle: title,
@@ -294,19 +288,6 @@ export function CreateInterviewForm({
                 placeholder="aditya@example.com"
                 value={candidateEmail}
                 onChange={(event) => setCandidateEmail(event.target.value)}
-                className={inputClasses}
-              />
-            </Field>
-            <Field id="recruiter-name" label="Your name" hint="The candidate is told who will follow up.">
-              <input
-                id="recruiter-name"
-                type="text"
-                required
-                maxLength={200}
-                autoComplete="name"
-                placeholder="Priya Sharma"
-                value={recruiterName}
-                onChange={(event) => setRecruiterName(event.target.value)}
                 className={inputClasses}
               />
             </Field>
@@ -418,42 +399,31 @@ export function CreateInterviewForm({
             )}
           </div>
 
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <div>
-              <span className="mb-1.5 block text-sm font-medium">
-                Resume <span className="font-normal text-muted">(optional)</span>
-              </span>
-              <PdfPicker file={resume} onChange={setResume} prompt="or drop it here" />
-              <p className="mt-1.5 text-xs text-muted">
-                {initial?.existingResumeName && !resume
-                  ? `On file: ${initial.existingResumeName}. Upload a PDF to replace it.`
-                  : "Without one, the candidate gets a link to upload it."}
-              </p>
-            </div>
-            <div>
-              <span className="mb-1.5 block text-sm font-medium">
-                Skill weighting <span className="font-normal text-muted">(optional)</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setScoringOpen(true)}
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-surface px-3.5 py-3 text-left transition hover:border-foreground/20 hover:bg-foreground/[0.02]"
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium">
-                    {skillFocus.length === 0
-                      ? "Choose what matters most"
-                      : `${skillFocus.length} skill${skillFocus.length === 1 ? "" : "s"} weighted`}
-                  </span>
-                  <span className="block truncate text-xs text-muted">{customScoringSummary}</span>
-                </span>
-                <SlidersHorizontal className="size-4 shrink-0 text-muted" aria-hidden />
-              </button>
-            </div>
+          <div className="mt-5">
+            <span className="mb-1.5 block text-sm font-medium">
+              Resume <span className="font-normal text-muted">(optional)</span>
+            </span>
+            <PdfPicker file={resume} onChange={setResume} prompt="or drop it here" />
+            <p className="mt-1.5 text-xs text-muted">
+              {initial?.existingResumeName && !resume
+                ? `On file: ${initial.existingResumeName}. Upload a PDF to replace it.`
+                : "Without one, the candidate gets a link to upload it."}
+            </p>
           </div>
         </Step>
 
-        <Step number={3} title="How it runs">
+        <Step
+          number={3}
+          title="What to focus on"
+          description="Set how much each skill matters. The interviewer spends more time on heavier skills, and they count more in the score."
+        >
+          <FocusEditor
+            rows={focusRows}
+            onChange={setSkillFocus}
+          />
+        </Step>
+
+        <Step number={4} title="How it runs">
           <div>
             <div className="flex items-baseline justify-between gap-3">
               <label htmlFor="duration" className="text-sm font-medium">
@@ -539,6 +509,10 @@ export function CreateInterviewForm({
           <SummaryRow label="Length" value={`${durationMinutes} minutes`} />
           <SummaryRow label="Style" value={style?.label ?? "—"} />
           <SummaryRow
+            label="Focus"
+            value={heavySkills.length === 0 ? "Even across skills" : heavySkills.slice(0, 2).join(", ") + (heavySkills.length > 2 ? ` +${heavySkills.length - 2}` : "")}
+          />
+          <SummaryRow
             label="Job description"
             value={jobDescriptionPdf ? "PDF" : jobDescriptionText.trim() ? "Added" : "Missing"}
             warn={!jobDescriptionPdf && !jobDescriptionText.trim()}
@@ -566,18 +540,6 @@ export function CreateInterviewForm({
         </p>
       </aside>
 
-      {scoringOpen && (
-        <CustomScoringDialog
-          roleTitle={selectedRole?.title ?? roleTitle}
-          roleSkills={roleSkills}
-          focus={skillFocus}
-          onSave={(focus) => {
-            setSkillFocus(focus);
-            setScoringOpen(false);
-          }}
-          onClose={() => setScoringOpen(false)}
-        />
-      )}
     </form>
   );
 }
@@ -629,6 +591,124 @@ function SummaryRow({ label, value, warn = false }: { label: string; value: stri
     <div className="flex items-baseline justify-between gap-3">
       <dt className="text-muted">{label}</dt>
       <dd className={`truncate text-right font-medium ${warn ? "text-amber-600 dark:text-amber-400" : ""}`}>{value}</dd>
+    </div>
+  );
+}
+
+/** Five weight levels, from left out to the main focus. */
+const FOCUS_LEVELS: { weight: number; label: string }[] = [
+  { weight: 0, label: "Skip" },
+  { weight: 25, label: "Light" },
+  { weight: DEFAULT_SKILL_WEIGHT, label: "Normal" },
+  { weight: 75, label: "More" },
+  { weight: 100, label: "Main focus" },
+];
+
+function nearestLevel(weight: number): number {
+  let best = 0;
+  FOCUS_LEVELS.forEach((level, index) => {
+    if (Math.abs(level.weight - weight) < Math.abs(FOCUS_LEVELS[best].weight - weight)) best = index;
+  });
+  return best;
+}
+
+/** Each skill with a five-step weight, plus a box to add a skill. */
+function FocusEditor({ rows, onChange }: { rows: SkillFocus[]; onChange: (rows: SkillFocus[]) => void }) {
+  const [draft, setDraft] = useState("");
+
+  function add() {
+    const skill = draft.trim();
+    if (!skill || rows.some((row) => row.skill.toLowerCase() === skill.toLowerCase())) {
+      setDraft("");
+      return;
+    }
+    onChange([...rows, { skill, weight: 75 }]);
+    setDraft("");
+  }
+
+  return (
+    <div>
+      {rows.length === 0 ? (
+        <p className="rounded-xl bg-foreground/[0.03] px-4 py-3 text-sm text-muted">
+          No skills yet. They come from the role, or add the ones that matter below.
+        </p>
+      ) : (
+        <ul className="grid gap-2">
+          {rows.map((row, index) => {
+            const level = nearestLevel(row.weight);
+            return (
+              <li
+                key={row.skill}
+                className={`flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border px-3.5 py-2.5 transition ${
+                  level >= 3 ? "border-accent/30 bg-accent-soft/50" : level === 0 ? "border-border opacity-60" : "border-border"
+                }`}
+              >
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{row.skill}</span>
+                <div role="radiogroup" aria-label={`How much ${row.skill} matters`} className="flex items-center gap-1">
+                  {FOCUS_LEVELS.map((option, optionIndex) => {
+                    const active = optionIndex === level;
+                    return (
+                      <button
+                        key={option.label}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        title={option.label}
+                        onClick={() =>
+                          onChange(rows.map((item, itemIndex) => (itemIndex === index ? { ...item, weight: option.weight } : item)))
+                        }
+                        className="group flex h-7 items-end px-0.5"
+                      >
+                        <span
+                          className={`block w-2.5 rounded-sm transition-colors ${
+                            optionIndex <= level && level > 0 ? "bg-accent" : "bg-foreground/15 group-hover:bg-foreground/30"
+                          }`}
+                          style={{ height: `${8 + optionIndex * 4}px` }}
+                        />
+                      </button>
+                    );
+                  })}
+                  <span className={`ml-2 w-[4.5rem] text-xs font-medium ${level >= 3 ? "text-accent" : "text-muted"}`}>
+                    {FOCUS_LEVELS[level].label}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onChange(rows.filter((_, itemIndex) => itemIndex !== index))}
+                  aria-label={`Remove ${row.skill}`}
+                  className="grid size-7 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
+                >
+                  <X className="size-3.5" aria-hidden />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="mt-3 flex gap-2">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              add();
+            }
+          }}
+          maxLength={80}
+          placeholder="Add a skill, e.g. System design"
+          aria-label="Add a skill"
+          className={`${inputClasses} flex-1`}
+        />
+        <button
+          type="button"
+          onClick={add}
+          className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03]"
+        >
+          <Plus className="size-4 text-muted" aria-hidden />
+          Add
+        </button>
+      </div>
     </div>
   );
 }
