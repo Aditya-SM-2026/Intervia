@@ -26,7 +26,6 @@ export default async function SettingsPage() {
       <TopNav />
       <main className="mx-auto w-full max-w-5xl px-4 pb-16 sm:px-6">
         <div className="py-10">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-accent">Settings</p>
           <h1 className="text-4xl font-semibold tracking-tight">Settings</h1>
           <p className="mt-2 max-w-2xl text-muted">
             What this workspace runs on, and how the interview agent behaves.
@@ -155,7 +154,7 @@ export default async function SettingsPage() {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5 border-b border-border/60 pb-2 last:border-0">
-      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
+      <dt className="text-xs text-muted">{label}</dt>
       <dd>{value}</dd>
     </div>
   );

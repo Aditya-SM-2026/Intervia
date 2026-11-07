@@ -36,7 +36,8 @@ function isActiveLink(pathname: string, href: string): boolean {
       pathname === "/dashboard" ||
       (pathname.startsWith("/dashboard/") &&
         !pathname.startsWith("/dashboard/roles") &&
-        !pathname.startsWith("/dashboard/stats"))
+        !pathname.startsWith("/dashboard/stats") &&
+        !pathname.startsWith("/dashboard/settings"))
     );
   }
   return pathname === href || pathname.startsWith(`${href}/`);
