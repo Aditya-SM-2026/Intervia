@@ -526,7 +526,7 @@ export function RolesView() {
           ]}
         />
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 flex-1 sm:flex-none">
+          <div className="relative min-w-0 basis-full sm:basis-auto sm:flex-none">
             <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
             <input
               type="search"
@@ -632,7 +632,7 @@ export function RolesView() {
             )}
           </div>
         ) : (
-          <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filtered.map((role, index) => (
               <RoleCard
                 key={role.id}

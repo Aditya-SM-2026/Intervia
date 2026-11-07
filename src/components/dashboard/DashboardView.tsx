@@ -284,14 +284,14 @@ export function DashboardView() {
   const selectedCount = selected.size;
 
   return (
-    <div className="grid gap-8">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-8">
       {analyticsError ? (
         <Notice tone="error" message={analyticsError} />
       ) : (
         <ActivityStrip analytics={analytics} />
       )}
 
-      <section aria-label="Interviews" className="grid gap-4">
+      <section aria-label="Interviews" className="grid grid-cols-[minmax(0,1fr)] gap-4">
         <Toolbar
           search={searchInput}
           onSearchChange={setSearchInput}
@@ -342,7 +342,7 @@ export function DashboardView() {
             }
           />
         ) : (
-          <div className="grid gap-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
             <ReportsTable
               rows={rows}
               loading={listLoading && rows.length === 0}

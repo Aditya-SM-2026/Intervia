@@ -228,6 +228,24 @@ export function TopNav() {
           />
         </div>
       </div>
+      {/* Small screens: the section links get their own row instead of disappearing. */}
+      <nav aria-label="Primary" className="flex gap-1 overflow-x-auto px-4 pb-2 md:hidden">
+        {NAV_LINKS.map((link) => {
+          const active = isActiveLink(pathname, link.href);
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              aria-current={active ? "page" : undefined}
+              className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                active ? "bg-foreground/[0.06] text-foreground" : "text-muted hover:text-foreground"
+              }`}
+            >
+              {link.label}
+            </Link>
+          );
+        })}
+      </nav>
     </header>
   );
 }
