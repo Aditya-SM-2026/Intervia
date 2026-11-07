@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { EASE_OUT } from "@/components/ui/animated";
+import { ScoreRing } from "@/components/ui/ScoreRing";
 import { Menu } from "./menu";
 import { StatusBadge } from "./primitives";
 import Link from "next/link";
@@ -47,8 +48,11 @@ import {
   FileSearch,
   FileText,
   Fingerprint,
+  Flag,
   Gauge,
+  ListChecks,
   Maximize2,
+  Mic,
   MessageSquare,
   MessagesSquare,
   Minimize2,
@@ -56,11 +60,13 @@ import {
   MoreHorizontal,
   Pencil,
   Play,
+  Quote,
   RotateCcw,
   ScrollText,
   Search,
   SlidersHorizontal,
   Sparkles,
+  Trophy,
   User,
   Video,
   X,
@@ -137,7 +143,32 @@ const TONE_TEXT: Record<Tone, string> = {
   muted: "text-muted",
 };
 
-const cardClasses = "border-t border-border py-10 first:border-t-0 first:pt-8";
+const cardClasses =
+  "rounded-2xl border border-border bg-surface p-5 shadow-sm shadow-black/[0.02] sm:p-7";
+
+/** Tinted tiles behind section icons. */
+const ICON_TINTS: Record<string, string> = {
+  purple: "bg-violet-500/10 text-violet-600 dark:text-violet-300",
+  violet: "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-300",
+  indigo: "bg-accent/10 text-accent",
+  emerald: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
+  rose: "bg-rose-500/10 text-rose-600 dark:text-rose-300",
+  sky: "bg-sky-500/10 text-sky-600 dark:text-sky-300",
+};
+
+const TONE_TILE: Record<Tone, string> = {
+  good: "bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300",
+  warn: "bg-amber-500/[0.1] text-amber-800 dark:text-amber-300",
+  bad: "bg-rose-500/[0.08] text-rose-700 dark:text-rose-300",
+  muted: "bg-foreground/[0.035] text-foreground",
+};
+
+const TONE_STROKE: Record<Tone, string> = {
+  good: "stroke-emerald-500",
+  warn: "stroke-amber-500",
+  bad: "stroke-rose-500",
+  muted: "stroke-foreground/30",
+};
 
 /** Report sections, in page order, for the sticky section bar. */
 const REPORT_SECTIONS = [
@@ -555,7 +586,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
           }
         />
 
-        <article className="min-w-0 rounded-2xl border border-border bg-surface px-5 shadow-sm shadow-black/[0.03] sm:px-10">
+        <div className="grid min-w-0 gap-5">
           {scorecard ? (
             <>
               <OverallAssessment scorecard={scorecard} insights={insights} peers={peers} roomId={roomId} />
@@ -607,8 +638,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
           {peers.length > 1 && <PeersSection peers={peers} currentId={roomId} />}
 
           <VoiceSection session={session} events={events} hasRecording={hasRecording} />
-
-        </article>
+        </div>
         <footer className="px-1 pb-10 pt-4 text-xs text-muted">
           {scorecard ? `Report generated ${formatDateTime(scorecard.generatedAt)}` : null}
         </footer>
@@ -626,8 +656,10 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
   );
 }
 
-/** Section heading: title, optional one-line description, right-hand figures. */
+/** Section heading: tinted icon, title, optional one-line description, right-hand figures. */
 function CardHeading({
+  icon: Icon,
+  iconColor,
   title,
   subtitle,
   right,
@@ -639,25 +671,31 @@ function CardHeading({
   right?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0">
-        <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
-        {subtitle && <p className="mt-1 max-w-prose text-sm text-muted">{subtitle}</p>}
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex min-w-0 items-center gap-3">
+        {Icon && (
+          <span
+            className={`grid size-10 shrink-0 place-items-center rounded-xl ${ICON_TINTS[iconColor ?? ""] ?? "bg-foreground/[0.05] text-foreground/70"}`}
+          >
+            <Icon className="size-[18px]" aria-hidden />
+          </span>
+        )}
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
+          {subtitle && <p className="mt-0.5 max-w-prose text-sm text-muted">{subtitle}</p>}
+        </div>
       </div>
       {right}
     </div>
   );
 }
 
-/** Section score at the right of a heading: the number, then what it means. */
+/** Section score at the right of a heading: a ring, then what it means. */
 function HeadingScore({ score, tone, label }: { score: number | null; tone: Tone; label: string }) {
   return (
-    <div className="text-right">
-      <p className="leading-none">
-        <span className="text-2xl font-semibold tracking-[-0.02em] tabular-nums">{score ?? "–"}</span>
-        {score !== null && <span className="ml-0.5 text-sm text-muted">/100</span>}
-      </p>
-      <p className={`mt-1.5 text-xs font-medium ${TONE_TEXT[tone]}`}>{label}</p>
+    <div className="flex items-center gap-3">
+      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_TILE[tone]}`}>{label}</span>
+      <ScoreRing score={score} size={48} stroke={4.5} toneClass={TONE_STROKE[tone]} />
     </div>
   );
 }
@@ -939,26 +977,36 @@ function OverallAssessment({
     },
   ];
 
+  const outcomeIcons: Record<string, LucideIcon> = {
+    "Topics covered": ListChecks,
+    "Resume claims backed up": FileSearch,
+    "Red flags": Flag,
+    "Rank for this role": Trophy,
+    "Candidate talk time": Mic,
+  };
+
   return (
-    <section id="overview" className={`${cardClasses} scroll-mt-32`}>
-      <div className="grid gap-8 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-12">
-        <div>
-          <p className="text-sm text-muted">Recommendation</p>
-          <motion.p
-            className={`mt-1.5 text-[34px] font-semibold leading-tight tracking-[-0.03em] ${TONE_TEXT[verdictTone]}`}
-            initial={reduce ? false : { opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, ease: EASE_OUT }}
-          >
-            {verdict}
-          </motion.p>
-          <p className="mt-3 flex items-baseline gap-1.5">
-            <span className="text-2xl font-semibold tabular-nums tracking-[-0.02em]">{score ?? "–"}</span>
-            <span className="text-sm text-muted">/100 overall, {band.label.toLowerCase()}</span>
-          </p>
+    <section id="overview" className={`${cardClasses} scroll-mt-32 overflow-hidden`}>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:gap-8">
+        {/* verdict */}
+        <div className={`relative flex items-center gap-5 rounded-2xl p-5 lg:flex-col lg:items-start ${TONE_TILE[verdictTone]}`}>
+          <ScoreRing score={score} size={112} stroke={9} toneClass={TONE_STROKE[band.tone]} label="of 100" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium opacity-75">Recommendation</p>
+            <motion.p
+              className="mt-0.5 text-[30px] font-semibold leading-tight tracking-[-0.03em]"
+              initial={reduce ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, delay: 0.2, ease: EASE_OUT }}
+            >
+              {verdict}
+            </motion.p>
+            <p className="mt-1 text-sm opacity-75">Overall {band.label.toLowerCase()}</p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-border sm:grid-cols-4">
+        {/* factors */}
+        <div className="grid grid-cols-2 gap-3">
           {overall.factors.map((factor, index) => {
             const meta = FACTOR_META[factor.id];
             const chip = factorChip(factor.id, factor.score);
@@ -967,44 +1015,49 @@ function OverallAssessment({
                 key={factor.id}
                 href={`#${factorLink(factor.id)}`}
                 title={meta.explains}
-                className="group bg-surface p-4 transition-colors hover:bg-foreground/[0.02]"
+                className="group flex items-center gap-3.5 rounded-2xl border border-border p-4 transition hover:-translate-y-px hover:border-foreground/15 hover:shadow-md hover:shadow-black/[0.04]"
               >
-                <span className="block text-xs text-muted">{meta.name}</span>
-                <span className="mt-2 block text-2xl font-semibold tabular-nums tracking-[-0.02em]">
-                  {factor.score ?? "—"}
+                <ScoreRing
+                  score={factor.score}
+                  size={56}
+                  stroke={5}
+                  toneClass={TONE_STROKE[chip.tone]}
+                  delay={0.15 + index * 0.08}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold">{meta.name}</span>
+                  <span className={`mt-0.5 block text-xs font-medium ${TONE_TEXT[chip.tone]}`}>{chip.label}</span>
+                  <span className="mt-0.5 block text-[11px] text-muted">{factor.weight}% of the score</span>
                 </span>
-                <span className="mt-2 block h-1 overflow-hidden rounded-full bg-foreground/[0.07]">
-                  {factor.score !== null && (
-                    <motion.span
-                      className="block h-full rounded-full bg-foreground/70"
-                      initial={reduce ? false : { width: 0 }}
-                      animate={{ width: `${Math.max(2, factor.score)}%` }}
-                      transition={{ duration: 0.8, delay: 0.15 + index * 0.07, ease: EASE_OUT }}
-                    />
-                  )}
-                </span>
-                <span className={`mt-2 block text-xs font-medium ${TONE_TEXT[chip.tone]}`}>{chip.label}</span>
-                <span className="mt-0.5 block text-[11px] text-muted">{factor.weight}% of the score</span>
+                <ChevronRight className="ml-auto size-4 shrink-0 text-muted opacity-0 transition group-hover:opacity-100" aria-hidden />
               </a>
             );
           })}
         </div>
       </div>
 
-      <dl className="mt-8 grid grid-cols-2 gap-x-6 gap-y-5 border-t border-border pt-6 sm:grid-cols-3 lg:grid-cols-5">
-        {outcomes.map((item) => (
-          <a key={item.label} href={item.href} className="group min-w-0">
-            <dt className="text-xs text-muted group-hover:text-foreground">{item.label}</dt>
-            <dd className="mt-1 text-lg font-semibold tabular-nums tracking-[-0.01em]">{item.value}</dd>
-            <dd className={`mt-0.5 truncate text-xs ${item.tone === "muted" ? "text-muted" : TONE_TEXT[item.tone]}`} title={item.note}>
-              {item.note}
-            </dd>
-          </a>
-        ))}
+      <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {outcomes.map((item) => {
+          const Icon = outcomeIcons[item.label] ?? Gauge;
+          return (
+            <a
+              key={item.label}
+              href={item.href}
+              className={`group min-w-0 rounded-2xl p-4 transition hover:brightness-[0.98] ${TONE_TILE[item.tone]}`}
+            >
+              <Icon className="size-4 opacity-70" aria-hidden />
+              <dd className="mt-3 text-xl font-semibold leading-none tabular-nums tracking-[-0.02em]">{item.value}</dd>
+              <dt className="mt-1.5 text-xs font-medium">{item.label}</dt>
+              <dd className="mt-0.5 truncate text-[11px] opacity-70" title={item.note}>
+                {item.note}
+              </dd>
+            </a>
+          );
+        })}
       </dl>
 
       {scorecard.needsHumanReview && (
-        <p className="mt-6 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
+        <p className="mt-5 flex items-start gap-2 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
           The two graders disagreed on part of this report. Read the evidence before deciding.
         </p>
@@ -1034,33 +1087,35 @@ function Clamp({ text, lines = 2, className }: { text: string; lines?: 1 | 2 | 3
   );
 }
 
-/** Takeaways: the lead sentence, then short lists of what matters. */
+/** One coloured panel of short points. */
 function TakeawayList({
   title,
   icon,
   items,
   empty,
+  tint,
 }: {
   title: string;
   icon: ReactNode;
   items: string[];
   empty: string;
+  tint: string;
 }) {
   const [all, setAll] = useState(false);
   const shown = all ? items : items.slice(0, 3);
   return (
-    <div className="min-w-0">
+    <div className={`min-w-0 rounded-2xl p-4 sm:p-5 ${tint}`}>
       <h3 className="flex items-center gap-2 text-sm font-semibold">
+        <span className="grid size-6 place-items-center rounded-full bg-surface/80 shadow-sm shadow-black/[0.04]">{icon}</span>
         {title}
-        <span className="text-xs font-normal tabular-nums text-muted">{items.length}</span>
+        <span className="ml-auto rounded-full bg-surface/70 px-2 text-xs font-medium tabular-nums">{items.length}</span>
       </h3>
       {items.length === 0 ? (
-        <p className="mt-3 text-sm text-muted">{empty}</p>
+        <p className="mt-3 text-sm opacity-70">{empty}</p>
       ) : (
-        <ul className="mt-3 space-y-3">
+        <ul className="mt-3 space-y-2">
           {shown.map((item, index) => (
-            <li key={index} className="flex gap-2.5 text-sm leading-6 text-foreground/85">
-              <span className="mt-1 shrink-0">{icon}</span>
+            <li key={index} className="rounded-xl bg-surface/75 px-3 py-2.5 text-[13px] leading-5 text-foreground/85">
               <Clamp text={item} lines={2} />
             </li>
           ))}
@@ -1070,7 +1125,7 @@ function TakeawayList({
         <button
           type="button"
           onClick={() => setAll((current) => !current)}
-          className="mt-3 text-xs font-medium text-accent hover:underline"
+          className="mt-2.5 text-xs font-semibold hover:underline"
         >
           {all ? "Show fewer" : `Show all ${items.length}`}
         </button>
@@ -1092,35 +1147,53 @@ function SummarySection({
   const lead = firstSentence(summary);
   const rest = summary.slice(lead.length).trim();
   const nextSteps = insights?.nextSteps ?? [];
+  const behaviour: { label: string; value: string; warn: boolean }[] = [
+    {
+      label: "Left the tab",
+      value: integrity.tabHiddenCount === 0 ? "Never" : `${integrity.tabHiddenCount}×`,
+      warn: integrity.tabHiddenCount > 0,
+    },
+    { label: "Time away", value: `${Math.round(integrity.tabHiddenSeconds)}s`, warn: integrity.tabHiddenSeconds > 10 },
+    { label: "Switched windows", value: `${integrity.windowBlurCount}×`, warn: integrity.windowBlurCount > 2 },
+    { label: "Connection drops", value: String(integrity.candidateDisconnects), warn: integrity.candidateDisconnects > 0 },
+  ];
 
   return (
     <section id="summary" className={`${cardClasses} scroll-mt-32`}>
-      <CardHeading title="Takeaways" />
-      <p className="mt-4 max-w-[70ch] text-[17px] font-medium leading-7 tracking-[-0.005em] text-foreground">{lead}</p>
-      {rest && (
-        <>
-          {full && <p className="mt-3 max-w-[70ch] text-[15px] leading-7 text-foreground/75">{rest}</p>}
-          <button
-            type="button"
-            onClick={() => setFull((current) => !current)}
-            aria-expanded={full}
-            className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-muted transition hover:text-foreground"
-          >
-            {full ? "Hide the full summary" : "Read the full summary"}
-            <ChevronDown className={`size-3.5 transition-transform ${full ? "rotate-180" : ""}`} aria-hidden />
-          </button>
-        </>
-      )}
+      <CardHeading icon={ScrollText} iconColor="indigo" title="Takeaways" />
 
-      <div className={`mt-8 grid gap-8 ${nextSteps.length > 0 ? "lg:grid-cols-3" : "sm:grid-cols-2"} lg:gap-10`}>
+      <div className="mt-5 flex gap-3 rounded-2xl border border-accent/15 bg-accent-soft/50 p-4 sm:p-5">
+        <Quote className="mt-0.5 size-5 shrink-0 text-accent" aria-hidden />
+        <div className="min-w-0">
+          <p className="text-[16px] font-medium leading-7 text-foreground">{lead}</p>
+          {rest && (
+            <>
+              {full && <p className="mt-2 text-sm leading-6 text-foreground/75">{rest}</p>}
+              <button
+                type="button"
+                onClick={() => setFull((current) => !current)}
+                aria-expanded={full}
+                className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
+              >
+                {full ? "Hide the full summary" : "Read the full summary"}
+                <ChevronDown className={`size-3.5 transition-transform ${full ? "rotate-180" : ""}`} aria-hidden />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className={`mt-4 grid gap-3 ${nextSteps.length > 0 ? "lg:grid-cols-3" : "sm:grid-cols-2"}`}>
         <TakeawayList
           title="Strengths"
+          tint="bg-emerald-500/[0.07] text-emerald-900 dark:text-emerald-100"
           icon={<Check className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />}
           items={scorecard.strengths}
           empty="Nothing stood out."
         />
         <TakeawayList
           title="Concerns"
+          tint="bg-amber-500/[0.09] text-amber-900 dark:text-amber-100"
           icon={<AlertCircle className="size-3.5 text-amber-600 dark:text-amber-400" aria-hidden />}
           items={scorecard.concerns}
           empty="No concerns were raised."
@@ -1128,6 +1201,7 @@ function SummarySection({
         {nextSteps.length > 0 && (
           <TakeawayList
             title="Ask in the next round"
+            tint="bg-accent/[0.06] text-foreground"
             icon={<ArrowRight className="size-3.5 text-accent" aria-hidden />}
             items={nextSteps}
             empty=""
@@ -1135,39 +1209,32 @@ function SummarySection({
         )}
       </div>
 
-      <details className="group mt-8">
-        <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-sm text-muted transition hover:text-foreground">
-          During the interview
-          <ChevronDown className="size-3.5 transition group-open:rotate-180" aria-hidden />
-        </summary>
-        <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-4 text-sm sm:grid-cols-4">
-          <div>
-            <dt className="text-muted">Left the tab</dt>
-            <dd className="mt-0.5 font-medium tabular-nums">
-              {integrity.tabHiddenCount === 0 ? "Never" : `${integrity.tabHiddenCount} times`}
-            </dd>
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {behaviour.map((item) => (
+          <div
+            key={item.label}
+            className={`flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm ${
+              item.warn ? "bg-amber-500/10 text-amber-800 dark:text-amber-300" : "bg-foreground/[0.035]"
+            }`}
+          >
+            <span className={item.warn ? "" : "text-muted"}>{item.label}</span>
+            <span className="font-semibold tabular-nums">{item.value}</span>
           </div>
-          <div>
-            <dt className="text-muted">Time away</dt>
-            <dd className="mt-0.5 font-medium tabular-nums">{Math.round(integrity.tabHiddenSeconds)}s</dd>
-          </div>
-          <div>
-            <dt className="text-muted">Switched windows</dt>
-            <dd className="mt-0.5 font-medium tabular-nums">{integrity.windowBlurCount} times</dd>
-          </div>
-          <div>
-            <dt className="text-muted">Connection drops</dt>
-            <dd className="mt-0.5 font-medium tabular-nums">{integrity.candidateDisconnects}</dd>
-          </div>
-        </dl>
-        {scorecard.notes.length > 0 && (
-          <ul className="mt-4 space-y-1 text-sm text-muted">
+        ))}
+      </div>
+      {scorecard.notes.length > 0 && (
+        <details className="group mt-3">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-muted transition hover:text-foreground">
+            Scoring notes
+            <ChevronDown className="size-3.5 transition group-open:rotate-180" aria-hidden />
+          </summary>
+          <ul className="mt-2 space-y-1 text-sm text-muted">
             {scorecard.notes.map((note) => (
               <li key={note}>{note}</li>
             ))}
           </ul>
-        )}
-      </details>
+        </details>
+      )}
     </section>
   );
 }
@@ -1201,78 +1268,48 @@ function AnswerQualityTable({
       />
 
       {scorecard.competencies.length === 0 ? (
-        <p className="mt-4 text-xs text-muted">No competency questions were scored for this interview.</p>
+        <p className="mt-4 text-sm text-muted">No competency questions were scored for this interview.</p>
       ) : (
-        <div className="-mx-3 mt-6 overflow-x-auto">
-          <table className="w-full text-left text-[13px]">
-            <thead>
-              <tr className="border-b border-border text-xs font-medium text-muted">
-                <th className="w-12 px-4 py-3 text-center">#</th>
-                <th className="w-[34%] px-3 py-2.5">Question</th>
-                <th className="w-20 px-4 py-3 text-center">Score</th>
-                <th className="px-3 py-2.5">Key feedback</th>
-                <th className="w-40 px-4 py-3 text-right">Recording</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border align-top">
-              {scorecard.competencies.map((item, index) => {
-                const plan = competencies.find((c) => c.id === item.competencyId);
-                const window = evidenceWindow(item.evidence, bySeq, offsetFor);
-                const scoreOut10 = item.score !== null ? item.score * 2 : null;
-                const scoreTone =
-                  scoreOut10 !== null && scoreOut10 >= 7
-                    ? TONE_TEXT.good
-                    : scoreOut10 !== null && scoreOut10 >= 5
-                      ? TONE_TEXT.warn
-                      : TONE_TEXT.bad;
-
-                return (
-                  <tr
-                    key={item.competencyId}
-                    className="group hover:bg-foreground/[0.02] transition"
-                  >
-                    <td className="px-3 py-4 text-center font-medium text-muted">
-                      {index + 1}
-                    </td>
-                    <td className="px-3 py-4">
-                      <p className="font-medium text-foreground">{item.name}</p>
-                      {plan?.question && (
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">
-                          {plan.question}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-3 py-4 text-center">
-                      <span className={`text-[15px] font-semibold tabular-nums ${scoreTone}`}>{scoreOut10 ?? "—"}</span>
-                      {scoreOut10 !== null && <span className="text-xs text-muted">/10</span>}
-                    </td>
-                    <td className="px-3 py-4 text-foreground/80">
-                      <Clamp text={plain(item.rationale)} lines={2} className="max-w-[60ch] leading-6" />
-                    </td>
-                    <td className="px-3 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {window ? (
-                          <button
-                            type="button"
-                            onClick={() => onPlay(window.from)}
-                            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium tabular-nums text-accent transition hover:bg-accent-soft"
-                          >
-                            <Play className="size-3 fill-current" aria-hidden />
-                            <span>
-                              {formatClock(window.from)}–{formatClock(window.to)}
-                            </span>
-                          </button>
-                        ) : (
-                          <span className="text-muted">—</span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <ol className="mt-6 grid gap-3">
+          {scorecard.competencies.map((item, index) => {
+            const plan = competencies.find((c) => c.id === item.competencyId);
+            const window = evidenceWindow(item.evidence, bySeq, offsetFor);
+            const scoreOut10 = item.score !== null ? item.score * 2 : null;
+            const tone: Tone =
+              scoreOut10 === null ? "muted" : scoreOut10 >= 7 ? "good" : scoreOut10 >= 5 ? "warn" : "bad";
+            return (
+              <li
+                key={item.competencyId}
+                className="grid grid-cols-[auto_minmax(0,1fr)] gap-4 rounded-2xl border border-border p-4 transition hover:border-foreground/15 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+              >
+                <div className={`grid size-14 place-content-center rounded-xl text-center ${TONE_TILE[tone]}`}>
+                  <span className="text-xl font-semibold leading-none tabular-nums">{scoreOut10 ?? "–"}</span>
+                  <span className="mt-0.5 text-[10px] font-medium opacity-70">of 10</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="flex items-baseline gap-2">
+                    <span className="text-xs font-semibold tabular-nums text-muted">Q{index + 1}</span>
+                    <span className="font-semibold text-foreground">{item.name}</span>
+                  </p>
+                  {plan?.question && <p className="mt-0.5 line-clamp-1 text-xs text-muted">{plan.question}</p>}
+                  <Clamp text={plain(item.rationale)} lines={2} className="mt-2 max-w-[75ch] text-sm leading-6 text-foreground/80" />
+                </div>
+                <div className="col-span-2 flex items-start sm:col-span-1">
+                  {window ? (
+                    <button
+                      type="button"
+                      onClick={() => onPlay(window.from)}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent-soft px-3 text-xs font-semibold tabular-nums text-accent transition hover:bg-accent hover:text-white"
+                    >
+                      <Play className="size-3 fill-current" aria-hidden />
+                      {formatClock(window.from)}–{formatClock(window.to)}
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       )}
     </section>
   );
@@ -1381,31 +1418,42 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
   );
 }
 
-/** Counts of each verdict as one bar, so the resume check reads at a glance. */
+/** Counts of each verdict as one bar and a tile per verdict. */
 function VerdictTally({ claims }: { claims: { verdict: ResumeVerdict }[] }) {
-  const order: { verdict: ResumeVerdict; bar: string }[] = [
-    { verdict: "confirmed", bar: "bg-emerald-500" },
-    { verdict: "partly_supported", bar: "bg-amber-400" },
-    { verdict: "not_supported", bar: "bg-rose-500" },
-    { verdict: "not_discussed", bar: "bg-foreground/15" },
+  const reduce = useReducedMotion();
+  const order: { verdict: ResumeVerdict; bar: string; tile: string }[] = [
+    { verdict: "confirmed", bar: "bg-emerald-500", tile: TONE_TILE.good },
+    { verdict: "partly_supported", bar: "bg-amber-400", tile: TONE_TILE.warn },
+    { verdict: "not_supported", bar: "bg-rose-500", tile: TONE_TILE.bad },
+    { verdict: "not_discussed", bar: "bg-foreground/15", tile: TONE_TILE.muted },
   ];
   const total = claims.length;
   return (
     <div className="mt-6">
-      <div className="flex h-2 gap-0.5 overflow-hidden rounded-full">
-        {order.map(({ verdict, bar }) => {
+      <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-full bg-foreground/[0.05]">
+        {order.map(({ verdict, bar }, index) => {
           const count = claims.filter((claim) => claim.verdict === verdict).length;
-          return count > 0 ? <span key={verdict} className={bar} style={{ width: `${(count / total) * 100}%` }} /> : null;
+          return count > 0 ? (
+            <motion.span
+              key={verdict}
+              className={bar}
+              initial={reduce ? false : { width: 0 }}
+              animate={{ width: `${(count / total) * 100}%` }}
+              transition={{ duration: 0.7, delay: 0.1 + index * 0.06, ease: EASE_OUT }}
+            />
+          ) : null;
         })}
       </div>
-      <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-        {order.map(({ verdict, bar }) => (
-          <div key={verdict} className="flex items-center gap-2">
-            <span aria-hidden className={`size-2 rounded-full ${bar}`} />
-            <dt className="text-muted">{VERDICT_LABELS[verdict]}</dt>
-            <dd className="font-semibold tabular-nums">{claims.filter((claim) => claim.verdict === verdict).length}</dd>
-          </div>
-        ))}
+      <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {order.map(({ verdict, tile }) => {
+          const count = claims.filter((claim) => claim.verdict === verdict).length;
+          return (
+            <div key={verdict} className={`rounded-xl px-3.5 py-2.5 ${count > 0 ? tile : "bg-foreground/[0.03] text-muted"}`}>
+              <dd className="text-xl font-semibold leading-none tabular-nums">{count}</dd>
+              <dt className="mt-1 text-xs font-medium opacity-80">{VERDICT_LABELS[verdict]}</dt>
+            </div>
+          );
+        })}
       </dl>
     </div>
   );
@@ -1451,22 +1499,15 @@ function ResumeTable({
       {resume.claims.length > 0 && <VerdictTally claims={resume.claims} />}
 
       {resume.claims.length === 0 ? (
-        <p className="mt-4 text-xs text-muted">
+        <p className="mt-4 text-sm text-muted">
           {resume.reason ?? "No resume claims were evaluated for this interview."}
         </p>
       ) : (
-        <div className="-mx-3 mt-6 overflow-x-auto">
-          <table className="w-full text-left text-[13px]">
-            <thead>
-              <tr className="border-b border-border text-xs font-medium text-muted">
-                <th className="px-3 py-2.5">From the resume</th>
-                <th className="w-40 px-4 py-3">Status</th>
-                <th className="w-48 px-4 py-3">Where it came up</th>
-                <th className="px-3 py-2.5">Notes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border align-top">
-              {resume.claims.map((claim) => {
+        <>
+          <ul className="mt-5 grid gap-2.5 md:grid-cols-2">
+            {resume.claims
+              .filter((claim) => claim.verdict !== "not_discussed")
+              .map((claim) => {
                 const questions = [
                   ...new Set(
                     claim.turnSeqs
@@ -1476,32 +1517,53 @@ function ResumeTable({
                 ];
                 const style = VERDICT_STYLES[claim.verdict];
                 const Icon = style.icon;
-
                 return (
-                  <tr key={claim.claim} className="hover:bg-foreground/[0.02] transition">
-                    <td className="px-3 py-4 font-medium text-foreground">
-                      {claim.claim}
-                    </td>
-                    <td className="px-3 py-4">
-                      <span className={`inline-flex items-center gap-1.5 whitespace-nowrap font-medium ${style.text}`}>
-                        <Icon className="size-3.5 shrink-0" aria-hidden />
-                        <span>{VERDICT_LABELS[claim.verdict]}</span>
-                      </span>
-                    </td>
-                    <td className="px-3 py-4 text-muted">
-                      {questions.length === 0
-                        ? "—"
-                        : `Discussed in ${questions.map((q) => `Q${q}`).join(", ")}`}
-                    </td>
-                    <td className="px-3 py-4 text-muted">
-                      {claim.note ? <Clamp text={claim.note} lines={2} /> : "—"}
-                    </td>
-                  </tr>
+                  <li key={claim.claim} className={`flex gap-3 rounded-xl border p-3.5 ${style.border} ${style.bg}`}>
+                    <span className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-surface ${style.text}`}>
+                      <Icon className="size-3.5" aria-hidden />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium leading-5 text-foreground">{claim.claim}</p>
+                      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                        <span className={`font-semibold ${style.text}`}>{VERDICT_LABELS[claim.verdict]}</span>
+                        {questions.map((q) => (
+                          <span key={q} className="rounded-md bg-surface px-1.5 py-0.5 font-medium text-muted">
+                            Q{q}
+                          </span>
+                        ))}
+                      </p>
+                      {claim.note && <Clamp text={claim.note} lines={1} className="mt-1.5 text-xs leading-5 text-muted" />}
+                    </div>
+                  </li>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+          </ul>
+          {resume.claims.some((claim) => claim.verdict === "not_discussed") && (
+            <details className="group mt-3 rounded-xl border border-dashed border-border">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium text-muted transition hover:text-foreground">
+                <Minus className="size-3.5" aria-hidden />
+                Not discussed in the interview
+                <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs tabular-nums">
+                  {resume.claims.filter((claim) => claim.verdict === "not_discussed").length}
+                </span>
+                <ChevronDown className="ml-auto size-4 transition group-open:rotate-180" aria-hidden />
+              </summary>
+              <ul className="flex flex-wrap gap-2 px-4 pb-4">
+                {resume.claims
+                  .filter((claim) => claim.verdict === "not_discussed")
+                  .map((claim) => (
+                    <li
+                      key={claim.claim}
+                      title={claim.note ?? undefined}
+                      className="rounded-lg bg-foreground/[0.04] px-2.5 py-1.5 text-xs leading-5 text-foreground/75"
+                    >
+                      {claim.claim}
+                    </li>
+                  ))}
+              </ul>
+            </details>
+          )}
+        </>
       )}
 
       {resume.score === null && resume.reason && resume.claims.length > 0 && (
@@ -2223,7 +2285,7 @@ function VoiceSection({
   ];
 
   return (
-    <details id="voice" className="group border-t border-border">
+    <details id="voice" className="group rounded-2xl border border-border bg-surface px-5 shadow-sm shadow-black/[0.02] sm:px-7">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-5 text-sm font-medium text-muted transition hover:text-foreground">
         Interview details
         <ChevronDown className="size-4 text-muted transition group-open:rotate-180" aria-hidden />
