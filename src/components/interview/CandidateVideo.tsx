@@ -34,9 +34,7 @@ export function CandidateVideo({ track, mirrored = false, label }: CandidateVide
 
   return (
     <div
-      className={`relative aspect-video w-full overflow-hidden rounded-xl border border-border bg-black ${
-        mirrored ? "-scale-x-100" : ""
-      }`}
+      className="relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0f1b45] shadow-lg shadow-black/30"
     >
       <video
         ref={videoRef}
@@ -44,10 +42,10 @@ export function CandidateVideo({ track, mirrored = false, label }: CandidateVide
         playsInline
         muted
         aria-label={label}
-        className="h-full w-full object-cover"
+        className={`h-full w-full object-cover ${mirrored ? "-scale-x-100" : ""}`}
       />
       {!track && (
-        <p className="absolute inset-0 grid place-items-center text-sm text-white/70">
+        <p className="absolute inset-0 grid place-items-center text-xs text-white/60">
           Camera is off
         </p>
       )}

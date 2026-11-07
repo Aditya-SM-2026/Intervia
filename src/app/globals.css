@@ -91,11 +91,11 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visib
  * every token-based component inside it.
  */
 .interview-stage {
-  --background: #0e1420;
+  --background: #08123a;
   --foreground: #e8ecf5;
-  --surface: #161d2c;
-  --border: #263048;
-  --muted: #8d98b3;
+  --surface: #0f1b45;
+  --border: #22306a;
+  --muted: #9aa6c8;
   --accent: #7aa7ff;
   --candidate: #6fd3a8;
   --voice-interviewer: #7aa7ff;

@@ -40,14 +40,14 @@ export function MicCheck({ track }: { track: MediaStreamTrack }) {
     <div className="text-left">
       <div className="flex items-center justify-between text-xs">
         <span className="font-medium">Microphone</span>
-        <span className={heard ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}>
+        <span className={heard ? "text-emerald-400" : "opacity-70"}>
           {heard ? "We can hear you" : "Say a few words to test it"}
         </span>
       </div>
-      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-border" aria-hidden="true">
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/20" aria-hidden="true">
         <span
           ref={fillRef}
-          className="block h-full origin-left rounded-full bg-emerald-500"
+          className="block h-full origin-left rounded-full bg-emerald-400"
           style={{ transform: "scaleX(0)" }}
         />
       </div>

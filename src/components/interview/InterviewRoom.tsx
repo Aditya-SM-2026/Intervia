@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { BrandMark } from "@/components/brand/BrandMark";
 import {
   DisconnectReason,
   ParticipantKind,
@@ -15,13 +13,12 @@ import {
 } from "livekit-client";
 import type { LiveKitJoinCredentials } from "@/lib/livekit/client";
 import { startCandidateRecorder, type CandidateRecorder } from "@/lib/recordings/candidate-recorder";
-import { JoinInterviewForm } from "./JoinInterviewForm";
-import { CandidateVideo } from "./CandidateVideo";
-import { VoiceStage } from "./VoiceStage";
-import { MediaControls } from "./MediaControls";
-import { ConnectionStatus, type ConnectionStage } from "./ConnectionStatus";
+import type { ConnectionStage } from "./ConnectionStatus";
 import type { AiUiState } from "./AiStatus";
-import { TranscriptPanel, type TranscriptEntry } from "./TranscriptPanel";
+import type { TranscriptEntry } from "./TranscriptPanel";
+import { CandidateMessage } from "./CandidateShell";
+import { CandidateEndScreen, ConnectingOrb, JoinScreen } from "./CandidateScreens";
+import { LiveRoom } from "./LiveRoom";
 
 interface InterviewRoomProps {
   roomId: string;
@@ -403,218 +400,62 @@ export function InterviewRoom({
 
   if (stage === "prejoin") {
     return (
-      <main className="grid min-h-dvh place-items-center p-6">
-        <div className="w-full max-w-md rounded-xl border border-border bg-surface p-8 leading-relaxed">
-          <JoinInterviewForm
-            roomId={roomId}
-            roomTitle={roomTitle}
-            candidateName={candidateName}
-            recruiterName={recruiterName}
-            durationMinutes={durationMinutes}
-            onVerified={setCredentials}
-            onProceed={handleProceed}
-          />
-        </div>
-      </main>
+      <JoinScreen
+        roomId={roomId}
+        roomTitle={roomTitle}
+        candidateName={candidateName}
+        recruiterName={recruiterName}
+        durationMinutes={durationMinutes}
+        onVerified={setCredentials}
+        onProceed={handleProceed}
+      />
     );
   }
 
   if (stage === "connecting") {
     return (
-      <main className="grid min-h-dvh place-items-center p-6">
-        <div className="w-full max-w-md rounded-xl border border-border bg-surface p-8 text-center leading-relaxed">
-          <ConnectionStatus stage="connecting" />
-          <p className="mt-4 text-sm">Joining “{roomTitle}”…</p>
-        </div>
-      </main>
+      <CandidateMessage icon={<ConnectingOrb />} title="Connecting you to your interviewer">
+        <p>This takes a few seconds. Keep this tab open.</p>
+      </CandidateMessage>
     );
   }
 
   if (stage === "connected") {
-    const totalSeconds = durationMinutes * 60;
-    const progress = Math.min(1, elapsedSeconds / totalSeconds);
-    // What the interviewer last said, kept on screen so a question can be re-read.
-    const lastInterviewerLine =
-      transcript.findLast((entry) => entry.role === "interviewer")?.text ?? null;
-
     return (
-      <main className="interview-stage flex min-h-dvh flex-col">
-        <div
-          className="h-1 w-full bg-border"
-          role="progressbar"
-          aria-label="Interview time used"
-          aria-valuemin={0}
-          aria-valuemax={durationMinutes}
-          aria-valuenow={Math.min(durationMinutes, Math.floor(elapsedSeconds / 60))}
-        >
-          <div
-            className="h-full bg-accent transition-[width] duration-1000 ease-linear"
-            style={{ width: `${progress * 100}%` }}
-          />
-        </div>
-
-        <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
-          <div className="min-w-0">
-            <BrandMark href={null} size="sm" onDark />
-            <h1 className="mt-1 truncate text-sm text-muted">{roomTitle}</h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm tabular-nums text-muted" aria-label="Interview time elapsed">
-              {formatClock(elapsedSeconds)} of {durationMinutes} min
-            </span>
-            <ConnectionStatus stage={connectionStage} />
-          </div>
-        </header>
-
-        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-          <section className="flex min-w-0 flex-1 flex-col items-center justify-center gap-8 px-5 py-6 sm:px-8">
-            <VoiceStage
-              state={aiState}
-              detail={aiDetail}
-              interviewerTrack={interviewerTrack}
-              microphoneTrack={microphoneTrack}
-              muted={muted}
-            />
-
-            <p
-              className="min-h-[4.5rem] max-w-2xl text-balance text-center text-xl leading-snug sm:text-2xl"
-              aria-live="off"
-            >
-              {lastInterviewerLine ?? "Your interviewer will greet you in a moment."}
-            </p>
-
-            {audioBlocked && (
-              <button
-                type="button"
-                onClick={() => {
-                  void roomRef.current?.startAudio().then(() => setAudioBlocked(false));
-                }}
-                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-[#0e1420] transition hover:opacity-90"
-              >
-                Turn on sound to hear the interviewer
-              </button>
-            )}
-          </section>
-
-          {showConversation && (
-            <aside className="flex max-h-[45dvh] w-full flex-col gap-3 border-t border-border bg-surface p-4 lg:max-h-none lg:w-[22rem] lg:border-l lg:border-t-0">
-              <h2 className="text-sm font-semibold">Conversation so far</h2>
-              <TranscriptPanel entries={transcript} interim={null} />
-            </aside>
-          )}
-        </div>
-
-        <footer className="flex flex-wrap items-end justify-between gap-4 px-5 pb-5 sm:px-8">
-          <div className="relative w-36 sm:w-44">
-            <CandidateVideo track={cameraOff ? null : videoTrack} mirrored label="Your camera" />
-            <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
-              {candidateName || "You"}
-            </span>
-          </div>
-
-          <div className="flex flex-col items-end gap-2">
-            <p className="text-xs text-muted">
-              Take your time to think. You can interrupt at any point. This interview is recorded.
-            </p>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowConversation((shown) => !shown)}
-                aria-pressed={showConversation}
-                className="rounded-full border border-border px-4 py-2 text-sm font-medium transition hover:bg-surface"
-              >
-                {showConversation ? "Hide conversation" : "Show conversation"}
-              </button>
-              <MediaControls
-                muted={muted}
-                cameraOff={cameraOff}
-                onToggleMute={handleToggleMute}
-                onToggleCamera={handleToggleCamera}
-                onLeave={handleLeave}
-              />
-            </div>
-          </div>
-        </footer>
-      </main>
+      <LiveRoom
+        roomTitle={roomTitle}
+        candidateName={candidateName}
+        durationMinutes={durationMinutes}
+        elapsedSeconds={elapsedSeconds}
+        connectionStage={connectionStage}
+        aiState={aiState}
+        aiDetail={aiDetail}
+        interviewerTrack={interviewerTrack}
+        microphoneTrack={microphoneTrack}
+        videoTrack={videoTrack}
+        muted={muted}
+        cameraOff={cameraOff}
+        transcript={transcript}
+        showConversation={showConversation}
+        audioBlocked={audioBlocked}
+        onToggleConversation={() => setShowConversation((shown) => !shown)}
+        onToggleMute={handleToggleMute}
+        onToggleCamera={handleToggleCamera}
+        onLeave={handleLeave}
+        onEnableAudio={() => {
+          void roomRef.current?.startAudio().then(() => setAudioBlocked(false));
+        }}
+      />
     );
   }
 
-  if (stage === "ended") {
-    return (
-      <main className="grid min-h-dvh place-items-center p-6">
-        <div className="w-full max-w-md rounded-xl border border-border bg-surface p-8 text-center leading-relaxed">
-          <h1 className="mb-2 text-xl font-semibold">Interview complete</h1>
-          <p className="text-sm text-muted">
-            Thank you{candidateName ? `, ${candidateName.split(" ")[0]}` : ""}. Your interview has
-            been submitted{recruiterName ? ` to ${recruiterName}` : ""}, who will be in touch about
-            next steps. You can close this page.
-          </p>
-        </div>
-      </main>
-    );
-  }
-
-  if (stage === "left") {
-    return (
-      <main className="grid min-h-dvh place-items-center p-6">
-        <div className="w-full max-w-md rounded-xl border border-border bg-surface p-8 text-center leading-relaxed">
-          <h1 className="mb-2 text-xl font-semibold">You have left the interview</h1>
-          <p className="mb-6 text-sm text-muted">
-            If that was a mistake, rejoin now — you have 5 minutes to return and the interview
-            continues exactly where it stopped. After that the interview expires.
-          </p>
-          <div className="flex justify-center gap-2">
-            <button
-              type="button"
-              onClick={handleRetry}
-              aria-label="Rejoin the interview room"
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
-            >
-              Join again
-            </button>
-            <Link
-              href="/"
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-surface"
-            >
-              Home
-            </Link>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  // stage === "error"
   return (
-    <main className="grid min-h-dvh place-items-center p-6">
-      <div className="w-full max-w-md rounded-xl border border-border bg-surface p-8 text-center leading-relaxed">
-        <h1 className="mb-2 text-xl font-semibold">Something went wrong</h1>
-        <p role="alert" className="mb-6 text-sm">
-          {failure ?? "An unexpected error occurred."}
-        </p>
-        <div className="flex justify-center gap-2">
-          <button
-            type="button"
-            onClick={handleRetry}
-            aria-label="Try joining the interview room again"
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
-          >
-            Try again
-          </button>
-          <Link
-            href="/"
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition hover:bg-surface"
-          >
-            Home
-          </Link>
-        </div>
-      </div>
-    </main>
+    <CandidateEndScreen
+      kind={stage}
+      candidateName={candidateName}
+      recruiterName={recruiterName}
+      failure={failure}
+      onRetry={handleRetry}
+    />
   );
-}
-
-function formatClock(totalSeconds: number): string {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
