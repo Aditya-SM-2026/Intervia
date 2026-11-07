@@ -85,6 +85,12 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visib
   outline: none;
 }
 
+/* Dialogs and panels take focus programmatically when they open; that is not a keyboard target to outline. */
+[role="dialog"][tabindex="-1"]:focus-visible,
+[role="alertdialog"][tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
 /*
  * The live interview room is a stage of its own, the same in light and dark
  * mode: a calm, dark call window. Overriding the theme variables here restyles
