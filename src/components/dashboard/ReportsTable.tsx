@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { ArrowDown, ArrowUp, ArrowUpRight, Download, Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import type { DashboardInterviewSummary } from "@/lib/dashboard/dashboard.types";
 import type { InterviewStatus } from "@/lib/interviews/interview.types";
 import { EASE_OUT } from "@/components/ui/animated";
@@ -201,14 +201,6 @@ function Row({
       </td>
       <td className="py-3.5 pr-5" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-end gap-1">
-          <button
-            type="button"
-            onClick={open}
-            aria-label={`Open ${name}`}
-            className="grid size-8 place-items-center rounded-lg text-muted opacity-0 transition group-hover:opacity-100 hover:bg-foreground/[0.06] hover:text-foreground focus-visible:opacity-100"
-          >
-            <ArrowUpRight className="size-4" aria-hidden />
-          </button>
           <Menu
             label={`Actions for ${name}`}
             align="end"
@@ -222,7 +214,6 @@ function Row({
               </button>
             }
             items={[
-              { id: "view", label: scorecard ? "Open report" : "Open", icon: <Eye className="size-4" aria-hidden />, onSelect: open },
               ...(scorecard
                 ? [{ id: "download", label: "Download PDF", icon: <Download className="size-4" aria-hidden />, onSelect: () => onAction("download", room.id) }]
                 : []),

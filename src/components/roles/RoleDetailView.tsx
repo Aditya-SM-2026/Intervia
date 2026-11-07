@@ -277,8 +277,6 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [editing, setEditing] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
-  const [cutoff, setCutoff] = useState("");
-  const [cutoffApplied, setCutoffApplied] = useState<number | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [confirmingDecision, setConfirmingDecision] = useState<HumanDecision["outcome"] | null>(null);
   const [formFields, setFormFields] = useState<ApplicationField[]>([]);
@@ -397,7 +395,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                 status: candidate.latestStatus,
                 overallScore: candidate.overallScore,
                 decision: candidate.decision?.outcome ?? null,
-                cutoff: cutoffApplied,
+                cutoff: null,
               }),
       }))
       .sort((a, b) =>
@@ -407,7 +405,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         ),
       );
     return ranked;
-  }, [candidates, cutoffApplied]);
+  }, [candidates]);
 
   const stageCounts = useMemo(
     () =>
@@ -431,9 +429,6 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
           .toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
-      if (cutoffApplied !== null && (candidate.overallScore === null || candidate.overallScore < cutoffApplied)) {
-        return false;
-      }
       if (statusFilter !== "all") {
         if (candidate.interviews === 0) return false;
         const status = candidate.latestStatus;
@@ -452,7 +447,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       }
       return compareCandidateRows(a, b, sort);
     });
-  }, [rows, query, stageFilter, statusFilter, sort, cutoffApplied]);
+  }, [rows, query, stageFilter, statusFilter, sort]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -483,8 +478,6 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     setStageFilter("all");
     setQuery("");
     setStatusFilter("all");
-    setCutoffApplied(null);
-    setCutoff("");
     setPage(1);
   }
 
@@ -771,34 +764,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                   setPage(1);
                 }}
               />
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const parsed = Number.parseInt(cutoff, 10);
-                  setCutoffApplied(Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 100) : null);
-                  setSelected(new Set());
-                  setPage(1);
-                }}
-                className="flex h-9 items-center rounded-lg border border-border bg-surface pl-3 text-sm focus-within:border-accent"
-              >
-                <label htmlFor="cutoff" className="text-muted">
-                  Score at least
-                </label>
-                <input
-                  id="cutoff"
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={cutoff}
-                  onChange={(event) => setCutoff(event.target.value)}
-                  placeholder="—"
-                  className="w-12 bg-transparent px-2 text-sm font-medium tabular-nums outline-none"
-                />
-                <button type="submit" className="h-full border-l border-border px-3 font-medium transition hover:bg-foreground/[0.03]">
-                  Apply
-                </button>
-              </form>
-              {(query !== "" || statusFilter !== "all" || cutoffApplied !== null || stageFilter !== "all") && (
+              {(query !== "" || statusFilter !== "all" || stageFilter !== "all") && (
                 <button
                   type="button"
                   onClick={clearFilters}
@@ -872,7 +838,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                         <SortableHeader label="Score" column="score" sort={sort} onSort={toggleSort} />
                         <SortableHeader label="Date" column="applied" sort={sort} onSort={toggleSort} />
                         <th scope="col" className="px-3 py-2.5 font-medium">Outcome</th>
-                        <th scope="col" className="w-24 px-3 py-2.5" />
+                        <th scope="col" className="w-10 px-3 py-2.5" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -957,14 +923,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                               )}
                             </td>
                             <td className="px-3 py-3 pr-5 text-right">
-                              <button
-                                type="button"
-                                onClick={open}
-                                className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-sm font-medium text-accent transition hover:bg-accent-soft"
-                              >
-                                {interviewed ? "Report" : "Review"}
-                                <ChevronRight className="size-3.5" aria-hidden />
-                              </button>
+                              <ChevronRight className="ml-auto size-4 text-muted" aria-hidden />
                             </td>
                           </tr>
                         );

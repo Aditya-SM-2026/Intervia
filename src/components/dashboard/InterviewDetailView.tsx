@@ -552,12 +552,6 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
           onOpenResume={() => setResumeOpen(true)}
           onRegenerate={handleRegenerate}
           isRegenerating={isRegenerating}
-          onShare={() => {
-            if (typeof window !== "undefined") {
-              navigator.clipboard.writeText(window.location.href);
-              showToast("Link copied");
-            }
-          }}
           onOpenAssistant={openAssistant}
           canAsk={scorecard !== null}
         />
@@ -710,7 +704,6 @@ function CandidateHeader({
   onOpenResume,
   onRegenerate,
   isRegenerating,
-  onShare,
   onOpenAssistant,
   canAsk,
 }: {
@@ -722,7 +715,6 @@ function CandidateHeader({
   onOpenResume: () => void;
   onRegenerate: () => void;
   isRegenerating: boolean;
-  onShare: () => void;
   onOpenAssistant: () => void;
   canAsk: boolean;
 }) {
@@ -838,30 +830,31 @@ function CandidateHeader({
               PDF
             </a>
           )}
+          {(session.status === "expired" || session.status === "completed") && (
           <Menu
-            label="More actions"
-            align="end"
-            trigger={
-              <button type="button" aria-label="More actions" className={`${ghost} w-9 justify-center px-0`}>
-                <MoreHorizontal className="size-4" aria-hidden />
-              </button>
-            }
-            items={[
-              { id: "copy", label: "Copy link to this report", icon: <Copy className="size-4" aria-hidden />, onSelect: onShare },
-              ...(session.status === "expired"
-                ? [{ id: "edit", label: "Edit interview", icon: <Pencil className="size-4" aria-hidden />, onSelect: () => router.push(`/dashboard/${roomId}/edit`) }]
-                : []),
-              ...(session.status === "completed"
-                ? [{
-                    id: "regenerate",
-                    label: isRegenerating ? "Re-scoring…" : "Re-score this interview",
-                    icon: <RotateCcw className="size-4" aria-hidden />,
-                    disabled: isRegenerating,
-                    onSelect: onRegenerate,
-                  }]
-                : []),
-            ]}
-          />
+              label="More actions"
+              align="end"
+              trigger={
+                <button type="button" aria-label="More actions" className={`${ghost} w-9 justify-center px-0`}>
+                  <MoreHorizontal className="size-4" aria-hidden />
+                </button>
+              }
+              items={[
+                ...(session.status === "expired"
+                  ? [{ id: "edit", label: "Edit interview", icon: <Pencil className="size-4" aria-hidden />, onSelect: () => router.push(`/dashboard/${roomId}/edit`) }]
+                  : []),
+                ...(session.status === "completed"
+                  ? [{
+                      id: "regenerate",
+                      label: isRegenerating ? "Re-scoring…" : "Re-score this interview",
+                      icon: <RotateCcw className="size-4" aria-hidden />,
+                      disabled: isRegenerating,
+                      onSelect: onRegenerate,
+                    }]
+                  : []),
+              ]}
+            />
+          )}
         </div>
       </div>
     </header>

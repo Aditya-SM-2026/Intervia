@@ -10,7 +10,6 @@ import {
   Copy,
   Link2,
   Lock,
-  MessageCircle,
   Plus,
   Settings2,
   Trash2,
@@ -340,9 +339,6 @@ export function ApplicationFormSettings({
   );
   const questionCount = savedFields.length;
   const isOpen = !status || status.open;
-  const whatsappHref = url
-    ? `https://wa.me/?text=${encodeURIComponent(`Applications are open for ${roleTitle}. Apply here: ${url}`)}`
-    : undefined;
 
   const closedNote =
     status && !status.open
@@ -442,18 +438,6 @@ export function ApplicationFormSettings({
               </span>
               {isOpen ? "Open" : "Closed"}
             </button>
-            {whatsappHref && (
-              <a
-                href={whatsappHref}
-                target="_blank"
-                rel="noreferrer"
-                title="Share on WhatsApp"
-                aria-label="Share on WhatsApp"
-                className={`${ghostButton} w-9 px-0 text-emerald-600 dark:text-emerald-400`}
-              >
-                <MessageCircle className="size-4" aria-hidden />
-              </a>
-            )}
             <button type="button" onClick={() => openPanel("questions")} disabled={loading} className={ghostButton}>
               <Settings2 className="size-4 text-muted" aria-hidden />
               Edit form

@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Layers,
   MoreHorizontal,
+  Pencil,
   Plus,
   Search,
   SearchX,
@@ -155,14 +156,6 @@ function RoleCard({
   );
   const people = (candidates ?? []).slice(0, 4);
 
-  function copyInvite() {
-    const url = `${window.location.origin}${inviteHref}`;
-    void navigator.clipboard
-      .writeText(url)
-      .then(() => onToast({ tone: "success", message: "Invite link copied. It opens a new interview for this role." }))
-      .catch(() => onToast({ tone: "success", message: url }));
-  }
-
   function copyFormLink() {
     void fetch(`/api/roles/${encodeURIComponent(role.id)}/form-link`, {
       method: "POST",
@@ -249,10 +242,7 @@ function RoleCard({
             </button>
           }
           items={[
-            { id: "open", label: "Open role", onSelect: () => router.push(href) },
-            { id: "edit", label: "Edit role", onSelect: onEdit, separatorAfter: true },
-            { id: "invite", label: "Copy interview invite link", onSelect: copyInvite },
-            { id: "form", label: "Copy application form link", onSelect: copyFormLink, separatorAfter: true },
+            { id: "edit", label: "Edit role", icon: <Pencil className="size-4" aria-hidden />, onSelect: onEdit, separatorAfter: true },
             {
               id: "delete",
               label: "Delete role",
