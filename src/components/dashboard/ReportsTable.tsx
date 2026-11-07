@@ -102,7 +102,7 @@ export function ReportsTable({
   }, [someSelected]);
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
+    <div className="relative overflow-x-auto rounded-2xl border border-border bg-surface">
       <table className="w-full min-w-[860px] border-collapse text-sm">
         <thead className="border-b border-border bg-foreground/[0.015]">
           <tr>

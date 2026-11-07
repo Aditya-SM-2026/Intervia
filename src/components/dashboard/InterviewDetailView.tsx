@@ -524,7 +524,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
 
   return (
     <div className="mx-auto flex max-w-[1500px] gap-6 xl:items-start">
-      <div className="mx-auto grid w-full min-w-0 max-w-6xl flex-1 gap-6">
+      <div className="mx-auto grid w-full min-w-0 max-w-6xl flex-1 grid-cols-[minmax(0,1fr)] gap-6">
         {toastMessage && (
           <div
             role="status"

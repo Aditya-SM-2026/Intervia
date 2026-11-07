@@ -815,7 +815,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                   </button>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="relative overflow-x-auto">
                   <table className="w-full min-w-[860px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-border bg-foreground/[0.015] text-xs text-muted">
