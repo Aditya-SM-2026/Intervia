@@ -808,7 +808,7 @@ function CandidateHeader({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {canAsk && (
             <button
               type="button"

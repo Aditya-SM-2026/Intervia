@@ -290,27 +290,40 @@ function RoleCard({
           )}
         </div>
         <span className="grow" />
-        <button
-          type="button"
-          onClick={copyFormLink}
-          title="Copy the application form link"
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03]"
-        >
-          {formCopied ? (
-            <Check className="size-3.5 text-emerald-600" aria-hidden />
-          ) : (
-            <ClipboardList className="size-3.5 text-muted" aria-hidden />
-          )}
-          {formCopied ? "Copied" : "Form link"}
-        </button>
-        <Link
-          href={inviteHref}
-          title="Send an interview for this role"
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-2.5 text-xs font-medium text-background transition hover:bg-foreground/85"
-        >
-          <UserPlus className="size-3.5" aria-hidden />
-          Invite
-        </Link>
+        {role.status === "completed" ? (
+          <button
+            type="button"
+            onClick={onToggleStatus}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03]"
+          >
+            <RotateCcw className="size-3.5 text-muted" aria-hidden />
+            Make active
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={copyFormLink}
+              title="Copy the application form link"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03]"
+            >
+              {formCopied ? (
+                <Check className="size-3.5 text-emerald-600" aria-hidden />
+              ) : (
+                <ClipboardList className="size-3.5 text-muted" aria-hidden />
+              )}
+              {formCopied ? "Copied" : "Form link"}
+            </button>
+            <Link
+              href={inviteHref}
+              title="Send an interview for this role"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-2.5 text-xs font-medium text-background transition hover:bg-foreground/85"
+            >
+              <UserPlus className="size-3.5" aria-hidden />
+              Invite
+            </Link>
+          </>
+        )}
       </div>
     </motion.li>
   );
@@ -635,6 +648,7 @@ export function RolesView() {
                 onToast={setToast}
               />
             ))}
+            {statusFilter === "open" && (
             <li>
               <button
                 type="button"
@@ -649,6 +663,7 @@ export function RolesView() {
                 </span>
               </button>
             </li>
+            )}
           </ul>
         )}
       </section>

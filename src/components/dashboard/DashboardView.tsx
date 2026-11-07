@@ -41,8 +41,9 @@ export function DashboardView() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
+  // A search started from the top bar arrives as ?q= and seeds the list search.
+  const [searchInput, setSearchInput] = useState(() => searchParams.get("q") ?? "");
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [status, setStatus] = useState("");
   const [role, setRole] = useState("");
   const [roleOptions, setRoleOptions] = useState<string[]>([]);
