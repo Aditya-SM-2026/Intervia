@@ -49,6 +49,21 @@ export function TopNav() {
   const [bellOpen, setBellOpen] = useState(false);
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
   const [analyticsError, setAnalyticsError] = useState(false);
+  const [accountName, setAccountName] = useState("Admin");
+
+  // The signed-in account's name, shown on the avatar and in the user menu.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me")
+      .then((response) => (response.ok ? (response.json() as Promise<{ name?: string }>) : null))
+      .then((data) => {
+        if (!cancelled && data?.name) setAccountName(data.name);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Focus the global search with ⌘K / Ctrl+K.
   useEffect(() => {
@@ -194,12 +209,12 @@ export function TopNav() {
                 aria-label="User menu"
                 className="flex items-center rounded-full p-0.5 transition hover:ring-4 hover:ring-foreground/[0.06]"
               >
-                <Avatar name="Recruiter" className="size-8 text-xs" />
+                <Avatar name={accountName} className="size-8 text-xs" />
               </button>
             }
             header={
               <div className="border-b border-border px-3 py-2.5">
-                <p className="text-sm font-semibold">Recruiter</p>
+                <p className="text-sm font-semibold">{accountName}</p>
                 <p className="text-xs text-muted">Medhas Academy</p>
                 <p className="mt-3 text-[11px] font-medium uppercase tracking-wider text-muted">Theme</p>
                 <ThemeControl />

@@ -25,7 +25,7 @@ env:
   WORKER_SERVICE: intervia-predev-video-worker
   # Public URL written into shareable links. Request origins inside the
   # container are 0.0.0.0:8080, so it has to be stated explicitly.
-  APP_BASE_URL: https://intervia-predev-web-5hszeawhaq-el.a.run.app
+  APP_BASE_URL: https://intervia-predev-web-199504026920.asia-south1.run.app
 
 jobs:
   changes:
