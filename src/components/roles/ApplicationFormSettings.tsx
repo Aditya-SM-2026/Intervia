@@ -104,13 +104,20 @@ export function ApplicationFormSettings({
   const fail = (cause: unknown, fallback: string) =>
     setToast({ tone: "error", message: cause instanceof Error ? cause.message : fallback });
 
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/roles/${encodeURIComponent(roleId)}/form-link`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    })
+    const request = () =>
+      fetch(`/api/roles/${encodeURIComponent(roleId)}/form-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+    // One quiet retry: a network blip (or a deploy rolling over) should not
+    // leave the form bar showing an error.
+    request()
+      .catch(() => new Promise<Response>((resolve, reject) => setTimeout(() => request().then(resolve, reject), 1200)))
       .then(async (response) => {
         const body = (await response.json()) as {
           url?: string;
@@ -129,7 +136,11 @@ export function ApplicationFormSettings({
         setLoadError(null);
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setLoadError(cause instanceof Error ? cause.message : "Could not prepare the form link.");
+        if (cancelled) return;
+        const message = cause instanceof Error ? cause.message : "";
+        setLoadError(
+          message && !/failed to fetch|network/i.test(message) ? message : "Could not load the form link. Check your connection.",
+        );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -137,7 +148,7 @@ export function ApplicationFormSettings({
     return () => {
       cancelled = true;
     };
-  }, [roleId]);
+  }, [roleId, attempt]);
 
   /** Mirrors the server's link state into the settings inputs. */
   function applySettings(next: FormLinkStatus | null | undefined) {
@@ -398,9 +409,20 @@ export function ApplicationFormSettings({
 
         {/* the link */}
         {loadError ? (
-          <p role="alert" className="flex-1 text-sm text-rose-600 dark:text-rose-400">
-            {loadError}
-          </p>
+          <div role="alert" className="flex flex-1 items-center gap-3 rounded-xl bg-rose-500/[0.07] px-3.5 py-2 text-sm text-rose-700 dark:text-rose-300">
+            <span className="min-w-0 flex-1">{loadError}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setLoading(true);
+                setLoadError(null);
+                setAttempt((value) => value + 1);
+              }}
+              className="h-8 shrink-0 rounded-lg bg-surface px-3 text-sm font-medium text-foreground shadow-sm transition hover:bg-foreground/[0.03]"
+            >
+              Retry
+            </button>
+          </div>
         ) : (
           <div
             className={`flex min-w-0 flex-1 items-center gap-1 rounded-xl border border-border bg-background/60 p-1 pl-3.5 ${

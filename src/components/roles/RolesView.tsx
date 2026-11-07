@@ -200,15 +200,6 @@ function RoleCard({
     >
       {/* title row */}
       <div className="flex items-start gap-3">
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={(event) => onSelect(event.target.checked)}
-          aria-label={`Select ${role.title}`}
-          className={`mt-1.5 size-4 shrink-0 cursor-pointer accent-[var(--accent)] transition-opacity ${
-            selected ? "opacity-100" : "opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100"
-          }`}
-        />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <Link href={href} className="truncate text-[17px] font-semibold tracking-[-0.015em] hover:text-accent">
@@ -234,6 +225,15 @@ function RoleCard({
             <span>{relativeDay(role.updatedAt)}</span>
           </p>
         </div>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={(event) => onSelect(event.target.checked)}
+          aria-label={`Select ${role.title}`}
+          className={`mt-1 size-4 shrink-0 cursor-pointer accent-[var(--accent)] transition-opacity ${
+            selected ? "opacity-100" : "opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100"
+          }`}
+        />
         <Menu
           label={`Actions for ${role.title}`}
           align="end"

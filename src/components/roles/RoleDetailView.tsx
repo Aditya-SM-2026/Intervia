@@ -247,12 +247,12 @@ function StageStrip({
     : null;
   const total = rows?.length ?? 0;
   return (
-    <section aria-label="Pipeline" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <section aria-label="Pipeline" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-[1.4fr_repeat(5,minmax(0,1fr))]">
       <div className="col-span-2 flex items-center gap-4 rounded-2xl border border-border bg-surface p-4 sm:col-span-1 lg:col-span-1">
         <ScoreRing score={avgScore} size={58} stroke={5} />
         <div>
           <p className="text-sm font-medium">Average score</p>
-          <p className="text-xs text-muted">{avgScore === null ? "No reports yet" : "across finished interviews"}</p>
+          <p className="text-xs text-muted">{avgScore === null ? "No reports yet" : "Finished interviews"}</p>
         </div>
       </div>
       {PIPELINE_STEPS.map(({ step, label, tile, bar }, index) => {
