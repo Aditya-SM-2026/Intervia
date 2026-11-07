@@ -39,9 +39,9 @@ function PagePicture() {
       <span className="grid size-12 place-items-center rounded-full border-[5px] border-emerald-500 text-sm font-semibold tabular-nums">
         82
       </span>
-      <span className="grid flex-1 gap-1.5">
+      <span className="grid w-40 gap-1.5">
         {[84, 70, 58].map((width) => (
-          <span key={width} className="h-1.5 rounded-full bg-foreground/[0.07]">
+          <span key={width} className="block h-1.5 rounded-full bg-foreground/[0.07]">
             <span className="block h-full rounded-full bg-emerald-500" style={{ width: `${width}%` }} />
           </span>
         ))}
@@ -143,7 +143,7 @@ export default async function Home() {
         />
         <div className="mx-auto max-w-6xl px-5 pb-10 pt-20 text-center sm:px-8 lg:pt-24">
           <BrandEmblem className="mx-auto size-14" onDark />
-          <h2 className="mx-auto mt-6 max-w-xl text-3xl font-semibold tracking-[-0.03em] sm:text-5xl">
+          <h2 className="mx-auto mt-6 max-w-3xl text-balance text-3xl font-semibold tracking-[-0.03em] sm:text-5xl">
             Your next hire is one link away.
           </h2>
           <Link
