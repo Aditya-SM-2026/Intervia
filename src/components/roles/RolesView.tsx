@@ -36,6 +36,7 @@ import { FilterMenu } from "@/components/dashboard/Toolbar";
 import { EASE_OUT, SegmentedTabs } from "@/components/ui/animated";
 import { Toast, type ToastMessage } from "@/components/ui/Toast";
 import { RoleFormSheet } from "./RoleFormSheet";
+import { RoleIcon } from "./RoleIcon";
 
 /**
  * Roles list as cards. Each card shows where the role's candidates are (one
@@ -200,6 +201,7 @@ function RoleCard({
     >
       {/* title row */}
       <div className="flex items-start gap-3">
+        <RoleIcon title={role.title} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <Link href={href} className="truncate text-[17px] font-semibold tracking-[-0.015em] hover:text-accent">

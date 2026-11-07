@@ -36,6 +36,7 @@ import type { ApplicationField } from "@/lib/roles/application.types";
 import { documentFacts } from "@/lib/text/document-blocks";
 import { ApplicationFormSettings } from "@/components/roles/ApplicationFormSettings";
 import { RoleFormSheet } from "@/components/roles/RoleFormSheet";
+import { RoleIcon } from "@/components/roles/RoleIcon";
 import { Pagination } from "@/components/dashboard/Pagination";
 import { Menu } from "@/components/dashboard/menu";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
@@ -749,6 +750,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       </nav>
 
       <header className="mt-3 flex flex-wrap items-start justify-between gap-4 pb-6">
+        <div className="flex min-w-0 items-center gap-4">
+        <RoleIcon title={role.title} className="size-14" />
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">{role.title}</h1>
@@ -773,6 +776,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
             )}
             <span>Created {formatDate(role.createdAt)}</span>
           </p>
+        </div>
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setEditing(true)} className={ghostButton}>
