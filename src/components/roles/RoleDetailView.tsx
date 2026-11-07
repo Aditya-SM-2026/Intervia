@@ -495,7 +495,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         throw new Error(body.error?.message ?? "Could not update the role.");
       }
       setConfirmingClose(false);
-      setToast({ tone: "success", message: status === "completed" ? "Role marked as completed." : "Role reopened." });
+      setToast({ tone: "success", message: status === "completed" ? "Role moved to Closed." : "Role is active again." });
       loadRole();
     } catch (cause) {
       fail(cause, "Could not update the role.");
@@ -613,10 +613,10 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
             {role.status === "open" ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
                 <span aria-hidden className="size-1.5 rounded-full bg-emerald-500" />
-                Open
+                Active
               </span>
             ) : (
-              <span className="rounded-full bg-foreground/[0.06] px-2.5 py-1 text-xs font-medium text-muted">Completed</span>
+              <span className="rounded-full bg-foreground/[0.06] px-2.5 py-1 text-xs font-medium text-muted">Closed</span>
             )}
           </div>
           <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
@@ -668,8 +668,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
             items={[
               { id: "export", label: "Download candidates (CSV)", icon: <Download className="size-4" aria-hidden />, onSelect: exportCsv },
               role.status === "open"
-                ? { id: "complete", label: "Mark role as completed", onSelect: () => setConfirmingClose(true) }
-                : { id: "reopen", label: "Reopen role", onSelect: () => setRoleStatus("open") },
+                ? { id: "close", label: "Close role", onSelect: () => setConfirmingClose(true) }
+                : { id: "activate", label: "Make active", onSelect: () => setRoleStatus("open") },
             ]}
           />
         </div>
@@ -1095,9 +1095,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
 
       <ConfirmDialog
         open={confirmingClose}
-        title="Mark this role as completed?"
-        body="It stays readable and downloadable, and you can reopen it at any time."
-        confirmLabel="Mark completed"
+        title="Close this role?"
+        body="It moves to Closed. Candidates and reports stay, and you can make it active again at any time."
+        confirmLabel="Close role"
         busyLabel="Saving…"
         tone="default"
         busy={actionBusy}

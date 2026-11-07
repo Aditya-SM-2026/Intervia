@@ -18,6 +18,8 @@ import {
   Trash2,
   UserPlus,
   X,
+  Archive,
+  RotateCcw,
 } from "lucide-react";
 import type {
   RoleCandidateSummary,
@@ -127,6 +129,7 @@ function RoleCard({
   onSelect,
   onEdit,
   onDelete,
+  onToggleStatus,
   onToast,
 }: {
   role: RoleSummary;
@@ -137,6 +140,7 @@ function RoleCard({
   onSelect: (selected: boolean) => void;
   onEdit: () => void;
   onDelete: () => void;
+  onToggleStatus: () => void;
   onToast: (toast: ToastMessage) => void;
 }) {
   const router = useRouter();
@@ -194,12 +198,12 @@ function RoleCard({
             </Link>
             {role.status === "completed" ? (
               <span className="shrink-0 rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[11px] font-medium text-muted">
-                Completed
+                Closed
               </span>
             ) : (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
                 <span aria-hidden className="size-1.5 rounded-full bg-emerald-500" />
-                Open
+                Active
               </span>
             )}
           </div>
@@ -227,7 +231,10 @@ function RoleCard({
             </button>
           }
           items={[
-            { id: "edit", label: "Edit role", icon: <Pencil className="size-4" aria-hidden />, onSelect: onEdit, separatorAfter: true },
+            { id: "edit", label: "Edit role", icon: <Pencil className="size-4" aria-hidden />, onSelect: onEdit },
+            role.status === "open"
+              ? { id: "close", label: "Close role", icon: <Archive className="size-4" aria-hidden />, onSelect: onToggleStatus, separatorAfter: true }
+              : { id: "activate", label: "Make active", icon: <RotateCcw className="size-4" aria-hidden />, onSelect: onToggleStatus, separatorAfter: true },
             {
               id: "delete",
               label: "Delete role",
@@ -314,7 +321,7 @@ export function RolesView() {
   const [error, setError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<RoleStatus | "">("");
+  const [statusFilter, setStatusFilter] = useState<RoleStatus>("open");
   const [stepFilter, setStepFilter] = useState<PipelineStep | "">("");
   const [sortBy, setSortBy] = useState<SortKey>("updated");
   const [candidatesByRole, setCandidatesByRole] = useState<Record<string, RoleCandidateSummary[] | null>>({});
@@ -398,7 +405,7 @@ export function RolesView() {
           ),
       );
     }
-    if (statusFilter) list = list.filter((role) => role.status === statusFilter);
+    list = list.filter((role) => role.status === statusFilter);
     if (stepFilter) list = list.filter((role) => (pipelineByRole[role.id]?.[stepFilter] ?? 0) > 0);
     return [...list].sort((a, b) => {
       if (sortBy === "candidates") return b.stats.candidates - a.stats.candidates;
@@ -407,13 +414,28 @@ export function RolesView() {
     });
   }, [roles, search, statusFilter, stepFilter, sortBy, candidatesByRole, pipelineByRole]);
 
-  const hasActiveFilters = search !== "" || statusFilter !== "" || stepFilter !== "";
+  const hasActiveFilters = search !== "" || stepFilter !== "";
 
   function clearFilters() {
     setSearchInput("");
     setSearch("");
-    setStatusFilter("");
     setStepFilter("");
+  }
+
+  async function toggleRoleStatus(role: RoleSummary) {
+    const next: RoleStatus = role.status === "open" ? "completed" : "open";
+    try {
+      const response = await fetch(`/api/roles/${role.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: next }),
+      });
+      if (!response.ok) throw new Error();
+      setRoles((current) => current?.map((item) => (item.id === role.id ? { ...item, status: next } : item)) ?? current);
+      setToast({ tone: "success", message: next === "open" ? `${role.title} is active again.` : `${role.title} moved to Closed.` });
+    } catch {
+      setToast({ tone: "error", message: "Could not update the role. Try again." });
+    }
   }
 
   function toggleSelected(roleId: string, selected: boolean) {
@@ -486,9 +508,8 @@ export function RolesView() {
           value={statusFilter}
           onChange={setStatusFilter}
           options={[
-            { value: "", label: "All", count: statusCounts.all },
-            { value: "open", label: "Open", count: statusCounts.open },
-            { value: "completed", label: "Completed", count: statusCounts.completed },
+            { value: "open", label: "Active", count: statusCounts.open },
+            { value: "completed", label: "Closed", count: statusCounts.completed },
           ]}
         />
         <div className="flex flex-wrap items-center gap-2">
@@ -576,10 +597,26 @@ export function RolesView() {
             <span className="grid size-11 place-items-center rounded-full bg-foreground/[0.05] text-muted">
               <SearchX className="size-5" aria-hidden />
             </span>
-            <p className="mt-4 font-medium">No roles match these filters</p>
-            <button type="button" onClick={clearFilters} className="mt-3 text-sm font-medium text-accent hover:underline">
-              Reset filters
-            </button>
+            {hasActiveFilters ? (
+              <>
+                <p className="mt-4 font-medium">No roles match these filters</p>
+                <button type="button" onClick={clearFilters} className="mt-3 text-sm font-medium text-accent hover:underline">
+                  Reset filters
+                </button>
+              </>
+            ) : statusFilter === "completed" ? (
+              <>
+                <p className="mt-4 font-medium">No closed roles</p>
+                <p className="mt-1 text-sm text-muted">Close a role from its menu when you finish hiring for it.</p>
+              </>
+            ) : (
+              <>
+                <p className="mt-4 font-medium">No active roles</p>
+                <button type="button" onClick={() => setStatusFilter("completed")} className="mt-3 text-sm font-medium text-accent hover:underline">
+                  See closed roles
+                </button>
+              </>
+            )}
           </div>
         ) : (
           <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -594,6 +631,7 @@ export function RolesView() {
                 onSelect={(selected) => toggleSelected(role.id, selected)}
                 onEdit={() => setSheet({ role })}
                 onDelete={() => setDeleteIds([role.id])}
+                onToggleStatus={() => toggleRoleStatus(role)}
                 onToast={setToast}
               />
             ))}
