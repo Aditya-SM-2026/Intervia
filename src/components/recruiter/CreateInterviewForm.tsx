@@ -186,9 +186,9 @@ export function CreateInterviewForm({
   const [jobDescriptionPdf, setJobDescriptionPdf] = useState<File | null>(null);
   const [resume, setResume] = useState<File | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [skillFocus, setSkillFocus] = useState<SkillFocus[]>(
-    () => initial?.skillFocus ?? initialRole?.skills.map((skill) => ({ skill, weight: 50 })) ?? [],
-  );
+  // null means untouched: show the role's skills at normal weight. An empty
+  // list means the recruiter removed them all, and stays empty.
+  const [skillFocus, setSkillFocus] = useState<SkillFocus[] | null>(() => initial?.skillFocus ?? null);
 
   const style = DIFFICULTY_OPTIONS.find((option) => option.value === difficulty);
   const selectedRole = roles.find((role) => role.id === roleChoice) ?? null;
@@ -199,7 +199,7 @@ export function CreateInterviewForm({
 
   /** The skills shown in the focus step: the saved weights, or the role's skills at normal weight. */
   const focusRows: SkillFocus[] =
-    skillFocus.length > 0 ? skillFocus : roleSkills.map((skill) => ({ skill, weight: DEFAULT_SKILL_WEIGHT }));
+    skillFocus ?? roleSkills.map((skill) => ({ skill, weight: DEFAULT_SKILL_WEIGHT }));
   const heavySkills = focusRows.filter((row) => row.weight > DEFAULT_SKILL_WEIGHT).map((row) => row.skill);
 
   /**
@@ -211,7 +211,7 @@ export function CreateInterviewForm({
     setRoleChoice(next);
     // A different role has different skills, so an old weighting no longer
     // applies. The next open of the box starts from the new role's skills.
-    setSkillFocus([]);
+    setSkillFocus(null);
     if (next === "new") {
       setRoleTitle("");
       setJobDescriptionText("");
@@ -252,7 +252,7 @@ export function CreateInterviewForm({
         ? { jobDescriptionPdf }
         : { jobDescriptionText: jobDescriptionText.trim() }),
       ...(resume ? { resume } : {}),
-      ...(skillFocus.length > 0 ? { skillFocus: normalizeSkillFocus(skillFocus) } : {}),
+      ...(skillFocus && skillFocus.length > 0 ? { skillFocus: normalizeSkillFocus(skillFocus) } : {}),
     });
   }
 
@@ -510,7 +510,7 @@ export function CreateInterviewForm({
           <SummaryRow label="Style" value={style?.label ?? "—"} />
           <SummaryRow
             label="Focus"
-            value={heavySkills.length === 0 ? "Even across skills" : heavySkills.slice(0, 2).join(", ") + (heavySkills.length > 2 ? ` +${heavySkills.length - 2}` : "")}
+            value={focusRows.length === 0 ? "From the job description" : heavySkills.length === 0 ? "Even across skills" : heavySkills.slice(0, 2).join(", ") + (heavySkills.length > 2 ? ` +${heavySkills.length - 2}` : "")}
           />
           <SummaryRow
             label="Job description"
@@ -630,7 +630,7 @@ function FocusEditor({ rows, onChange }: { rows: SkillFocus[]; onChange: (rows: 
     <div>
       {rows.length === 0 ? (
         <p className="rounded-xl bg-foreground/[0.03] px-4 py-3 text-sm text-muted">
-          No skills yet. They come from the role, or add the ones that matter below.
+          No skills picked. The interviewer works from the job description. Add skills below to steer it.
         </p>
       ) : (
         <ul className="grid gap-2 xl:grid-cols-2">
