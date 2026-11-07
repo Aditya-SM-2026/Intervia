@@ -103,7 +103,7 @@ export default async function Home() {
           </ol>
         </section>
 
-        <section className="py-12 lg:py-16">
+        <section className="pb-12 lg:pb-16">
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {PROMISES.map(({ icon: Icon, title, body, tint }) => (
               <li key={title} className="rounded-2xl border border-border bg-surface p-5">
