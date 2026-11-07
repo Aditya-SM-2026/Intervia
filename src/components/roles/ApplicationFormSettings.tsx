@@ -1,7 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, ChevronDown, ChevronUp, Copy, Lock, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import { motion } from "motion/react";
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  ClipboardList,
+  Copy,
+  Eye,
+  Link2,
+  ListChecks,
+  Lock,
+  MessageCircle,
+  Plus,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
 import type {
   ApplicationField,
   ApplicationFieldType,
@@ -14,7 +29,6 @@ import {
   suggestFieldId,
 } from "@/lib/roles/application.types";
 import { ApplicationForm } from "@/components/apply/ApplicationForm";
-import { Menu } from "@/components/dashboard/menu";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { Sheet } from "@/components/ui/Sheet";
 import { SegmentedTabs } from "@/components/ui/animated";
@@ -54,8 +68,9 @@ function formatMoment(iso: string): string {
 }
 
 /**
- * The role's public application form: a compact card with the shareable
- * link and its state, and a side sheet for the questions, the link limits
+ * The role's public application form as a bar across the role page: its
+ * state with an open/closed switch, the shareable link, and buttons for the
+ * questions, a preview and the limits. Those open a side sheet for the questions, the link limits
  * and a preview of what applicants see. The essential built-in fields are
  * locked so an application always carries a name, phone, email and resume.
  */
@@ -329,96 +344,141 @@ export function ApplicationFormSettings({
           : "Closed by you."
       : null;
 
-  return (
-    <section id="application-form" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-[15px] font-semibold">Application form</h2>
-          <p className="mt-0.5 text-sm text-muted">Share it with a college group. No account needed to apply.</p>
-        </div>
-        <Menu
-          label="Application form actions"
-          align="end"
-          trigger={
-            <button
-              type="button"
-              aria-label="Application form actions"
-              className="-mr-1.5 grid size-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
-            >
-              <MoreHorizontal className="size-4" aria-hidden />
-            </button>
-          }
-          items={[
-            { id: "questions", label: "Edit questions", onSelect: () => openPanel("questions") },
-            { id: "limits", label: "Limits and link", onSelect: () => openPanel("limits") },
-            { id: "preview", label: "Preview as applicant", onSelect: () => openPanel("preview"), separatorAfter: true },
-            isOpen
-              ? { id: "close", label: "Close the form", onSelect: revoke, disabled: saving, danger: true }
-              : status?.closedReason === "revoked"
-                ? { id: "reopen", label: "Reopen the form", onSelect: reEnable, disabled: saving }
-                : { id: "limits2", label: "Change limits to reopen", onSelect: () => openPanel("limits") },
-          ]}
-        />
-      </div>
+  const canToggle = !loading && !loadError && (isOpen || status?.closedReason === "revoked");
 
-      {loading ? (
-        <div aria-hidden className="mt-4 space-y-2">
-          <div className="skeleton h-4 w-40 rounded" />
-          <div className="skeleton h-9 w-full rounded-lg" />
-        </div>
-      ) : loadError ? (
-        <p role="alert" className="mt-4 text-sm text-rose-600 dark:text-rose-400">
-          {loadError}
-        </p>
-      ) : (
-        <>
-          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-            <span className={`inline-flex items-center gap-1.5 font-medium ${isOpen ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}>
-              <span className="relative flex size-2">
-                {isOpen && <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-50" />}
-                <span className={`relative inline-flex size-2 rounded-full ${isOpen ? "bg-emerald-500" : "bg-foreground/30"}`} />
-              </span>
-              {isOpen ? "Taking applications" : "Not taking applications"}
-            </span>
-            {status && (
-              <span className="text-muted">
-                <span className="font-medium tabular-nums text-foreground">{status.applicationsReceived}</span>
-                {status.maxApplications !== null ? ` of ${status.maxApplications}` : ""} received
-              </span>
+  function toggleOpen() {
+    if (saving) return;
+    if (isOpen) void revoke();
+    else if (status?.closedReason === "revoked") void reEnable();
+    else openPanel("limits");
+  }
+
+  return (
+    <section
+      id="application-form"
+      aria-label="Application form"
+      className="scroll-mt-24 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm shadow-black/[0.02]"
+    >
+      <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-center">
+        {/* what it is + state */}
+        <div className="flex min-w-0 items-center gap-3.5 lg:w-[18rem] lg:shrink-0">
+          <span
+            className={`grid size-11 shrink-0 place-items-center rounded-xl ${
+              isOpen ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-foreground/[0.06] text-muted"
+            }`}
+          >
+            <ClipboardList className="size-5" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-semibold">Application form</h2>
+            {loading ? (
+              <div className="skeleton mt-1.5 h-3.5 w-32 rounded" />
+            ) : (
+              <p className="mt-0.5 text-sm text-muted">
+                <span className={isOpen ? "font-medium text-emerald-600 dark:text-emerald-400" : "font-medium"}>
+                  {isOpen ? "Taking applications" : "Closed"}
+                </span>
+                {status && (
+                  <>
+                    {" "}
+                    <span className="tabular-nums">
+                      {status.applicationsReceived}
+                      {status.maxApplications !== null ? `/${status.maxApplications}` : ""}
+                    </span>{" "}
+                    received
+                  </>
+                )}
+              </p>
+            )}
+            {(closedNote || status?.expiresAt) && !loading && (
+              <p className="mt-0.5 text-xs text-muted">{closedNote ?? `Closes ${formatMoment(status!.expiresAt!)}`}</p>
             )}
           </div>
-          {(closedNote || status?.expiresAt) && (
-            <p className="mt-1 text-xs text-muted">
-              {closedNote ?? `Closes ${formatMoment(status!.expiresAt!)}`}
-            </p>
-          )}
+        </div>
 
-          <div className="mt-3 flex items-center gap-1 rounded-lg border border-border bg-background/50 p-1 pl-3">
-            <span className="min-w-0 flex-1 truncate text-sm text-muted" title={url ?? undefined}>
-              {url?.replace(/^https?:\/\//, "")}
-            </span>
+        {/* the link */}
+        {loadError ? (
+          <p role="alert" className="flex-1 text-sm text-rose-600 dark:text-rose-400">
+            {loadError}
+          </p>
+        ) : (
+          <div
+            className={`flex min-w-0 flex-1 items-center gap-1 rounded-xl border border-border bg-background/60 p-1 pl-3.5 ${
+              isOpen ? "" : "opacity-60"
+            }`}
+          >
+            <Link2 className="size-4 shrink-0 text-muted" aria-hidden />
+            {loading ? (
+              <div className="skeleton mx-2 h-4 flex-1 rounded" />
+            ) : (
+              <span className="min-w-0 flex-1 truncate px-1.5 text-sm" title={url ?? undefined}>
+                {url?.replace(/^https?:\/\//, "")}
+              </span>
+            )}
             <button
               type="button"
               onClick={copy}
-              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent px-2.5 text-xs font-medium text-white transition hover:bg-accent/90"
+              disabled={!url}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 text-sm font-medium text-white transition hover:bg-accent/90 disabled:opacity-50"
             >
               {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
-              {copied ? "Copied" : "Copy"}
+              {copied ? "Copied" : "Copy link"}
             </button>
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
             {whatsappHref && (
-              <a href={whatsappHref} target="_blank" rel="noreferrer" className={ghostButton}>
-                WhatsApp
+              <a
+                href={whatsappHref}
+                target="_blank"
+                rel="noreferrer"
+                title="Share on WhatsApp"
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/10 dark:text-emerald-300"
+              >
+                <MessageCircle className="size-4" aria-hidden />
+                <span className="hidden sm:inline">WhatsApp</span>
               </a>
             )}
-            <button type="button" onClick={() => openPanel("questions")} className={ghostButton}>
-              {questionCount} question{questionCount === 1 ? "" : "s"}
-            </button>
           </div>
-        </>
-      )}
+        )}
+
+        {/* controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => openPanel("questions")} disabled={loading} className={ghostButton}>
+            <ListChecks className="size-4 text-muted" aria-hidden />
+            Questions
+            <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs tabular-nums">{questionCount}</span>
+          </button>
+          <button type="button" onClick={() => openPanel("preview")} disabled={loading} className={ghostButton}>
+            <Eye className="size-4 text-muted" aria-hidden />
+            Preview
+          </button>
+          <button type="button" onClick={() => openPanel("limits")} disabled={loading} className={ghostButton} title="Limits and link">
+            <SlidersHorizontal className="size-4 text-muted" aria-hidden />
+            <span className="sr-only lg:not-sr-only">Limits</span>
+          </button>
+          <label
+            className={`ml-1 inline-flex cursor-pointer items-center gap-2 text-sm font-medium ${canToggle ? "" : "opacity-60"}`}
+            title={isOpen ? "Stop taking applications" : "Start taking applications again"}
+          >
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isOpen}
+              aria-label={isOpen ? "Form is open. Close it" : "Form is closed. Open it"}
+              onClick={toggleOpen}
+              disabled={loading || saving}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                isOpen ? "bg-emerald-500" : "bg-foreground/20"
+              } disabled:opacity-60`}
+            >
+              <motion.span
+                className="absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow-sm"
+                animate={{ x: isOpen ? 20 : 0 }}
+                transition={{ type: "spring", bounce: 0.25, duration: 0.35 }}
+              />
+            </button>
+            <span className="w-11">{isOpen ? "Open" : "Closed"}</span>
+          </label>
+        </div>
+      </div>
 
       <Sheet
         open={panel !== null}

@@ -4,7 +4,20 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowUpDown, Briefcase, Layers, MoreHorizontal, Plus, Search, SearchX, Trash2, UserPlus, X } from "lucide-react";
+import {
+  ArrowUpDown,
+  Briefcase,
+  Check,
+  ClipboardList,
+  Layers,
+  MoreHorizontal,
+  Plus,
+  Search,
+  SearchX,
+  Trash2,
+  UserPlus,
+  X,
+} from "lucide-react";
 import type {
   RoleCandidateSummary,
   RoleCandidatesResponse,
@@ -13,8 +26,10 @@ import type {
   RolesResponse,
 } from "@/lib/roles/role.types";
 import { deriveApplicationStage, deriveHireStage, type HireStage } from "@/lib/roles/hire-stage";
-import { countPipeline, PIPELINE_STEPS, scoreTone, type PipelineStep } from "@/lib/roles/pipeline";
-import { documentExcerpt } from "@/lib/text/document-blocks";
+import { countPipeline, PIPELINE_STEPS, type PipelineStep } from "@/lib/roles/pipeline";
+import { documentFacts } from "@/lib/text/document-blocks";
+import { Avatar } from "@/components/dashboard/primitives";
+import { ScoreRing } from "@/components/ui/ScoreRing";
 import { Menu } from "@/components/dashboard/menu";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { FilterMenu } from "@/components/dashboard/Toolbar";
@@ -23,9 +38,9 @@ import { Toast, type ToastMessage } from "@/components/ui/Toast";
 import { RoleFormSheet } from "./RoleFormSheet";
 
 /**
- * Roles list. One row per role: what it is, where its candidates are in the
- * pipeline, and how they scored. The row opens the role; everything else
- * (invite, form link, edit, delete) sits in the row menu.
+ * Roles list as cards. Each card shows where the role's candidates are (one
+ * counter per stage), their average score, and the two things a recruiter
+ * does most: share the application form and invite someone.
  * Data comes from GET /api/roles and GET /api/roles/[id]/candidates.
  */
 
@@ -80,42 +95,36 @@ function PipelineBar({
   total,
   index,
 }: {
-  counts: Record<PipelineStep, number> | null;
+  counts: Record<PipelineStep, number>;
   total: number;
   index: number;
 }) {
   const reduce = useReducedMotion();
-  if (counts === null) return <div className="skeleton h-2 w-full rounded-full" />;
-  if (total === 0) return <p className="text-xs text-muted">No candidates yet</p>;
-  const summary = PIPELINE_STEPS.filter(({ step }) => counts[step] > 0)
-    .map(({ step, label }) => `${counts[step]} ${label.toLowerCase()}`)
-    .join(", ");
   return (
-    <div className="min-w-0">
-      <div className="flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-foreground/[0.05]" role="img" aria-label={summary}>
-        {PIPELINE_STEPS.map(({ step, bar, label }) =>
-          counts[step] > 0 ? (
-            <motion.span
-              key={step}
-              title={`${counts[step]} ${label.toLowerCase()}`}
-              className={`h-full first:rounded-l-full last:rounded-r-full ${bar}`}
-              initial={reduce ? false : { width: 0 }}
-              animate={{ width: `${(counts[step] / total) * 100}%` }}
-              transition={{ duration: 0.7, delay: 0.15 + index * 0.05, ease: EASE_OUT }}
-            />
-          ) : null,
-        )}
-      </div>
-      <p className="mt-1.5 truncate text-xs text-muted">{summary}</p>
+    <div className="flex h-1.5 w-full gap-0.5 overflow-hidden rounded-full bg-foreground/[0.06]" aria-hidden>
+      {PIPELINE_STEPS.map(({ step, bar }) =>
+        counts[step] > 0 ? (
+          <motion.span
+            key={step}
+            className={`h-full ${bar}`}
+            initial={reduce ? false : { width: 0 }}
+            animate={{ width: `${(counts[step] / Math.max(total, 1)) * 100}%` }}
+            transition={{ duration: 0.7, delay: 0.15 + index * 0.05, ease: EASE_OUT }}
+          />
+        ) : null,
+      )}
     </div>
   );
 }
 
-function RoleRow({
+/** Header facts lifted from the job description, when it has them. */
+const CARD_FACTS = ["location", "experience", "employment type", "work mode"];
+
+function RoleCard({
   role,
   index,
   counts,
-  total,
+  candidates,
   selected,
   onSelect,
   onEdit,
@@ -125,7 +134,7 @@ function RoleRow({
   role: RoleSummary;
   index: number;
   counts: Record<PipelineStep, number> | null;
-  total: number;
+  candidates: RoleCandidateSummary[] | null | undefined;
   selected: boolean;
   onSelect: (selected: boolean) => void;
   onEdit: () => void;
@@ -133,10 +142,17 @@ function RoleRow({
   onToast: (toast: ToastMessage) => void;
 }) {
   const router = useRouter();
+  const reduce = useReducedMotion();
+  const [formCopied, setFormCopied] = useState(false);
   const href = `/dashboard/roles/${role.id}`;
   const inviteHref = `/recruiter?roleId=${encodeURIComponent(role.id)}`;
-  const excerpt = role.description.trim() ? documentExcerpt(role.description, 150) : "";
   const score = role.stats.avgOverallScore;
+  const total = candidates?.length ?? 0;
+  const facts = documentFacts(role.description);
+  const cardFacts = CARD_FACTS.map((label) => facts.find((fact) => fact.label.toLowerCase() === label)?.value).filter(
+    (value): value is string => Boolean(value),
+  );
+  const people = (candidates ?? []).slice(0, 4);
 
   function copyInvite() {
     const url = `${window.location.origin}${inviteHref}`;
@@ -157,7 +173,9 @@ function RoleRow({
         if (!response.ok || !body.url) throw new Error(body.error?.message ?? "Could not create the form link.");
         try {
           await navigator.clipboard.writeText(body.url);
-          onToast({ tone: "success", message: "Application form link copied." });
+          setFormCopied(true);
+          setTimeout(() => setFormCopied(false), 1800);
+          onToast({ tone: "success", message: "Application form link copied. Share it with applicants." });
         } catch {
           onToast({ tone: "success", message: body.url });
         }
@@ -168,91 +186,54 @@ function RoleRow({
   }
 
   return (
-    <li
+    <motion.li
+      initial={reduce ? false : { opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: Math.min(index, 8) * 0.04, ease: EASE_OUT }}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest("a,button,input,[role='menu']")) return;
         router.push(href);
       }}
-      className={`group grid cursor-pointer grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 px-4 py-4 transition-colors sm:px-5 md:grid-cols-[1.25rem_minmax(0,1.5fr)_minmax(0,1fr)_5rem_7rem] ${
-        selected ? "bg-accent-soft/60" : "hover:bg-foreground/[0.02]"
+      className={`group relative flex cursor-pointer flex-col rounded-2xl border bg-surface p-5 shadow-sm shadow-black/[0.02] transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/[0.06] ${
+        selected ? "border-accent ring-4 ring-accent/10" : "border-border hover:border-foreground/15"
       }`}
     >
-      <input
-        type="checkbox"
-        checked={selected}
-        onChange={(event) => onSelect(event.target.checked)}
-        aria-label={`Select ${role.title}`}
-        className={`size-4 cursor-pointer accent-[var(--accent)] transition-opacity ${
-          selected ? "opacity-100" : "opacity-40 group-hover:opacity-100 focus-visible:opacity-100"
-        }`}
-      />
-
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <Link href={href} className="truncate text-[15px] font-semibold tracking-[-0.01em] hover:text-accent">
-            {role.title}
-          </Link>
-          {role.status === "completed" ? (
-            <span className="shrink-0 rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[11px] font-medium text-muted">
-              Completed
-            </span>
-          ) : (
-            <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-              <span aria-hidden className="size-1.5 rounded-full bg-emerald-500" />
-              Open
-            </span>
-          )}
-          <span className="hidden shrink-0 text-xs text-muted lg:inline">{relativeDay(role.updatedAt)}</span>
-        </div>
-        {excerpt ? (
-          <p className="mt-1 line-clamp-1 text-sm text-muted">{excerpt}</p>
-        ) : (
-          <button
-            type="button"
-            onClick={onEdit}
-            className="mt-1 text-sm text-muted underline decoration-dotted underline-offset-4 hover:text-foreground"
-          >
-            Add a job description
-          </button>
-        )}
-        {role.skills.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {role.skills.slice(0, 4).map((skill) => (
-              <span key={skill} className="rounded-md bg-foreground/[0.05] px-1.5 py-0.5 text-[11px] font-medium text-foreground/70">
-                {skill}
+      {/* title row */}
+      <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={(event) => onSelect(event.target.checked)}
+          aria-label={`Select ${role.title}`}
+          className={`mt-1.5 size-4 shrink-0 cursor-pointer accent-[var(--accent)] transition-opacity ${
+            selected ? "opacity-100" : "opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100"
+          }`}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <Link href={href} className="truncate text-[17px] font-semibold tracking-[-0.015em] hover:text-accent">
+              {role.title}
+            </Link>
+            {role.status === "completed" ? (
+              <span className="shrink-0 rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[11px] font-medium text-muted">
+                Completed
               </span>
-            ))}
-            {role.skills.length > 4 && (
-              <span className="px-1 py-0.5 text-[11px] text-muted">+{role.skills.length - 4} more</span>
+            ) : (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                <span aria-hidden className="size-1.5 rounded-full bg-emerald-500" />
+                Open
+              </span>
             )}
           </div>
-        )}
-      </div>
-
-      <div className="col-span-3 col-start-2 row-start-2 md:col-span-1 md:col-start-auto md:row-start-auto">
-        <PipelineBar counts={counts} total={total} index={index} />
-      </div>
-
-      <div className="hidden text-right md:block">
-        {score === null ? (
-          <span className="text-sm text-muted">—</span>
-        ) : (
-          <>
-            <span className={`text-lg font-semibold tabular-nums ${scoreTone(score).text}`}>{score}</span>
-            <span className="block text-[11px] text-muted">average</span>
-          </>
-        )}
-      </div>
-
-      <div className="col-start-3 row-start-1 flex items-center justify-end gap-1 md:col-start-auto md:row-start-auto">
-        <Link
-          href={inviteHref}
-          title="Send an interview for this role"
-          className="hidden h-8 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] sm:inline-flex"
-        >
-          <UserPlus className="size-3.5 text-muted" aria-hidden />
-          Invite
-        </Link>
+          <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted">
+            {cardFacts.slice(0, 2).map((value) => (
+              <span key={value} className="truncate">
+                {value}
+              </span>
+            ))}
+            <span>{relativeDay(role.updatedAt)}</span>
+          </p>
+        </div>
         <Menu
           label={`Actions for ${role.title}`}
           align="end"
@@ -260,7 +241,7 @@ function RoleRow({
             <button
               type="button"
               aria-label={`Actions for ${role.title}`}
-              className="grid size-8 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
+              className="-mr-1.5 -mt-1 grid size-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
             >
               <MoreHorizontal className="size-4" aria-hidden />
             </button>
@@ -280,7 +261,83 @@ function RoleRow({
           ]}
         />
       </div>
-    </li>
+
+      {/* headline figures */}
+      <div className="mt-5 flex items-center gap-4">
+        <ScoreRing score={score} size={60} stroke={5} label={score === null ? undefined : "avg"} delay={0.1 + index * 0.04} />
+        <div className="min-w-0 flex-1">
+          <p className="flex items-baseline gap-1.5">
+            <span className="text-2xl font-semibold tabular-nums tracking-[-0.02em]">{counts === null ? "…" : total}</span>
+            <span className="text-sm text-muted">{total === 1 ? "candidate" : "candidates"}</span>
+          </p>
+          <div className="mt-2">
+            {counts === null ? (
+              <div className="skeleton h-1.5 w-full rounded-full" />
+            ) : total === 0 ? (
+              <p className="text-xs text-muted">Share the form or invite someone to start.</p>
+            ) : (
+              <PipelineBar counts={counts} total={total} index={index} />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* stage counters */}
+      <dl className="mt-4 grid grid-cols-4 gap-1.5">
+        {PIPELINE_STEPS.slice(0, 4).map(({ step, label, tile }) => {
+          const value = counts?.[step] ?? 0;
+          return (
+            <div
+              key={step}
+              className={`rounded-xl px-2.5 py-2 transition ${value > 0 ? tile : "bg-foreground/[0.03] text-muted"}`}
+            >
+              <dd className="text-lg font-semibold leading-none tabular-nums">{counts === null ? "–" : value}</dd>
+              <dt className="mt-1 truncate text-[11px] font-medium opacity-80">{label}</dt>
+            </div>
+          );
+        })}
+      </dl>
+
+      {/* footer actions */}
+      <div className="mt-4 flex items-center gap-2 border-t border-border pt-4">
+        <div className="flex -space-x-2">
+          {people.map((person) => (
+            <Avatar
+              key={person.candidateId}
+              name={person.candidateName ?? person.candidateEmail}
+              className="size-7 text-[11px] ring-2 ring-surface"
+            />
+          ))}
+          {total > people.length && (
+            <span className="grid size-7 place-items-center rounded-full bg-foreground/[0.06] text-[10px] font-semibold text-muted ring-2 ring-surface">
+              +{total - people.length}
+            </span>
+          )}
+        </div>
+        <span className="grow" />
+        <button
+          type="button"
+          onClick={copyFormLink}
+          title="Copy the application form link"
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03]"
+        >
+          {formCopied ? (
+            <Check className="size-3.5 text-emerald-600" aria-hidden />
+          ) : (
+            <ClipboardList className="size-3.5 text-muted" aria-hidden />
+          )}
+          {formCopied ? "Copied" : "Form link"}
+        </button>
+        <Link
+          href={inviteHref}
+          title="Send an interview for this role"
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-2.5 text-xs font-medium text-background transition hover:bg-foreground/85"
+        >
+          <UserPlus className="size-3.5" aria-hidden />
+          Invite
+        </Link>
+      </div>
+    </motion.li>
   );
 }
 
@@ -511,38 +568,26 @@ export function RolesView() {
         </p>
       )}
 
-      <section className="mt-4 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm shadow-black/[0.03]">
-        <div className="hidden grid-cols-[1.25rem_minmax(0,1.5fr)_minmax(0,1fr)_5rem_7rem] items-center gap-x-4 border-b border-border px-5 py-2.5 text-xs font-medium text-muted md:grid">
-          <span />
-          <span>Role</span>
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            Candidates
-            {PIPELINE_STEPS.slice(0, 4).map(({ step, label, dot }) => (
-              <span key={step} className="inline-flex items-center gap-1 font-normal">
-                <span aria-hidden className={`size-1.5 rounded-full ${dot}`} />
-                {label}
-              </span>
-            ))}
-          </span>
-          <span className="text-right">Score</span>
-          <span />
-        </div>
-
+      <section className="mt-5" aria-label="Roles">
         {roles === null && !error ? (
-          <ul aria-hidden className="divide-y divide-border">
-            {[0, 1, 2, 3].map((key) => (
-              <li key={key} className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-6 px-5 py-5">
-                <div className="space-y-2">
-                  <div className="skeleton h-4 w-48 rounded" />
-                  <div className="skeleton h-3 w-80 max-w-full rounded" />
+          <ul aria-hidden className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {[0, 1, 2, 3, 4, 5].map((key) => (
+              <li key={key} className="rounded-2xl border border-border bg-surface p-5">
+                <div className="skeleton h-5 w-40 rounded" />
+                <div className="mt-6 flex items-center gap-4">
+                  <div className="skeleton size-[60px] rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <div className="skeleton h-5 w-24 rounded" />
+                    <div className="skeleton h-1.5 rounded-full" />
+                  </div>
                 </div>
-                <div className="skeleton h-2 rounded-full" />
+                <div className="skeleton mt-4 h-12 rounded-xl" />
               </li>
             ))}
           </ul>
         ) : roles !== null && roles.length === 0 ? (
-          <div className="grid place-items-center px-6 py-16 text-center">
-            <span className="grid size-11 place-items-center rounded-full bg-foreground/[0.05] text-muted">
+          <div className="grid place-items-center rounded-2xl border border-dashed border-border bg-surface/60 px-6 py-16 text-center">
+            <span className="grid size-12 place-items-center rounded-2xl bg-accent-soft text-accent">
               <Briefcase className="size-5" aria-hidden />
             </span>
             <p className="mt-4 font-medium">Add the first role you are hiring for</p>
@@ -559,7 +604,7 @@ export function RolesView() {
             </button>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="grid place-items-center px-6 py-16 text-center">
+          <div className="grid place-items-center rounded-2xl border border-dashed border-border bg-surface/60 px-6 py-16 text-center">
             <span className="grid size-11 place-items-center rounded-full bg-foreground/[0.05] text-muted">
               <SearchX className="size-5" aria-hidden />
             </span>
@@ -569,14 +614,14 @@ export function RolesView() {
             </button>
           </div>
         ) : (
-          <ul className="divide-y divide-border">
+          <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filtered.map((role, index) => (
-              <RoleRow
+              <RoleCard
                 key={role.id}
                 role={role}
                 index={index}
                 counts={pipelineByRole[role.id] ?? null}
-                total={candidatesByRole[role.id]?.length ?? 0}
+                candidates={candidatesByRole[role.id]}
                 selected={selectedIds.has(role.id)}
                 onSelect={(selected) => toggleSelected(role.id, selected)}
                 onEdit={() => setSheet({ role })}
@@ -584,6 +629,20 @@ export function RolesView() {
                 onToast={setToast}
               />
             ))}
+            <li>
+              <button
+                type="button"
+                onClick={() => setSheet({ role: null })}
+                className="grid h-full min-h-[220px] w-full place-items-center rounded-2xl border border-dashed border-border text-sm text-muted transition hover:border-accent/50 hover:bg-accent-soft/40 hover:text-accent"
+              >
+                <span className="flex flex-col items-center gap-2">
+                  <span className="grid size-10 place-items-center rounded-full bg-foreground/[0.05]">
+                    <Plus className="size-4" aria-hidden />
+                  </span>
+                  New role
+                </span>
+              </button>
+            </li>
           </ul>
         )}
       </section>
