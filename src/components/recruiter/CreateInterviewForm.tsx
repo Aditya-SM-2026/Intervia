@@ -633,7 +633,7 @@ function FocusEditor({ rows, onChange }: { rows: SkillFocus[]; onChange: (rows: 
           No skills yet. They come from the role, or add the ones that matter below.
         </p>
       ) : (
-        <ul className="grid gap-2">
+        <ul className="grid gap-2 xl:grid-cols-2">
           {rows.map((row, index) => {
             const level = nearestLevel(row.weight);
             return (

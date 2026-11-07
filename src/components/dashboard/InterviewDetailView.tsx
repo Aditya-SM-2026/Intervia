@@ -1685,7 +1685,8 @@ function VideoSection({
   const listeningTotals = secondsBy((answer) => answer.whileListening);
   const answeringSeconds = [...answeringTotals.values()].reduce((sum, value) => sum + value, 0);
   const atScreen = answeringSeconds > 0 ? Math.round(((answeringTotals.get("centre") ?? 0) / answeringSeconds) * 100) : null;
-  const attention = video.attentionPercent ?? atScreen;
+  // Same source as the grid below, so the figure and the picture agree.
+  const attention = atScreen;
   const sameSpot = pattern && pattern.sameSpotAnswers >= 2 ? pattern.sameSpotAnswers : 0;
   const readingCount = pattern?.readingAnswers ?? measured.filter((answer) => answer.reading).length;
 
@@ -1711,7 +1712,7 @@ function VideoSection({
     .filter((item, index, list) => index === 0 || Math.abs(item.at - list[index - 1].at) > 2);
 
   const tiles: { label: string; value: string; tone: Tone }[] = [
-    { label: "Looking at the screen", value: attention === null ? "—" : `${attention}%`, tone: attention !== null && attention < 50 ? "warn" : "muted" },
+    { label: "At the screen while answering", value: attention === null ? "—" : `${attention}%`, tone: attention !== null && attention < 50 ? "warn" : "muted" },
     {
       label: "Same off-screen spot",
       value: pattern && pattern.answersObserved > 0 ? `${sameSpot} of ${pattern.answersObserved}` : "—",
@@ -1797,7 +1798,7 @@ function VideoSection({
                   {flagged.length > 6 && <li className="px-1 text-xs text-muted">And {flagged.length - 6} more in the table below.</li>}
                 </ul>
               )}
-              {video.summary && <p className="mt-3 text-sm leading-6 text-muted">{video.summary}</p>}
+              {video.summary && flagged.length > 0 && <p className="mt-3 text-sm leading-6 text-muted">{video.summary}</p>}
             </div>
           </div>
         </>
