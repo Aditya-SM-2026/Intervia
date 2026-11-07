@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowDown,
@@ -11,9 +12,7 @@ import {
   ChevronRight,
   Download,
   FileText,
-  Inbox,
-  LayoutGrid,
-  Video,
+  Users,
   MoreHorizontal,
   Pencil,
   ExternalLink,
@@ -31,7 +30,7 @@ import type {
 } from "@/lib/roles/role.types";
 import { compareByHirePriority, deriveApplicationStage, deriveHireStage, type HireStage } from "@/lib/roles/hire-stage";
 import { compareCandidateRows, type CandidateSortKey, type SortState } from "@/lib/roles/candidate-sort";
-import { countPipeline, PIPELINE_STEPS, pipelineStep, scoreTone } from "@/lib/roles/pipeline";
+import { countPipeline, PIPELINE_STEPS, pipelineStep, scoreTone, type PipelineStep } from "@/lib/roles/pipeline";
 import type { ApplicationField } from "@/lib/roles/application.types";
 import { documentFacts } from "@/lib/text/document-blocks";
 import { ApplicationFormSettings } from "@/components/roles/ApplicationFormSettings";
@@ -42,17 +41,16 @@ import { Menu } from "@/components/dashboard/menu";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { FilterMenu } from "@/components/dashboard/Toolbar";
 import { Avatar, StatusBadge } from "@/components/dashboard/primitives";
-import { ScoreRing } from "@/components/ui/ScoreRing";
 import { DocumentText } from "@/components/ui/DocumentText";
 import { Sheet } from "@/components/ui/Sheet";
 import { EASE_OUT } from "@/components/ui/animated";
 import { Toast, type ToastMessage } from "@/components/ui/Toast";
 
 /**
- * One role as a hiring workspace: the application form bar (state, link,
- * questions), a tile per pipeline stage, and the candidates as a board by
- * stage. Applications and interviews also have sortable lists, and the job
- * description has its own tab.
+ * One role as a hiring workspace: the application form bar, then everyone
+ * in the pipeline as one paginated list. Stage tiles filter the list, and
+ * search, status, score and sorting narrow it further, so it stays usable
+ * with hundreds of candidates. The job description has its own tab.
  * Every number and stage comes from the roles API.
  */
 
@@ -81,7 +79,8 @@ const HEADER_FACTS = ["location", "employment type", "experience", "job type", "
 
 const PAGE_SIZE = 25;
 
-type StageTab = "board" | "applications" | "interviews" | "description";
+type StageTab = "candidates" | "description";
+type StageFilter = PipelineStep | "all";
 type StatusFilter = "all" | "scheduled" | "in-progress" | "completed" | "cancelled";
 
 const STATUS_FILTERS = [
@@ -91,10 +90,6 @@ const STATUS_FILTERS = [
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Expired or cancelled" },
 ];
-
-function defaultSortFor(tab: StageTab): SortState {
-  return tab === "applications" ? { key: "applied", direction: "desc" } : { key: "interview", direction: "desc" };
-}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -106,11 +101,6 @@ function formatDay(iso: string): { day: string; time: string } {
     day: date.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
     time: date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
   };
-}
-
-function initials(name: string): string {
-  const parts = name.split(/[\s@._-]+/).filter(Boolean);
-  return (parts[0]?.[0] ?? "?").concat(parts[1]?.[0] ?? "").toUpperCase();
 }
 
 interface LeaderRow {
@@ -130,15 +120,15 @@ function SortableHeader({
 }: {
   label: string;
   column: CandidateSortKey;
-  sort: SortState;
+  sort: SortState | null;
   onSort: (column: CandidateSortKey) => void;
   className?: string;
 }) {
-  const active = sort.key === column;
+  const active = sort?.key === column;
   return (
     <th
       scope="col"
-      aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
+      aria-sort={active ? (sort!.direction === "asc" ? "ascending" : "descending") : "none"}
       className={`px-3 py-2.5 font-medium ${className ?? ""}`}
     >
       <button
@@ -148,7 +138,7 @@ function SortableHeader({
       >
         {label}
         {active ? (
-          sort.direction === "asc" ? (
+          sort!.direction === "asc" ? (
             <ArrowUp className="size-3" aria-hidden />
           ) : (
             <ArrowDown className="size-3" aria-hidden />
@@ -161,37 +151,18 @@ function SortableHeader({
   );
 }
 
-function Person({ candidate, sub }: { candidate: RoleCandidateSummary; sub?: string | null }) {
-  return (
-    <div className="flex min-w-0 items-center gap-3">
-      <span
-        aria-hidden
-        className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/[0.06] text-[11px] font-semibold text-foreground/70"
-      >
-        {initials(candidate.candidateName ?? candidate.candidateEmail)}
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
-        <span className="block truncate text-xs text-muted">{sub ?? candidate.candidateEmail}</span>
-      </span>
-    </div>
-  );
-}
-
 /** Animated tab underline, matching the report's section bar. */
 function StageTabs({
   value,
   onChange,
-  counts,
+  total,
 }: {
   value: StageTab;
   onChange: (tab: StageTab) => void;
-  counts: { applied: number; interview: number };
+  total: number;
 }) {
   const tabs: { id: StageTab; label: string; count?: number; icon: ReactNode }[] = [
-    { id: "board", label: "Pipeline", icon: <LayoutGrid className="size-4" aria-hidden /> },
-    { id: "applications", label: "Applications", count: counts.applied, icon: <Inbox className="size-4" aria-hidden /> },
-    { id: "interviews", label: "Interviews", count: counts.interview, icon: <Video className="size-4" aria-hidden /> },
+    { id: "candidates", label: "Candidates", count: total, icon: <Users className="size-4" aria-hidden /> },
     { id: "description", label: "Job description", icon: <FileText className="size-4" aria-hidden /> },
   ];
   return (
@@ -232,205 +203,75 @@ function StageTabs({
   );
 }
 
-/** One tile per stage, plus the role's average score. */
+/** One tile per stage. Each tile filters the list below to that stage. */
 function StageStrip({
-  rows,
-  avgScore,
-  onOpen,
+  counts,
+  total,
+  value,
+  onChange,
 }: {
-  rows: LeaderRow[] | null;
-  avgScore: number | null;
-  onOpen: () => void;
+  counts: Record<PipelineStep, number> | null;
+  total: number;
+  value: StageFilter;
+  onChange: (stage: StageFilter) => void;
 }) {
   const reduce = useReducedMotion();
-  const counts = rows
-    ? countPipeline(rows.map((row) => ({ stage: row.stage, interviewed: row.candidate.interviews > 0 })))
-    : null;
-  const total = rows?.length ?? 0;
+  const tiles: { id: StageFilter; label: string; count: number; tile: string; bar: string }[] = [
+    { id: "all", label: "Everyone", count: total, tile: "bg-foreground/[0.04] text-foreground", bar: "bg-foreground/40" },
+    ...PIPELINE_STEPS.map(({ step, label, tile, bar }) => ({
+      id: step as StageFilter,
+      label: step === "closed" ? "Rejected" : label,
+      count: counts?.[step] ?? 0,
+      tile,
+      bar,
+    })),
+  ];
   return (
-    <section aria-label="Pipeline" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-[1.4fr_repeat(5,minmax(0,1fr))]">
-      <div className="col-span-2 flex items-center gap-4 rounded-2xl border border-border bg-surface p-4 sm:col-span-1 lg:col-span-1">
-        <ScoreRing score={avgScore} size={58} stroke={5} />
-        <div>
-          <p className="text-sm font-medium">Average score</p>
-          <p className="text-xs text-muted">{avgScore === null ? "No reports yet" : "Finished interviews"}</p>
-        </div>
-      </div>
-      {PIPELINE_STEPS.map(({ step, label, tile, bar }, index) => {
-        const value = counts?.[step] ?? 0;
+    <div role="group" aria-label="Filter by stage" className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+      {tiles.map((item) => {
+        const active = item.id === value;
         return (
-          <motion.button
-            key={step}
+          <button
+            key={item.id}
             type="button"
-            onClick={onOpen}
-            initial={reduce ? false : { opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, delay: 0.05 + index * 0.04, ease: EASE_OUT }}
-            className={`group relative overflow-hidden rounded-2xl border border-transparent p-4 text-left transition hover:border-foreground/10 ${
-              value > 0 ? tile : "bg-foreground/[0.03] text-muted"
-            }`}
+            aria-pressed={active}
+            onClick={() => onChange(active && item.id !== "all" ? "all" : item.id)}
+            className={`relative overflow-hidden rounded-xl px-3.5 py-3 text-left transition ${
+              item.count > 0 || item.id === "all" ? item.tile : "bg-foreground/[0.03] text-muted"
+            } ${active ? "ring-2 ring-accent ring-offset-2 ring-offset-background" : "hover:brightness-[0.97]"}`}
           >
-            <p className="text-[28px] font-semibold leading-none tracking-[-0.02em] tabular-nums">
-              {counts === null ? "–" : value}
-            </p>
-            <p className="mt-2 text-sm font-medium">{step === "closed" ? "Rejected" : label}</p>
-            {total > 0 && value > 0 && (
-              <span className="absolute inset-x-4 bottom-2.5 h-1 overflow-hidden rounded-full bg-current/10">
+            <span className="block text-2xl font-semibold leading-none tracking-[-0.02em] tabular-nums">
+              {counts === null ? "–" : item.count}
+            </span>
+            <span className="mt-1.5 block truncate text-xs font-medium">{item.label}</span>
+            {item.id !== "all" && total > 0 && item.count > 0 && (
+              <span className="absolute inset-x-3.5 bottom-1.5 h-0.5 overflow-hidden rounded-full bg-current/10">
                 <motion.span
-                  className={`block h-full rounded-full ${bar}`}
+                  className={`block h-full rounded-full ${item.bar}`}
                   initial={reduce ? false : { width: 0 }}
-                  animate={{ width: `${(value / total) * 100}%` }}
-                  transition={{ duration: 0.8, delay: 0.2, ease: EASE_OUT }}
+                  animate={{ width: `${(item.count / total) * 100}%` }}
+                  transition={{ duration: 0.7, delay: 0.15, ease: EASE_OUT }}
                 />
               </span>
             )}
-          </motion.button>
+          </button>
         );
       })}
-    </section>
-  );
-}
-
-/** Candidates as cards in one column per stage. */
-function PipelineBoard({
-  rows,
-  onOpenApplication,
-  inviteHref,
-}: {
-  rows: LeaderRow[] | null;
-  onOpenApplication: (applicationId: string) => void;
-  inviteHref: string;
-}) {
-  const reduce = useReducedMotion();
-  if (rows === null) {
-    return (
-      <div aria-hidden className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[0, 1, 2, 3].map((key) => (
-          <div key={key} className="skeleton h-64 rounded-2xl" />
-        ))}
-      </div>
-    );
-  }
-  const columns = PIPELINE_STEPS.filter(({ step }) => step !== "closed").map((column) => ({
-    ...column,
-    items: rows.filter((row) => pipelineStep(row.stage, row.candidate.interviews > 0) === column.step),
-  }));
-  const closed = rows.filter((row) => pipelineStep(row.stage, row.candidate.interviews > 0) === "closed");
-  const empty = rows.length === 0;
-
-  return (
-    <div>
-      {empty && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-border bg-surface/60 px-5 py-4 text-sm">
-          <span className="text-muted">Nobody here yet. Share the application form above, or</span>
-          <Link href={inviteHref} className="font-medium text-accent hover:underline">
-            invite a candidate
-          </Link>
-        </div>
-      )}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {columns.map((column) => (
-          <section key={column.step} aria-label={column.label} className="flex min-w-0 flex-col rounded-2xl bg-foreground/[0.025] p-2.5">
-            <header className="flex items-center gap-2 px-1.5 pb-2.5 pt-1">
-              <span aria-hidden className={`size-2 rounded-full ${column.dot}`} />
-              <h3 className="text-sm font-semibold">{column.label}</h3>
-              <span className="ml-auto rounded-md bg-surface px-1.5 text-xs font-medium tabular-nums text-muted shadow-sm shadow-black/[0.03]">
-                {column.items.length}
-              </span>
-            </header>
-            <ul className="flex flex-col gap-2">
-              {column.items.length === 0 && (
-                <li className="rounded-xl border border-dashed border-border px-3 py-6 text-center text-xs text-muted">
-                  No one at this stage
-                </li>
-              )}
-              {column.items.map(({ candidate }, index) => (
-                <motion.li
-                  key={candidate.candidateId}
-                  initial={reduce ? false : { opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: Math.min(index, 6) * 0.03, ease: EASE_OUT }}
-                >
-                  <BoardCard candidate={candidate} onOpenApplication={onOpenApplication} />
-                </motion.li>
-              ))}
-            </ul>
-          </section>
-        ))}
-      </div>
-      {closed.length > 0 && (
-        <details className="group mt-4 rounded-2xl border border-border bg-surface">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium">
-            <span aria-hidden className="size-2 rounded-full bg-rose-400" />
-            Rejected or dropped
-            <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs tabular-nums text-muted">{closed.length}</span>
-            <ChevronRight className="ml-auto size-4 text-muted transition group-open:rotate-90" aria-hidden />
-          </summary>
-          <ul className="grid gap-2 border-t border-border p-3 sm:grid-cols-2 lg:grid-cols-4">
-            {closed.map(({ candidate }) => (
-              <li key={candidate.candidateId}>
-                <BoardCard candidate={candidate} onOpenApplication={onOpenApplication} />
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
     </div>
   );
 }
 
-function BoardCard({
-  candidate,
-  onOpenApplication,
-}: {
-  candidate: RoleCandidateSummary;
-  onOpenApplication: (applicationId: string) => void;
-}) {
-  const name = candidate.candidateName ?? "Unnamed candidate";
-  const isApplication = candidate.interviews === 0;
-  const when = isApplication ? candidate.appliedAt ?? candidate.latestInterviewAt : candidate.completedAt ?? candidate.scheduledAt ?? candidate.latestInterviewAt;
-  const body = (
-    <>
-      <div className="flex items-center gap-2.5">
-        <Avatar name={name} className="size-8 text-xs" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{name}</p>
-          <p className="truncate text-xs text-muted">{formatDay(when).day}</p>
-        </div>
-        {candidate.overallScore !== null && (
-          <ScoreRing score={candidate.overallScore} size={36} stroke={3.5} />
-        )}
-      </div>
-      {(candidate.decision || (!isApplication && candidate.latestStatus !== "completed")) && (
-        <div className="mt-2.5 flex items-center gap-2">
-          {candidate.decision ? (
-            <span className={`text-xs font-medium ${DECISION_TEXT[candidate.decision.outcome]}`}>
-              {DECISION_LABELS[candidate.decision.outcome]}
-            </span>
-          ) : (
-            <StatusBadge status={candidate.latestStatus} />
-          )}
-        </div>
-      )}
-    </>
-  );
-  const classes =
-    "block w-full rounded-xl border border-border bg-surface p-3 text-left shadow-sm shadow-black/[0.02] transition hover:-translate-y-px hover:border-foreground/15 hover:shadow-md hover:shadow-black/[0.05]";
-  return isApplication ? (
-    <button type="button" onClick={() => candidate.applicationId && onOpenApplication(candidate.applicationId)} className={classes}>
-      {body}
-    </button>
-  ) : (
-    <Link href={`/dashboard/${candidate.latestInterviewId}`} className={classes}>
-      {body}
-    </Link>
-  );
+/** The date a row is shown and sorted by: when they applied or were interviewed. */
+function rowDate(candidate: RoleCandidateSummary): string {
+  return candidate.interviews === 0
+    ? candidate.appliedAt ?? candidate.latestInterviewAt
+    : candidate.completedAt ?? candidate.scheduledAt ?? candidate.latestInterviewAt;
 }
 
 export function RoleDetailView({ roleId }: { roleId: string }) {
   const [role, setRole] = useState<RoleSummary | null>(null);
   const [candidates, setCandidates] = useState<RoleCandidateSummary[] | null>(null);
-  const [counts, setCounts] = useState<{ applied: number; interview: number }>({ applied: 0, interview: 0 });
+  const [, setCounts] = useState<{ applied: number; interview: number }>({ applied: 0, interview: 0 });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [confirmingClose, setConfirmingClose] = useState(false);
@@ -443,10 +284,12 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const [formFields, setFormFields] = useState<ApplicationField[]>([]);
   const [openApplication, setOpenApplication] = useState<string | null>(null);
 
-  const [tab, setTab] = useState<StageTab>("board");
+  const router = useRouter();
+  const [tab, setTab] = useState<StageTab>("candidates");
+  const [stageFilter, setStageFilter] = useState<StageFilter>("all");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [sort, setSort] = useState<SortState>(defaultSortFor("applications"));
+  const [sort, setSort] = useState<SortState | null>(null);
   const [page, setPage] = useState(1);
   const dismissToast = useCallback(() => setToast(null), []);
 
@@ -566,14 +409,17 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     return ranked;
   }, [candidates, cutoffApplied]);
 
-  const appliedRows = useMemo(() => (rows ?? []).filter((row) => row.candidate.interviews === 0), [rows]);
-  const interviewRows = useMemo(() => (rows ?? []).filter((row) => row.candidate.interviews > 0), [rows]);
+  const stageCounts = useMemo(
+    () =>
+      rows ? countPipeline(rows.map((row) => ({ stage: row.stage, interviewed: row.candidate.interviews > 0 }))) : null,
+    [rows],
+  );
 
   const visibleRows = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const source = tab === "applications" ? appliedRows : interviewRows;
-    const filtered = source.filter((row) => {
+    const filtered = (rows ?? []).filter((row) => {
       const candidate = row.candidate;
+      if (stageFilter !== "all" && pipelineStep(row.stage, candidate.interviews > 0) !== stageFilter) return false;
       if (needle) {
         const haystack = [
           candidate.candidateName ?? "",
@@ -585,10 +431,11 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
           .toLowerCase();
         if (!haystack.includes(needle)) return false;
       }
-      if (tab === "interviews") {
-        if (cutoffApplied !== null && candidate.overallScore !== null && candidate.overallScore < cutoffApplied) {
-          return false;
-        }
+      if (cutoffApplied !== null && (candidate.overallScore === null || candidate.overallScore < cutoffApplied)) {
+        return false;
+      }
+      if (statusFilter !== "all") {
+        if (candidate.interviews === 0) return false;
         const status = candidate.latestStatus;
         if (statusFilter === "scheduled" && status !== "scheduled") return false;
         if (statusFilter === "in-progress" && status !== "waiting" && status !== "active") return false;
@@ -597,8 +444,15 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       }
       return true;
     });
-    return [...filtered].sort((a, b) => compareCandidateRows(a, b, sort));
-  }, [appliedRows, interviewRows, query, tab, statusFilter, sort, cutoffApplied]);
+    if (sort === null) return filtered;
+    return [...filtered].sort((a, b) => {
+      if (sort.key === "applied") {
+        const result = Date.parse(rowDate(a.candidate)) - Date.parse(rowDate(b.candidate));
+        return sort.direction === "asc" ? result : -result;
+      }
+      return compareCandidateRows(a, b, sort);
+    });
+  }, [rows, query, stageFilter, statusFilter, sort, cutoffApplied]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -608,18 +462,25 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     setTab(next);
     setPage(1);
     setSelected(new Set());
-    setSort(defaultSortFor(next));
-    setStatusFilter("all");
+  }
+
+  function selectStage(next: StageFilter) {
+    setStageFilter(next);
+    setPage(1);
+    setSelected(new Set());
   }
 
   function toggleSort(key: CandidateSortKey) {
     setSort((current) =>
-      current.key === key ? { key, direction: current.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" },
+      current?.key === key
+        ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
+        : { key, direction: key === "candidate" ? "asc" : "desc" },
     );
     setPage(1);
   }
 
   function clearFilters() {
+    setStageFilter("all");
     setQuery("");
     setStatusFilter("all");
     setCutoffApplied(null);
@@ -691,7 +552,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     });
   }
 
-  const allSelected = pageRows.length > 0 && pageRows.every((row) => selected.has(row.candidate.candidateId));
+  const selectableRows = pageRows.filter((row) => row.candidate.interviews > 0);
+  const allSelected =
+    selectableRows.length > 0 && selectableRows.every((row) => selected.has(row.candidate.candidateId));
 
   function exportCsv() {
     const link = document.createElement("a");
@@ -733,7 +596,6 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     (fact): fact is { label: string; value: string } => Boolean(fact),
   );
   const inviteHref = `/recruiter?roleId=${encodeURIComponent(role.id)}`;
-  const activeRows = tab === "applications" ? appliedRows : interviewRows;
   const application = openApplication
     ? (candidates ?? []).find((candidate) => candidate.applicationId === openApplication) ?? null
     : null;
@@ -772,6 +634,14 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
               <span className="inline-flex items-center gap-1.5">
                 <CalendarClock className="size-3.5" aria-hidden />
                 Closes {formatDate(role.deadline)}
+              </span>
+            )}
+            {role.stats.avgOverallScore !== null && (
+              <span className="inline-flex items-center gap-1.5">
+                Average score
+                <span className={`font-semibold tabular-nums ${scoreTone(role.stats.avgOverallScore).text}`}>
+                  {role.stats.avgOverallScore}
+                </span>
               </span>
             )}
             <span>Created {formatDate(role.createdAt)}</span>
@@ -815,20 +685,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       {/* ------------------------------------------------- application form */}
       <ApplicationFormSettings roleId={roleId} roleTitle={role.title} roleDescription={role.description} />
 
-      {/* ----------------------------------------------------------- stages */}
-      <div className="mt-4">
-        <StageStrip rows={rows} avgScore={role.stats.avgOverallScore} onOpen={() => selectTab("board")} />
-      </div>
-
       {/* ------------------------------------------------------------ views */}
       <section className="mt-8" aria-label="Candidates">
-        <StageTabs value={tab} onChange={selectTab} counts={counts} />
-
-        {tab === "board" && (
-          <div className="mt-5">
-            <PipelineBoard rows={rows} onOpenApplication={setOpenApplication} inviteHref={inviteHref} />
-          </div>
-        )}
+        <StageTabs value={tab} onChange={selectTab} total={rows?.length ?? 0} />
 
         {tab === "description" && (
           <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">
@@ -883,25 +742,25 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
           </div>
         )}
 
-        {(tab === "applications" || tab === "interviews") && (
-        <>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 flex-1 sm:max-w-xs">
-            <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setPage(1);
-              }}
-              placeholder="Name, email or phone"
-              aria-label="Search candidates"
-              className="h-9 w-full rounded-lg border border-border bg-surface pl-9 pr-3 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:ring-4 focus:ring-accent/15"
-            />
-          </div>
-          {tab === "interviews" && (
-            <>
+        {tab === "candidates" && (
+          <div className="mt-5">
+            <StageStrip counts={stageCounts} total={rows?.length ?? 0} value={stageFilter} onChange={selectStage} />
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <div className="relative min-w-0 flex-1 sm:max-w-xs">
+                <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Name, email, phone or roll no."
+                  aria-label="Search candidates"
+                  className="h-9 w-full rounded-lg border border-border bg-surface pl-9 pr-3 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:ring-4 focus:ring-accent/15"
+                />
+              </div>
               <FilterMenu
                 label="Interview status"
                 icon={<span aria-hidden className="block size-2 rounded-full bg-current" />}
@@ -939,210 +798,187 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                   Apply
                 </button>
               </form>
-            </>
-          )}
-          {(query !== "" || statusFilter !== "all" || cutoffApplied !== null) && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted transition hover:bg-foreground/[0.05] hover:text-foreground"
-            >
-              <X className="size-3.5" aria-hidden />
-              Reset
-            </button>
-          )}
-          <span className="grow" />
-          <span className="text-sm tabular-nums text-muted">
-            {visibleRows.length} {visibleRows.length === 1 ? "person" : "people"}
-          </span>
-        </div>
-
-        <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-surface">
-          {candidates === null ? (
-            <div aria-hidden className="divide-y divide-border">
-              {[0, 1, 2].map((key) => (
-                <div key={key} className="flex items-center gap-3 px-5 py-4">
-                  <div className="skeleton size-8 rounded-full" />
-                  <div className="skeleton h-4 w-48 rounded" />
-                </div>
-              ))}
-            </div>
-          ) : activeRows.length === 0 ? (
-            <div className="grid place-items-center px-6 py-14 text-center">
-              <span className="grid size-11 place-items-center rounded-full bg-foreground/[0.05] text-muted">
-                {tab === "applications" ? <FileText className="size-5" aria-hidden /> : <UserPlus className="size-5" aria-hidden />}
-              </span>
-              <p className="mt-4 font-medium">{tab === "applications" ? "No applications yet" : "Nobody has been interviewed yet"}</p>
-              <p className="mt-1 max-w-sm text-sm text-muted">
-                {tab === "applications"
-                  ? "Share the application form link and applicants show up here."
-                  : "Invite a candidate, or schedule an interview from an application."}
-              </p>
-              {tab === "interviews" && (
-                <Link href={inviteHref} className="mt-4 text-sm font-medium text-accent hover:underline">
-                  Invite a candidate
-                </Link>
+              {(query !== "" || statusFilter !== "all" || cutoffApplied !== null || stageFilter !== "all") && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted transition hover:bg-foreground/[0.05] hover:text-foreground"
+                >
+                  <X className="size-3.5" aria-hidden />
+                  Reset
+                </button>
               )}
-            </div>
-          ) : visibleRows.length === 0 ? (
-            <div className="grid place-items-center px-6 py-14 text-center">
-              <span className="grid size-11 place-items-center rounded-full bg-foreground/[0.05] text-muted">
-                <SearchX className="size-5" aria-hidden />
+              <span className="grow" />
+              <span className="text-sm tabular-nums text-muted">
+                {visibleRows.length} {visibleRows.length === 1 ? "person" : "people"}
+                {totalPages > 1 && ` · page ${currentPage} of ${totalPages}`}
               </span>
-              <p className="mt-4 font-medium">Nobody matches these filters</p>
-              <button type="button" onClick={clearFilters} className="mt-3 text-sm font-medium text-accent hover:underline">
-                Reset filters
-              </button>
             </div>
-          ) : tab === "applications" ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-border text-xs text-muted">
-                    <SortableHeader label="Applicant" column="candidate" sort={sort} onSort={toggleSort} className="pl-5" />
-                    <SortableHeader label="Applied" column="applied" sort={sort} onSort={toggleSort} />
-                    <th scope="col" className="px-3 py-2.5 font-medium">Phone</th>
-                    <th scope="col" className="px-3 py-2.5 font-medium">Status</th>
-                    <th scope="col" className="w-12 px-3 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {pageRows.map(({ candidate }) => {
-                    const applied = candidate.appliedAt ?? candidate.latestInterviewAt;
-                    const rejected = candidate.applicationStatus === "rejected";
-                    return (
-                      <tr
-                        key={candidate.candidateId}
-                        onClick={() => setOpenApplication(candidate.applicationId ?? null)}
-                        className="cursor-pointer transition-colors hover:bg-foreground/[0.02]"
-                      >
-                        <td className="py-3 pl-5 pr-3">
-                          <Person candidate={candidate} />
-                        </td>
-                        <td className="px-3 py-3 tabular-nums">
-                          {formatDay(applied).day}
-                          <span className="block text-xs text-muted">{formatDay(applied).time}</span>
-                        </td>
-                        <td className="px-3 py-3 tabular-nums text-muted">{candidate.candidatePhone ?? "—"}</td>
-                        <td className="px-3 py-3">
-                          {rejected ? (
-                            <span className="text-sm font-medium text-rose-600 dark:text-rose-400">Rejected</span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 text-sm">
-                              <span aria-hidden className="size-1.5 rounded-full bg-sky-500" />
-                              Waiting for review
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          <ChevronRight className="ml-auto size-4 text-muted" aria-hidden />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-border text-xs text-muted">
-                    <th scope="col" className="w-10 py-2.5 pl-5">
-                      <input
-                        type="checkbox"
-                        aria-label="Select everyone on this page"
-                        checked={allSelected}
-                        onChange={() =>
-                          setSelected(allSelected ? new Set() : new Set(pageRows.map((row) => row.candidate.candidateId)))
-                        }
-                        className="size-4 cursor-pointer accent-[var(--accent)]"
-                      />
-                    </th>
-                    <SortableHeader label="Candidate" column="candidate" sort={sort} onSort={toggleSort} />
-                    <SortableHeader label="Interview" column="interview" sort={sort} onSort={toggleSort} />
-                    <SortableHeader label="Status" column="status" sort={sort} onSort={toggleSort} />
-                    <SortableHeader label="Score" column="score" sort={sort} onSort={toggleSort} />
-                    <th scope="col" className="px-3 py-2.5 font-medium">Decision</th>
-                    <th scope="col" className="w-24 px-3 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {pageRows.map(({ candidate }) => {
-                    const isSelected = selected.has(candidate.candidateId);
-                    const when = formatDay(candidate.scheduledAt ?? candidate.latestInterviewAt);
-                    const score = candidate.overallScore;
-                    return (
-                      <tr
-                        key={candidate.candidateId}
-                        className={`transition-colors ${isSelected ? "bg-accent-soft/60" : "hover:bg-foreground/[0.02]"}`}
-                      >
-                        <td className="py-3 pl-5">
+
+            <div className="mt-3 overflow-hidden rounded-2xl border border-border bg-surface">
+              {candidates === null ? (
+                <div aria-hidden className="divide-y divide-border">
+                  {[0, 1, 2, 3].map((key) => (
+                    <div key={key} className="flex items-center gap-3 px-5 py-4">
+                      <div className="skeleton size-8 rounded-full" />
+                      <div className="skeleton h-4 w-48 rounded" />
+                    </div>
+                  ))}
+                </div>
+              ) : (rows ?? []).length === 0 ? (
+                <div className="grid place-items-center px-6 py-14 text-center">
+                  <span className="grid size-12 place-items-center rounded-2xl bg-accent-soft text-accent">
+                    <Users className="size-5" aria-hidden />
+                  </span>
+                  <p className="mt-4 font-medium">No candidates yet</p>
+                  <p className="mt-1 max-w-sm text-sm text-muted">
+                    Copy the application form link above and share it, or invite someone straight to an interview.
+                  </p>
+                  <Link href={inviteHref} className="mt-4 text-sm font-medium text-accent hover:underline">
+                    Invite a candidate
+                  </Link>
+                </div>
+              ) : visibleRows.length === 0 ? (
+                <div className="grid place-items-center px-6 py-14 text-center">
+                  <span className="grid size-11 place-items-center rounded-full bg-foreground/[0.05] text-muted">
+                    <SearchX className="size-5" aria-hidden />
+                  </span>
+                  <p className="mt-4 font-medium">Nobody matches these filters</p>
+                  <button type="button" onClick={clearFilters} className="mt-3 text-sm font-medium text-accent hover:underline">
+                    Reset filters
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[860px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-foreground/[0.015] text-xs text-muted">
+                        <th scope="col" className="w-10 py-2.5 pl-5">
                           <input
                             type="checkbox"
-                            aria-label={`Select ${candidate.candidateName ?? candidate.candidateEmail}`}
-                            checked={isSelected}
-                            onChange={() => toggle(candidate.candidateId)}
-                            className="size-4 cursor-pointer accent-[var(--accent)]"
+                            aria-label="Select every interviewed candidate on this page"
+                            checked={allSelected}
+                            disabled={selectableRows.length === 0}
+                            onChange={() =>
+                              setSelected(
+                                allSelected ? new Set() : new Set(selectableRows.map((row) => row.candidate.candidateId)),
+                              )
+                            }
+                            className="size-4 cursor-pointer accent-[var(--accent)] disabled:opacity-30"
                           />
-                        </td>
-                        <td className="px-3 py-3">
-                          <Link href={`/dashboard/${candidate.latestInterviewId}`} className="block hover:text-accent">
-                            <Person candidate={candidate} />
-                          </Link>
-                        </td>
-                        <td className="px-3 py-3 tabular-nums">
-                          {when.day}
-                          <span className="block text-xs text-muted">{when.time}</span>
-                        </td>
-                        <td className="px-3 py-3">
-                          <StatusBadge status={candidate.latestStatus} />
-                        </td>
-                        <td className="px-3 py-3">
-                          {score === null ? (
-                            <span className="text-muted">—</span>
-                          ) : (
-                            <div className="flex items-center gap-2.5">
-                              <span className={`w-7 text-[15px] font-semibold tabular-nums ${scoreTone(score).text}`}>{score}</span>
-                              <span className="h-1 w-14 overflow-hidden rounded-full bg-foreground/[0.07]">
-                                <span className={`block h-full rounded-full ${scoreTone(score).bar}`} style={{ width: `${score}%` }} />
-                              </span>
-                            </div>
-                          )}
-                          {candidate.suggestion && (
-                            <span className="mt-0.5 block text-xs text-muted">{SUGGESTION_LABELS[candidate.suggestion]}</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3">
-                          {candidate.decision ? (
-                            <span className={`font-medium ${DECISION_TEXT[candidate.decision.outcome]}`}>
-                              {DECISION_LABELS[candidate.decision.outcome]}
-                            </span>
-                          ) : (
-                            <span className="text-muted">Not decided</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3 pr-5 text-right">
-                          <Link
-                            href={`/dashboard/${candidate.latestInterviewId}`}
-                            className="inline-flex h-8 items-center rounded-lg px-2.5 text-sm font-medium text-accent transition hover:bg-accent-soft"
-                          >
-                            Report
-                          </Link>
-                        </td>
+                        </th>
+                        <SortableHeader label="Candidate" column="candidate" sort={sort} onSort={toggleSort} />
+                        <th scope="col" className="px-3 py-2.5 font-medium">Stage</th>
+                        <SortableHeader label="Score" column="score" sort={sort} onSort={toggleSort} />
+                        <SortableHeader label="Date" column="applied" sort={sort} onSort={toggleSort} />
+                        <th scope="col" className="px-3 py-2.5 font-medium">Outcome</th>
+                        <th scope="col" className="w-24 px-3 py-2.5" />
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {pageRows.map(({ candidate, stage }) => {
+                        const interviewed = candidate.interviews > 0;
+                        const isSelected = selected.has(candidate.candidateId);
+                        const step = PIPELINE_STEPS.find((item) => item.step === pipelineStep(stage, interviewed))!;
+                        const when = formatDay(rowDate(candidate));
+                        const score = candidate.overallScore;
+                        const open = () =>
+                          interviewed
+                            ? router.push(`/dashboard/${candidate.latestInterviewId}`)
+                            : setOpenApplication(candidate.applicationId ?? null);
+                        return (
+                          <tr
+                            key={candidate.candidateId}
+                            onClick={(event) => {
+                              if ((event.target as HTMLElement).closest("a,button,input")) return;
+                              open();
+                            }}
+                            className={`cursor-pointer transition-colors ${isSelected ? "bg-accent-soft/60" : "hover:bg-foreground/[0.02]"}`}
+                          >
+                            <td className="py-3 pl-5">
+                              {interviewed && (
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Select ${candidate.candidateName ?? candidate.candidateEmail}`}
+                                  checked={isSelected}
+                                  onChange={() => toggle(candidate.candidateId)}
+                                  className="size-4 cursor-pointer accent-[var(--accent)]"
+                                />
+                              )}
+                            </td>
+                            <td className="px-3 py-3">
+                              <div className="flex min-w-0 items-center gap-3">
+                                <Avatar name={candidate.candidateName ?? candidate.candidateEmail} className="size-8 text-xs" />
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
+                                  <span className="block truncate text-xs text-muted">{candidate.candidateEmail}</span>
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${step.tile}`}>
+                                <span aria-hidden className={`size-1.5 rounded-full ${step.dot}`} />
+                                {step.step === "closed" ? "Rejected" : step.label}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3">
+                              {score === null ? (
+                                <span className="text-muted">—</span>
+                              ) : (
+                                <div className="flex items-center gap-2.5">
+                                  <span className={`w-7 text-[15px] font-semibold tabular-nums ${scoreTone(score).text}`}>{score}</span>
+                                  <span className="h-1.5 w-16 overflow-hidden rounded-full bg-foreground/[0.07]">
+                                    <span className={`block h-full rounded-full ${scoreTone(score).bar}`} style={{ width: `${score}%` }} />
+                                  </span>
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 tabular-nums">
+                              {when.day}
+                              <span className="block text-xs text-muted">{interviewed ? "Interview" : "Applied"}</span>
+                            </td>
+                            <td className="px-3 py-3">
+                              {candidate.decision ? (
+                                <span className={`font-medium ${DECISION_TEXT[candidate.decision.outcome]}`}>
+                                  {DECISION_LABELS[candidate.decision.outcome]}
+                                </span>
+                              ) : interviewed ? (
+                                candidate.latestStatus === "completed" ? (
+                                  <span className="text-muted">
+                                    {candidate.suggestion ? SUGGESTION_LABELS[candidate.suggestion] : "Not decided"}
+                                  </span>
+                                ) : (
+                                  <StatusBadge status={candidate.latestStatus} />
+                                )
+                              ) : candidate.applicationStatus === "rejected" ? (
+                                <span className="font-medium text-rose-600 dark:text-rose-400">Rejected</span>
+                              ) : (
+                                <span className="text-muted">Waiting for review</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 pr-5 text-right">
+                              <button
+                                type="button"
+                                onClick={open}
+                                className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-sm font-medium text-accent transition hover:bg-accent-soft"
+                              >
+                                {interviewed ? "Report" : "Review"}
+                                <ChevronRight className="size-3.5" aria-hidden />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {visibleRows.length > PAGE_SIZE && (
-          <Pagination page={currentPage} pageSize={PAGE_SIZE} total={visibleRows.length} onPage={setPage} />
-        )}
-        </>
+            {visibleRows.length > PAGE_SIZE && (
+              <Pagination page={currentPage} pageSize={PAGE_SIZE} total={visibleRows.length} onPage={setPage} />
+            )}
+          </div>
         )}
       </section>
 
@@ -1240,7 +1076,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
 
       {/* ------------------------------------------------------- bulk decide */}
       <AnimatePresence>
-        {selected.size > 0 && tab === "interviews" && (
+        {selected.size > 0 && tab === "candidates" && (
           <motion.div
             role="toolbar"
             aria-label="Decide for the selected candidates"

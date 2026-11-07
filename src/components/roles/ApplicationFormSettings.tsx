@@ -8,13 +8,11 @@ import {
   ChevronUp,
   ClipboardList,
   Copy,
-  Eye,
   Link2,
-  ListChecks,
   Lock,
   MessageCircle,
   Plus,
-  SlidersHorizontal,
+  Settings2,
   Trash2,
 } from "lucide-react";
 import type {
@@ -355,7 +353,6 @@ export function ApplicationFormSettings({
           : "Closed by you."
       : null;
 
-  const canToggle = !loading && !loadError && (isOpen || status?.closedReason === "revoked");
 
   function toggleOpen() {
     if (saving) return;
@@ -372,7 +369,7 @@ export function ApplicationFormSettings({
     >
       <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-center">
         {/* what it is + state */}
-        <div className="flex min-w-0 items-center gap-3.5 lg:w-[18rem] lg:shrink-0">
+        <div className="flex min-w-0 items-center gap-3.5 lg:shrink-0">
           <span
             className={`grid size-11 shrink-0 place-items-center rounded-xl ${
               isOpen ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-foreground/[0.06] text-muted"
@@ -396,7 +393,7 @@ export function ApplicationFormSettings({
                       {status.applicationsReceived}
                       {status.maxApplications !== null ? `/${status.maxApplications}` : ""}
                     </span>{" "}
-                    received
+                    received, {questionCount} question{questionCount === 1 ? "" : "s"}
                   </>
                 )}
               </p>
@@ -407,9 +404,11 @@ export function ApplicationFormSettings({
           </div>
         </div>
 
-        {/* the link */}
+        <span className="hidden grow lg:block" />
+
+        {/* controls */}
         {loadError ? (
-          <div role="alert" className="flex flex-1 items-center gap-3 rounded-xl bg-rose-500/[0.07] px-3.5 py-2 text-sm text-rose-700 dark:text-rose-300">
+          <div role="alert" className="flex flex-1 items-center gap-3 rounded-xl bg-rose-500/[0.07] px-3.5 py-2 text-sm text-rose-700 dark:text-rose-300 lg:max-w-md">
             <span className="min-w-0 flex-1">{loadError}</span>
             <button
               type="button"
@@ -424,27 +423,24 @@ export function ApplicationFormSettings({
             </button>
           </div>
         ) : (
-          <div
-            className={`flex min-w-0 flex-1 items-center gap-1 rounded-xl border border-border bg-background/60 p-1 pl-3.5 ${
-              isOpen ? "" : "opacity-60"
-            }`}
-          >
-            <Link2 className="size-4 shrink-0 text-muted" aria-hidden />
-            {loading ? (
-              <div className="skeleton mx-2 h-4 flex-1 rounded" />
-            ) : (
-              <span className="min-w-0 flex-1 truncate px-1.5 text-sm" title={url ?? undefined}>
-                {url?.replace(/^https?:\/\//, "")}
-              </span>
-            )}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={copy}
-              disabled={!url}
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 text-sm font-medium text-white transition hover:bg-accent/90 disabled:opacity-50"
+              role="switch"
+              aria-checked={isOpen}
+              onClick={toggleOpen}
+              disabled={loading || saving}
+              title={isOpen ? "Stop taking applications" : "Start taking applications again"}
+              className="mr-1 inline-flex h-9 items-center gap-2.5 rounded-lg px-2 text-sm font-medium transition hover:bg-foreground/[0.04] disabled:opacity-60"
             >
-              {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
-              {copied ? "Copied" : "Copy link"}
+              <span className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isOpen ? "bg-emerald-500" : "bg-foreground/20"}`}>
+                <motion.span
+                  className="absolute left-0.5 top-0.5 size-4 rounded-full bg-white shadow-sm"
+                  animate={{ x: isOpen ? 16 : 0 }}
+                  transition={{ type: "spring", bounce: 0.25, duration: 0.35 }}
+                />
+              </span>
+              {isOpen ? "Open" : "Closed"}
             </button>
             {whatsappHref && (
               <a
@@ -452,54 +448,27 @@ export function ApplicationFormSettings({
                 target="_blank"
                 rel="noreferrer"
                 title="Share on WhatsApp"
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-500/10 dark:text-emerald-300"
+                aria-label="Share on WhatsApp"
+                className={`${ghostButton} w-9 px-0 text-emerald-600 dark:text-emerald-400`}
               >
                 <MessageCircle className="size-4" aria-hidden />
-                <span className="hidden sm:inline">WhatsApp</span>
               </a>
             )}
-          </div>
-        )}
-
-        {/* controls */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => openPanel("questions")} disabled={loading} className={ghostButton}>
-            <ListChecks className="size-4 text-muted" aria-hidden />
-            Questions
-            <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs tabular-nums">{questionCount}</span>
-          </button>
-          <button type="button" onClick={() => openPanel("preview")} disabled={loading} className={ghostButton}>
-            <Eye className="size-4 text-muted" aria-hidden />
-            Preview
-          </button>
-          <button type="button" onClick={() => openPanel("limits")} disabled={loading} className={ghostButton} title="Limits and link">
-            <SlidersHorizontal className="size-4 text-muted" aria-hidden />
-            <span className="sr-only lg:not-sr-only">Limits</span>
-          </button>
-          <label
-            className={`ml-1 inline-flex cursor-pointer items-center gap-2 text-sm font-medium ${canToggle ? "" : "opacity-60"}`}
-            title={isOpen ? "Stop taking applications" : "Start taking applications again"}
-          >
+            <button type="button" onClick={() => openPanel("questions")} disabled={loading} className={ghostButton}>
+              <Settings2 className="size-4 text-muted" aria-hidden />
+              Edit form
+            </button>
             <button
               type="button"
-              role="switch"
-              aria-checked={isOpen}
-              aria-label={isOpen ? "Form is open. Close it" : "Form is closed. Open it"}
-              onClick={toggleOpen}
-              disabled={loading || saving}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                isOpen ? "bg-emerald-500" : "bg-foreground/20"
-              } disabled:opacity-60`}
+              onClick={copy}
+              disabled={!url}
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3.5 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 disabled:opacity-50"
             >
-              <motion.span
-                className="absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow-sm"
-                animate={{ x: isOpen ? 20 : 0 }}
-                transition={{ type: "spring", bounce: 0.25, duration: 0.35 }}
-              />
+              {copied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />}
+              {copied ? "Copied" : "Copy link"}
             </button>
-            <span className="w-11">{isOpen ? "Open" : "Closed"}</span>
-          </label>
-        </div>
+          </div>
+        )}
       </div>
 
       <Sheet
@@ -696,6 +665,24 @@ export function ApplicationFormSettings({
 
         {panel === "limits" && (
           <div className="mt-5 grid gap-6">
+            <div>
+              <h3 className="text-sm font-semibold">The link</h3>
+              <div className="mt-2 flex items-center gap-1 rounded-xl border border-border bg-background/60 p-1 pl-3">
+                <Link2 className="size-4 shrink-0 text-muted" aria-hidden />
+                <span className="min-w-0 flex-1 truncate px-1.5 text-sm" title={url ?? undefined}>
+                  {url?.replace(/^https?:\/\//, "")}
+                </span>
+                <button
+                  type="button"
+                  onClick={copy}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 text-sm font-medium text-white transition hover:bg-accent/90"
+                >
+                  {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+            </div>
+
             <div>
               <h3 className="text-sm font-semibold">Close the form automatically</h3>
               <p className="mt-0.5 text-sm text-muted">Leave a box empty for no limit.</p>
