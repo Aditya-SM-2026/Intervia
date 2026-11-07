@@ -55,6 +55,13 @@ function cloneFields(fields: ApplicationField[]): ApplicationField[] {
   return fields.map((field) => ({ ...field, options: field.options ? [...field.options] : undefined }));
 }
 
+/** An ISO moment as the value a datetime-local input expects, in local time. */
+function toLocalInput(iso: string): string {
+  const date = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function formatMoment(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     month: "short",
@@ -87,7 +94,8 @@ export function ApplicationFormSettings({
   const [panel, setPanel] = useState<Panel | null>(null);
   const [status, setStatus] = useState<FormLinkStatus | null>(null);
   const [limitInput, setLimitInput] = useState("");
-  const [hoursInput, setHoursInput] = useState("");
+  const [closeAtInput, setCloseAtInput] = useState("");
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -151,7 +159,7 @@ export function ApplicationFormSettings({
   function applySettings(next: FormLinkStatus | null | undefined) {
     setStatus(next ?? null);
     setLimitInput(next?.maxApplications != null ? String(next.maxApplications) : "");
-    setHoursInput(next?.expiresAfterHours != null ? String(next.expiresAfterHours) : "");
+    setCloseAtInput(next?.expiresAt ? toLocalInput(next.expiresAt) : "");
   }
 
   async function copy() {
@@ -167,12 +175,25 @@ export function ApplicationFormSettings({
 
   /** Saves the link's own limits: close after N applications or N hours. */
   async function saveSettings() {
+    // The server keeps the limit as whole hours from when this link's round
+    // started, so the chosen moment is rounded up to the next hour.
+    let hours = "";
+    if (closeAtInput) {
+      const chosen = new Date(closeAtInput).getTime();
+      if (!Number.isFinite(chosen) || chosen <= Date.now()) {
+        setSettingsError("Pick a closing time in the future.");
+        return;
+      }
+      const started = status?.roundStartedAt ? Date.parse(status.roundStartedAt) : Date.now();
+      hours = String(Math.max(1, Math.ceil((chosen - started) / 3_600_000)));
+    }
+    setSettingsError(null);
     setSavingSettings(true);
     try {
       const response = await fetch(`/api/roles/${encodeURIComponent(roleId)}/form-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: { maxApplications: limitInput, expiresAfterHours: hoursInput } }),
+        body: JSON.stringify({ settings: { maxApplications: limitInput, expiresAfterHours: hours } }),
       });
       const body = (await response.json()) as { url?: string; status?: FormLinkStatus; error?: { message?: string } };
       if (!response.ok) throw new Error(body.error?.message ?? "Could not save the link limits.");
@@ -669,7 +690,9 @@ export function ApplicationFormSettings({
 
             <div>
               <h3 className="text-sm font-semibold">Close the form automatically</h3>
-              <p className="mt-0.5 text-sm text-muted">Leave a box empty for no limit.</p>
+              <p className="mt-0.5 text-sm text-muted">
+                Whichever comes first. Leave a box empty for no limit. Closing times round to the hour.
+              </p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label className="text-sm">
                   <span className="mb-1.5 block text-muted">After this many applications</span>
@@ -682,16 +705,32 @@ export function ApplicationFormSettings({
                   />
                 </label>
                 <label className="text-sm">
-                  <span className="mb-1.5 block text-muted">After this many hours</span>
+                  <span className="mb-1.5 flex items-center justify-between text-muted">
+                    On this date and time
+                    {closeAtInput && (
+                      <button
+                        type="button"
+                        onClick={() => setCloseAtInput("")}
+                        className="text-xs font-medium text-muted hover:text-foreground"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </span>
                   <input
-                    inputMode="numeric"
-                    value={hoursInput}
-                    onChange={(event) => setHoursInput(event.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="No time limit"
-                    className={inputClasses}
+                    type="datetime-local"
+                    value={closeAtInput}
+                    min={toLocalInput(new Date().toISOString())}
+                    onChange={(event) => setCloseAtInput(event.target.value)}
+                    className={`${inputClasses} ${closeAtInput ? "" : "text-muted"}`}
                   />
                 </label>
               </div>
+              {settingsError && (
+                <p role="alert" className="mt-3 text-sm text-rose-600 dark:text-rose-400">
+                  {settingsError}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={saveSettings}
