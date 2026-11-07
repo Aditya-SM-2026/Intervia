@@ -2598,80 +2598,86 @@ function ResumeModal({
     }
   }
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const action =
+    "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-muted transition hover:bg-foreground/[0.05] hover:text-foreground";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs">
-      <div className="flex max-h-[88vh] w-full max-w-3xl flex-col rounded-2xl border border-border bg-white p-6 shadow-2xl dark:border-border dark:bg-surface">
-        <div className="flex items-start justify-between gap-4 border-b border-border pb-4 dark:border-border">
-          <div className="min-w-0">
-            <h3 className="text-base font-semibold text-foreground">
-              Candidate resume
-            </h3>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-3 backdrop-blur-xs sm:p-6"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Resume of ${candidateName}`}
+        className="flex h-full max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl"
+      >
+        <div className="flex items-center gap-3 border-b border-border px-4 py-3 sm:px-5">
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-300">
+            <FileText className="size-4.5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">{candidateName}&apos;s resume</p>
             <p className="truncate text-xs text-muted">{fileName}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <a
-              href={fileUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-300"
-            >
-              <ExternalLink className="size-3.5 text-muted" />
-              <span>Open in new tab</span>
-            </a>
-            <a
-              href={fileUrl}
-              download={fileName}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-accent hover:text-accent dark:border-border dark:bg-surface dark:text-slate-300"
-            >
-              <Download className="size-3.5 text-muted" />
-              <span>Download</span>
-            </a>
+          <div className="flex shrink-0 items-center gap-0.5">
+            {resume?.text && (
+              <button type="button" onClick={copyText} className={action}>
+                {copied ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
+                <span className="hidden sm:inline">{copied ? "Copied" : "Copy text"}</span>
+              </button>
+            )}
+            {hasOriginal && (
+              <>
+                <a href={fileUrl} target="_blank" rel="noreferrer" className={action}>
+                  <ExternalLink className="size-4" />
+                  <span className="hidden sm:inline">Open</span>
+                </a>
+                <a href={fileUrl} download={fileName} className={action}>
+                  <Download className="size-4" />
+                  <span className="hidden sm:inline">Download</span>
+                </a>
+              </>
+            )}
+            <span className="mx-1.5 h-5 w-px bg-border" aria-hidden="true" />
             <button
               type="button"
               onClick={onClose}
               aria-label="Close resume"
-              className="grid size-8 place-items-center rounded-lg text-muted hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+              className="grid size-9 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.05] hover:text-foreground"
             >
-              <X className="size-4" />
+              <X className="size-4.5" />
             </button>
           </div>
         </div>
 
-        {hasOriginal && isPdf ? (
-          <iframe
-            src={`${fileUrl}#view=FitH`}
-            title={`Resume of ${candidateName}`}
-            className="mt-4 h-[62vh] w-full rounded-xl border border-border bg-slate-50 dark:border-border"
-          />
-        ) : (
-          <div className="mt-4 flex-1 overflow-y-auto rounded-xl border border-border bg-slate-50/50 p-4 text-xs leading-relaxed font-mono text-slate-700 dark:border-border dark:bg-background/40 dark:text-slate-300 whitespace-pre-wrap">
-            {resume?.text ||
-              (hasOriginal
-                ? "This is a Word document. Use Download to open the original."
-                : "No resume is available for this candidate.")}
-          </div>
-        )}
-
-        <div className="mt-4 flex items-center justify-between">
-          {resume?.text ? (
-            <button
-              type="button"
-              onClick={copyText}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-border dark:bg-surface dark:text-slate-300"
-            >
-              <Copy className="size-3.5 text-muted" />
-              <span>{copied ? "Copied!" : "Copy text"}</span>
-            </button>
+        <div className="min-h-0 flex-1 bg-slate-100 dark:bg-background">
+          {hasOriginal && isPdf ? (
+            <iframe
+              src={`${fileUrl}#toolbar=0&navpanes=0&view=FitH`}
+              title={`Resume of ${candidateName}`}
+              className="size-full border-0"
+            />
           ) : (
-            <span />
+            <div className="h-full overflow-y-auto p-4 sm:p-8">
+              <div className="mx-auto max-w-2xl whitespace-pre-wrap rounded-lg bg-white p-6 text-sm leading-relaxed text-slate-800 shadow-sm sm:p-10 dark:bg-surface dark:text-slate-200">
+                {resume?.text ||
+                  (hasOriginal
+                    ? "This is a Word document. Use Download to open the original."
+                    : "No resume is available for this candidate.")}
+              </div>
+            </div>
           )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl bg-accent px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90"
-          >
-            Close
-          </button>
         </div>
       </div>
     </div>
