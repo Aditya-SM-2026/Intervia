@@ -664,8 +664,8 @@ export function ApplicationFormSettings({
         )}
 
         {panel === "limits" && (
-          <div className="mt-5 grid gap-6">
-            <div>
+          <div className="mt-5 grid min-w-0 grid-cols-1 gap-6">
+            <div className="min-w-0">
               <h3 className="text-sm font-semibold">The link</h3>
               <div className="mt-2 flex items-center gap-1 rounded-xl border border-border bg-background/60 p-1 pl-3">
                 <Link2 className="size-4 shrink-0 text-muted" aria-hidden />

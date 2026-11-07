@@ -98,7 +98,7 @@ export function Sheet({
                 <X className="size-4" aria-hidden />
               </button>
             </header>
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-5">{children}</div>
             {footer && <footer className="flex items-center gap-2 border-t border-border px-6 py-4">{footer}</footer>}
           </motion.div>
         </div>
