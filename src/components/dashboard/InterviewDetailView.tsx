@@ -45,6 +45,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Eye,
   FileSearch,
   FileText,
   Fingerprint,
@@ -68,7 +69,6 @@ import {
   Sparkles,
   Trophy,
   User,
-  Video,
   X,
   XCircle,
 } from "lucide-react";
@@ -154,6 +154,7 @@ const ICON_TINTS: Record<string, string> = {
   emerald: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
   rose: "bg-rose-500/10 text-rose-600 dark:text-rose-300",
   sky: "bg-sky-500/10 text-sky-600 dark:text-sky-300",
+  amber: "bg-amber-500/10 text-amber-600 dark:text-amber-300",
 };
 
 const TONE_TILE: Record<Tone, string> = {
@@ -1176,7 +1177,7 @@ function SummarySection({
         </div>
       </div>
 
-      <div className={`mt-4 grid gap-3 ${nextSteps.length > 0 ? "lg:grid-cols-3" : "sm:grid-cols-2"}`}>
+      <div className={`mt-4 grid items-start gap-3 ${nextSteps.length > 0 ? "lg:grid-cols-3" : "sm:grid-cols-2"}`}>
         <TakeawayList
           title="Strengths"
           tint="bg-emerald-500/[0.07] text-emerald-900 dark:text-emerald-100"
@@ -1729,8 +1730,8 @@ function VideoSection({
   return (
     <section id="video" className={`${cardClasses} scroll-mt-32`} data-video-model={video.model ?? undefined}>
       <CardHeading
-        icon={Video}
-        iconColor="rose"
+        icon={Eye}
+        iconColor="amber"
         title="On-camera behaviour"
         subtitle="Where the candidate looked, read from the recording."
         right={<HeadingScore score={video.score} tone={chip.tone} label={chip.label} />}
@@ -2075,8 +2076,8 @@ function RecordingPanel({
   return (
     <section id="recording" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
-        icon={Video}
-        iconColor="rose"
+        icon={Play}
+        iconColor="indigo"
         title="Recording & transcript"
         subtitle="Watch the interview and follow every answer in step."
         right={
@@ -2530,7 +2531,7 @@ function PeersSection({ peers, currentId }: { peers: PeerSummary[]; currentId: s
   const ranked = [...peers].sort((a, b) => (b.overall?.score ?? -1) - (a.overall?.score ?? -1));
   return (
     <section id="peers" className={`${cardClasses} scroll-mt-32`}>
-      <CardHeading title="Compared with this role" subtitle="Everyone interviewed for the same role, on the same plan and scale." />
+      <CardHeading icon={Trophy} iconColor="purple" title="Compared with this role" subtitle="Everyone interviewed for the same role, on the same plan and scale." />
       <ol className="mt-5 grid gap-1">
         {ranked.map((peer, index) => {
           const isCurrent = peer.roomId === currentId;

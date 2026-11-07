@@ -15,10 +15,10 @@ export default function NotFound() {
           The link may be mistyped, or what it pointed to was removed.
         </p>
         <Link
-          href="/dashboard"
+          href="/"
           className="mt-6 inline-flex h-9 items-center rounded-lg bg-accent px-4 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90"
         >
-          Go to interviews
+          Go to the home page
         </Link>
       </div>
     </main>
