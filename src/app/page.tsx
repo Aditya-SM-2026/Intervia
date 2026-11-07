@@ -6,9 +6,9 @@ import { HeroFilm } from "@/components/marketing/HeroFilm";
 import { SESSION_COOKIE, isRecruiterSession } from "@/lib/auth/session";
 
 const OUTCOMES = [
-  { figure: "Every", label: "applicant gets a real, spoken interview" },
-  { figure: "1 page", label: "per candidate, every score quoted" },
-  { figure: "You", label: "decide who moves forward" },
+  { figure: "Every applicant", label: "gets a real, spoken interview" },
+  { figure: "One page", label: "per candidate, every score quoted" },
+  { figure: "Your call", label: "on who moves forward" },
 ];
 
 export default async function Home() {
@@ -70,7 +70,7 @@ export default async function Home() {
         <ul className="grid gap-12 sm:grid-cols-3 sm:gap-8">
           {OUTCOMES.map((item) => (
             <li key={item.figure}>
-              <p className="text-4xl font-semibold tracking-[-0.03em] text-accent">{item.figure}</p>
+              <p className="text-3xl font-semibold tracking-[-0.03em] text-accent">{item.figure}</p>
               <p className="mt-2 max-w-[16rem] text-lg leading-snug text-foreground/80">{item.label}</p>
             </li>
           ))}

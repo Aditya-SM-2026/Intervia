@@ -164,7 +164,7 @@ export function HeroFilm({ compact = false }: { compact?: boolean }) {
 
   return (
     <figure
-      className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#0d1a4a]/70 shadow-[0_40px_120px_-40px_rgba(36,70,216,0.7)] backdrop-blur"
+      className="relative overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-b from-[#132258] to-[#0b1640] shadow-[0_30px_80px_-30px_rgba(74,114,245,0.45)]"
       aria-label="A short animation: the interviewer asks a question, the candidate answers, and the report shows a score of 82."
     >
       <div className="flex items-center justify-between px-5 pt-4 text-xs text-white/60">
