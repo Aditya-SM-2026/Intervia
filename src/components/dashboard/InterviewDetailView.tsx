@@ -2671,17 +2671,77 @@ function ResumeModal({
             />
           ) : (
             <div className="h-full overflow-y-auto p-4 sm:p-8">
-              <div className="mx-auto max-w-2xl whitespace-pre-wrap rounded-lg bg-white p-6 text-sm leading-relaxed text-slate-800 shadow-sm sm:p-10 dark:bg-surface dark:text-slate-200">
-                {resume?.text ||
-                  (hasOriginal
-                    ? "This is a Word document. Use Download to open the original."
-                    : "No resume is available for this candidate.")}
+              <div className="mx-auto max-w-2xl">
+                {hasOriginal ? (
+                  <p className="rounded-xl bg-surface px-4 py-3 text-sm text-muted">
+                    This is a Word document. Use Download to open the original.
+                  </p>
+                ) : resume?.text ? (
+                  <>
+                    <p className="mb-3 flex items-start gap-2 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+                      <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                      The original file was not kept for this interview. This is the text read from it.
+                    </p>
+                    <ResumeText text={resume.text} />
+                  </>
+                ) : (
+                  <p className="rounded-xl bg-surface px-4 py-3 text-sm text-muted">No resume is available for this candidate.</p>
+                )}
               </div>
             </div>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+/** Section headings commonly found in resumes, used to break flattened text back into sections. */
+const RESUME_HEADINGS = [
+  "PROFESSIONAL SUMMARY", "SUMMARY", "OBJECTIVE", "CAREER OBJECTIVE", "TECHNICAL SKILLS", "SKILLS",
+  "PROFESSIONAL EXPERIENCE", "WORK EXPERIENCE", "EXPERIENCE", "INTERNSHIPS", "EDUCATION",
+  "ACADEMIC PROJECTS", "PROJECTS", "CERTIFICATIONS", "ACHIEVEMENTS", "AWARDS",
+  "POSITION OF RESPONSIBILITY", "POSITIONS OF RESPONSIBILITY", "EXTRACURRICULAR ACTIVITIES",
+  "LANGUAGES", "INTERESTS", "PUBLICATIONS",
+];
+
+function splitResumeText(text: string): { title: string | null; body: string }[] {
+  const pattern = new RegExp(`\\b(${RESUME_HEADINGS.join("|")})\\b`, "g");
+  const sections: { title: string | null; body: string }[] = [];
+  let last = 0;
+  let title: string | null = null;
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    sections.push({ title, body: text.slice(last, index).trim() });
+    title = match[1];
+    last = index + match[0].length;
+  }
+  sections.push({ title, body: text.slice(last).trim() });
+  return sections.filter((section) => section.body.length > 0);
+}
+
+function sentenceCase(heading: string): string {
+  return heading.charAt(0) + heading.slice(1).toLowerCase();
+}
+
+/** Extracted resume text, laid out as a page with its sections restored. */
+function ResumeText({ text }: { text: string }) {
+  const sections = splitResumeText(text);
+  return (
+    <article className="rounded-xl bg-white p-6 text-[13px] leading-6 text-slate-700 shadow-sm sm:p-9 dark:bg-surface dark:text-slate-300">
+      {sections.map((section, index) =>
+        section.title === null ? (
+          <p key={index} className="whitespace-pre-line border-b border-border pb-4 text-sm font-medium text-foreground">
+            {section.body}
+          </p>
+        ) : (
+          <section key={index} className="mt-5">
+            <h4 className="border-b border-accent/30 pb-1 text-sm font-semibold text-accent">{sentenceCase(section.title)}</h4>
+            <p className="mt-2 whitespace-pre-line">{section.body}</p>
+          </section>
+        ),
+      )}
+    </article>
   );
 }
 
