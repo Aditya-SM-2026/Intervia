@@ -28,7 +28,6 @@ import type {
 } from "@/lib/roles/role.types";
 import { deriveApplicationStage, deriveHireStage, type HireStage } from "@/lib/roles/hire-stage";
 import { countPipeline, PIPELINE_STEPS, type PipelineStep } from "@/lib/roles/pipeline";
-import { documentFacts } from "@/lib/text/document-blocks";
 import { Avatar } from "@/components/dashboard/primitives";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { Menu } from "@/components/dashboard/menu";
@@ -119,9 +118,6 @@ function PipelineBar({
   );
 }
 
-/** Header facts lifted from the job description, when it has them. */
-const CARD_FACTS = ["location", "experience", "employment type", "work mode"];
-
 function RoleCard({
   role,
   index,
@@ -150,10 +146,6 @@ function RoleCard({
   const inviteHref = `/recruiter?roleId=${encodeURIComponent(role.id)}`;
   const score = role.stats.avgOverallScore;
   const total = candidates?.length ?? 0;
-  const facts = documentFacts(role.description);
-  const cardFacts = CARD_FACTS.map((label) => facts.find((fact) => fact.label.toLowerCase() === label)?.value).filter(
-    (value): value is string => Boolean(value),
-  );
   const people = (candidates ?? []).slice(0, 4);
 
   function copyFormLink() {
@@ -211,14 +203,7 @@ function RoleCard({
               </span>
             )}
           </div>
-          <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted">
-            {cardFacts.slice(0, 2).map((value) => (
-              <span key={value} className="truncate">
-                {value}
-              </span>
-            ))}
-            <span>{relativeDay(role.updatedAt)}</span>
-          </p>
+          <p className="mt-0.5 text-xs text-muted">{relativeDay(role.updatedAt)}</p>
         </div>
         <input
           type="checkbox"
@@ -266,32 +251,23 @@ function RoleCard({
             {counts === null ? (
               <div className="skeleton h-1.5 w-full rounded-full" />
             ) : total === 0 ? (
-              <p className="text-xs text-muted">Share the form or invite someone to start.</p>
+              <p className="text-xs text-muted">No one yet</p>
             ) : (
-              <PipelineBar counts={counts} total={total} index={index} />
+              <>
+                <PipelineBar counts={counts} total={total} index={index} />
+                <p className="mt-1.5 truncate text-xs text-muted">
+                  {PIPELINE_STEPS.filter(({ step }) => counts[step] > 0)
+                    .map(({ step, label }) => `${counts[step]} ${step === "closed" ? "rejected" : label.toLowerCase()}`)
+                    .join(", ")}
+                </p>
+              </>
             )}
           </div>
         </div>
       </div>
 
-      {/* stage counters */}
-      <dl className="mt-4 grid grid-cols-4 gap-1.5">
-        {PIPELINE_STEPS.slice(0, 4).map(({ step, label, tile }) => {
-          const value = counts?.[step] ?? 0;
-          return (
-            <div
-              key={step}
-              className={`rounded-xl px-2.5 py-2 transition ${value > 0 ? tile : "bg-foreground/[0.03] text-muted"}`}
-            >
-              <dd className="text-lg font-semibold leading-none tabular-nums">{counts === null ? "–" : value}</dd>
-              <dt className="mt-1 truncate text-[11px] font-medium opacity-80">{label}</dt>
-            </div>
-          );
-        })}
-      </dl>
-
       {/* footer actions */}
-      <div className="mt-4 flex items-center gap-2 border-t border-border pt-4">
+      <div className="mt-5 flex items-center gap-2 border-t border-border pt-4">
         <div className="flex -space-x-2">
           {people.map((person) => (
             <Avatar
@@ -625,7 +601,7 @@ export function RolesView() {
               <button
                 type="button"
                 onClick={() => setSheet({ role: null })}
-                className="grid h-full min-h-[220px] w-full place-items-center rounded-2xl border border-dashed border-border text-sm text-muted transition hover:border-accent/50 hover:bg-accent-soft/40 hover:text-accent"
+                className="grid h-full min-h-[200px] w-full place-items-center rounded-2xl border border-dashed border-border text-sm text-muted transition hover:border-accent/50 hover:bg-accent-soft/40 hover:text-accent"
               >
                 <span className="flex flex-col items-center gap-2">
                   <span className="grid size-10 place-items-center rounded-full bg-foreground/[0.05]">

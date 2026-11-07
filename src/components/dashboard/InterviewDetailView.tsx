@@ -1671,177 +1671,274 @@ function VideoSection({
     (answer) => answer.whileAnswering !== "unclear" && !answer.reason,
   ).length;
 
+  const measured = answerRows.filter((answer) => answer.whileAnswering !== "unclear" && !answer.reason);
+  const secondsBy = (pick: (answer: AnswerGaze) => GazeDirection) => {
+    const totals = new Map<GazeDirection, number>();
+    for (const answer of measured) {
+      const direction = pick(answer);
+      if (direction === "unclear") continue;
+      totals.set(direction, (totals.get(direction) ?? 0) + Math.max(1, answer.durationSeconds));
+    }
+    return totals;
+  };
+  const answeringTotals = secondsBy((answer) => answer.whileAnswering);
+  const listeningTotals = secondsBy((answer) => answer.whileListening);
+  const answeringSeconds = [...answeringTotals.values()].reduce((sum, value) => sum + value, 0);
+  const atScreen = answeringSeconds > 0 ? Math.round(((answeringTotals.get("centre") ?? 0) / answeringSeconds) * 100) : null;
+  const attention = video.attentionPercent ?? atScreen;
+  const sameSpot = pattern && pattern.sameSpotAnswers >= 2 ? pattern.sameSpotAnswers : 0;
+  const readingCount = pattern?.readingAnswers ?? measured.filter((answer) => answer.reading).length;
+
+  // Only what deserves a second look: answers held on the same off-screen
+  // spot, reading-like eye movement, and the moments the analysis pointed to.
+  const flagged: { at: number; label: string; detail: string; tone: Tone }[] = [
+    ...answerRows
+      .filter((answer) => onSpot(answer) || answer.reading)
+      .map((answer) => ({
+        at: answer.atSeconds,
+        label: onSpot(answer) ? `Held ${GAZE_LABEL[answer.whileAnswering].toLowerCase()}` : "Reading-like eye movement",
+        detail: `${answer.durationSeconds}s answer`,
+        tone: (onSpot(answer) && answer.reading ? "bad" : "warn") as Tone,
+      })),
+    ...video.moments.map((moment) => ({
+      at: moment.atSeconds,
+      label: moment.description,
+      detail: moment.durationSeconds > 0 ? `${moment.durationSeconds}s` : "",
+      tone: "warn" as Tone,
+    })),
+  ]
+    .sort((a, b) => a.at - b.at)
+    .filter((item, index, list) => index === 0 || Math.abs(item.at - list[index - 1].at) > 2);
+
+  const tiles: { label: string; value: string; tone: Tone }[] = [
+    { label: "Looking at the screen", value: attention === null ? "—" : `${attention}%`, tone: attention !== null && attention < 50 ? "warn" : "muted" },
+    {
+      label: "Same off-screen spot",
+      value: pattern && pattern.answersObserved > 0 ? `${sameSpot} of ${pattern.answersObserved}` : "—",
+      tone: sameSpot >= 2 ? "bad" : "muted",
+    },
+    { label: "Reading-like answers", value: String(readingCount), tone: readingCount > 0 ? "warn" : "muted" },
+    {
+      label: "Left the tab",
+      value: integrity.tabHiddenCount === 0 ? "Never" : `${integrity.tabHiddenCount}×`,
+      tone: integrity.tabHiddenCount > 0 ? "warn" : "muted",
+    },
+  ];
+
   return (
     <section id="video" className={`${cardClasses} scroll-mt-32`} data-video-model={video.model ?? undefined}>
       <CardHeading
         icon={Video}
         iconColor="rose"
         title="On-camera behaviour"
-        subtitle="Analysis based on the recorded interview video."
+        subtitle="Where the candidate looked, read from the recording."
         right={<HeadingScore score={video.score} tone={chip.tone} label={chip.label} />}
       />
 
-      <div className="mt-5 grid gap-6">
-        <div className="grid grid-cols-3 content-start gap-6 border-y border-border py-4">
-          <div>
-            <span className="text-sm text-muted">Same-spot answers</span>
-            <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
-              {pattern && pattern.answersObserved > 0
-                ? `${pattern.sameSpotAnswers >= 2 ? pattern.sameSpotAnswers : 0} of ${pattern.answersObserved}`
-                : "Not measured"}
+      {video.status !== "analysed" ? (
+        <div className="mt-5 rounded-xl bg-foreground/[0.035] px-4 py-3.5 text-sm">
+          <p className="text-muted">{video.reason ?? "The recording has not been analysed."}</p>
+          {video.status === "queued" && (
+            <p className="mt-1.5 flex items-center gap-2 font-medium text-accent">
+              <span className="size-1.5 animate-pulse rounded-full bg-accent" />
+              Analysing the recording. This updates by itself.
             </p>
-          </div>
-          <div>
-            <span className="text-sm text-muted">Left the interview tab</span>
-            <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
-              {integrity.tabHiddenCount === 0
-                ? "Never"
-                : `${integrity.tabHiddenCount}× (${integrity.tabHiddenSeconds}s)`}
-            </p>
-          </div>
-          <div>
-            <span className="text-sm text-muted">Connection drops</span>
-            <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
-              {integrity.candidateDisconnects}
-            </p>
-          </div>
+          )}
         </div>
+      ) : (
+        <>
+          <dl className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            {tiles.map((tile) => (
+              <div key={tile.label} className={`rounded-xl px-4 py-3 ${TONE_TILE[tile.tone]}`}>
+                <dd className="text-xl font-semibold leading-none tabular-nums tracking-[-0.02em]">{tile.value}</dd>
+                <dt className="mt-1.5 text-xs font-medium opacity-80">{tile.label}</dt>
+              </div>
+            ))}
+          </dl>
 
-        <div>
+          <div className="mt-5 grid gap-5 lg:grid-cols-[auto_minmax(0,1fr)]">
+            {/* where they looked, all answers together */}
+            <div className="rounded-2xl border border-border p-4">
+              <div className="flex items-end gap-5">
+                <GazeHeatmap title="While answering" totals={answeringTotals} />
+                <GazeHeatmap title="While listening" totals={listeningTotals} small />
+              </div>
+              <p className="mt-3 max-w-[16rem] text-[11px] leading-4 text-muted">
+                The centre square is the screen. Darker squares got more of the time.
+              </p>
+            </div>
 
-          {video.status === "analysed" ? (
-            <>
-              {video.summary && (
-                <p className="mt-3.5 text-xs leading-relaxed text-foreground/85">
-                  {video.summary}
+            {/* what to check */}
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold">Worth a look</h3>
+              {flagged.length === 0 ? (
+                <p className="mt-2 flex items-start gap-2 rounded-xl bg-emerald-500/[0.07] px-3.5 py-3 text-sm text-emerald-800 dark:text-emerald-200">
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  No answer kept returning to one spot away from the screen.
                 </p>
-              )}
-              {video.moments.length > 0 && (
-                <ul className="mt-3 divide-y divide-slate-100 border-y border-border text-xs dark:divide-border dark:border-border">
-                  {video.moments.map((moment, index) => (
-                    <li key={index} className="flex items-center gap-3 py-2">
+              ) : (
+                <ul className="mt-2 grid gap-1.5">
+                  {flagged.slice(0, 6).map((item) => (
+                    <li key={`${item.at}-${item.label}`} className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm ${TONE_TILE[item.tone]}`}>
                       <button
                         type="button"
-                        onClick={() => onPlay(moment.atSeconds - 2)}
-                        className="font-bold tabular-nums text-accent hover:underline"
+                        onClick={() => onPlay(item.at - 2)}
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-surface px-2.5 text-xs font-semibold tabular-nums text-accent shadow-sm shadow-black/[0.04] transition hover:bg-accent hover:text-white"
                       >
-                        {formatClock(moment.atSeconds)}
+                        <Play className="size-3 fill-current" aria-hidden />
+                        {formatClock(item.at)}
                       </button>
-                      <span className="text-foreground/80">{moment.description}</span>
+                      <span className="min-w-0 flex-1 truncate" title={item.label}>
+                        {item.label}
+                      </span>
+                      {item.detail && <span className="shrink-0 text-xs opacity-70">{item.detail}</span>}
                     </li>
                   ))}
+                  {flagged.length > 6 && <li className="px-1 text-xs text-muted">And {flagged.length - 6} more in the table below.</li>}
                 </ul>
               )}
-            </>
-          ) : (
-            <div className="mt-3 space-y-2">
-              <p className="text-xs text-muted">
-                {video.reason ?? "The recording has not been analysed."}
-              </p>
-              {video.status === "queued" && (
-                <p className="flex items-center gap-2 text-xs font-medium text-blue-600 dark:text-accent">
-                  <span className="size-1.5 animate-pulse rounded-full bg-blue-500 dark:bg-accent" />
-                  The analyser is working on this recording. This card updates by itself.
-                </p>
-              )}
-            </div>
-          )}
-
-          {hasRecording && (
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={onAnalyseVideo}
-                disabled={isAnalysing || video.status === "queued"}
-                className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <RotateCcw
-                  className={`size-3.5 ${isAnalysing || video.status === "queued" ? "animate-spin" : ""}`}
-                />
-                {isAnalysing || video.status === "queued"
-                  ? "Analysing recording"
-                  : video.status === "analysed"
-                    ? "Re-check video"
-                    : video.status === "failed"
-                      ? "Try video analysis again"
-                      : "Analyse this video"}
-              </button>
-              <span className="text-[11px] text-muted">
-                Re-watches the recording for eye contact and presence. Takes about a minute.
-              </span>
-            </div>
-          )}
-
-          <p className="mt-4 text-xs text-muted">
-            An automated reading of the recording. Watch the moments it points to before relying on it.
-          </p>
-        </div>
-
-        {/* Where the candidate looked table */}
-        {answerRows.length > 0 && (
-          <div className="lg:col-span-2 mt-2">
-            <h3 className="text-sm font-medium text-foreground">Where the candidate looked, answer by answer</h3>
-            <p className="mt-1 text-[11px] text-muted dark:text-muted">
-              {measurable === answerRows.length
-                ? `${answerRows.length} of ${answerRows.length} answers could be measured on camera.`
-                : `${measurable} of ${answerRows.length} answers could be measured on camera. The rest say why not.`}
-            </p>
-            <div className="-mx-3 mt-3 overflow-x-auto">
-              <table className="w-full text-left text-[13px]">
-                <thead>
-                  <tr className="border-b border-border text-xs font-medium text-muted">
-                    <th className="px-3.5 py-2.5">Answer at</th>
-                    <th className="px-3.5 py-2.5">While listening</th>
-                    <th className="px-3.5 py-2.5">While answering</th>
-                    <th className="px-3.5 py-2.5">Observations</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border align-top">
-                  {answerRows.map((answer) => (
-                    <tr
-                      key={answer.turnSeq}
-                      className={onSpot(answer) ? "bg-amber-500/[0.06]" : undefined}
-                    >
-                      <td className="px-3.5 py-2.5 align-top">
-                        <button
-                          type="button"
-                          onClick={() => onPlay(answer.atSeconds - 2)}
-                          className="font-semibold tabular-nums text-accent hover:underline"
-                        >
-                          {formatClock(answer.atSeconds)}
-                        </button>
-                        <span className="ml-1.5 text-[11px] text-muted">({answer.durationSeconds}s)</span>
-                      </td>
-                      <td className="px-3.5 py-2.5 align-top">
-                        <GazeCell direction={answer.whileListening} />
-                      </td>
-                      <td className="px-3.5 py-2.5 align-top">
-                        <GazeCell direction={answer.whileAnswering} strong={onSpot(answer)} />
-                      </td>
-                      <td className="px-3.5 py-2.5 align-top text-muted">
-                        {answer.reason ? (
-                          <span className="block text-[11px] font-medium text-amber-700 dark:text-amber-400">
-                            {answer.reason}
-                          </span>
-                        ) : (
-                          [
-                            onSpot(answer) ? "Held on the same spot as other answers." : null,
-                            answer.reading ? "Reading-like eye movement." : null,
-                            answer.note ? answer.note.replace(/_/g, " ") : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" ") || <span className="text-muted">Nothing notable.</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {video.summary && <p className="mt-3 text-sm leading-6 text-muted">{video.summary}</p>}
             </div>
           </div>
-        )}
-      </div>
+        </>
+      )}
+
+      {answerRows.length > 0 && (
+        <details className="group mt-5 rounded-xl border border-border">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium">
+            Every answer
+            <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs tabular-nums text-muted">{answerRows.length}</span>
+            <span className="text-xs font-normal text-muted">{measurable} could be measured</span>
+            <ChevronDown className="ml-auto size-4 text-muted transition group-open:rotate-180" aria-hidden />
+          </summary>
+          <div className="overflow-x-auto border-t border-border">
+            <table className="w-full text-left text-[13px]">
+              <thead>
+                <tr className="border-b border-border text-xs font-medium text-muted">
+                  <th className="px-4 py-2.5">Answer at</th>
+                  <th className="px-3 py-2.5">While listening</th>
+                  <th className="px-3 py-2.5">While answering</th>
+                  <th className="px-3 py-2.5">Note</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {answerRows.map((answer) => (
+                  <tr key={answer.turnSeq} className={onSpot(answer) ? "bg-amber-500/[0.06]" : undefined}>
+                    <td className="px-4 py-2">
+                      <button
+                        type="button"
+                        onClick={() => onPlay(answer.atSeconds - 2)}
+                        className="font-semibold tabular-nums text-accent hover:underline"
+                      >
+                        {formatClock(answer.atSeconds)}
+                      </button>
+                      <span className="ml-1.5 text-[11px] text-muted">{answer.durationSeconds}s</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <GazeCell direction={answer.whileListening} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <GazeCell direction={answer.whileAnswering} strong={onSpot(answer)} />
+                    </td>
+                    <td className="px-3 py-2 text-xs text-muted">
+                      {answer.reason
+                        ? answer.reason
+                        : [onSpot(answer) ? "Same spot as other answers" : null, answer.reading ? "Reading-like" : null]
+                            .filter(Boolean)
+                            .join(", ") || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+
+      {hasRecording && (
+        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-4">
+          <button
+            type="button"
+            onClick={onAnalyseVideo}
+            disabled={isAnalysing || video.status === "queued"}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RotateCcw className={`size-3.5 ${isAnalysing || video.status === "queued" ? "animate-spin" : ""}`} />
+            {isAnalysing || video.status === "queued"
+              ? "Analysing recording"
+              : video.status === "analysed"
+                ? "Re-check video"
+                : video.status === "failed"
+                  ? "Try video analysis again"
+                  : "Analyse this video"}
+          </button>
+          <span className="text-xs text-muted">An automated reading. Watch the moments before relying on it.</span>
+        </div>
+      )}
     </section>
+  );
+}
+
+/**
+ * Where the eyes were, as a 3-by-3 grid shaded by time spent. The centre is
+ * the screen. Built from every measured answer, so it stays one picture
+ * however long the interview ran.
+ */
+function GazeHeatmap({
+  title,
+  totals,
+  small = false,
+}: {
+  title: string;
+  totals: Map<GazeDirection, number>;
+  small?: boolean;
+}) {
+  const reduce = useReducedMotion();
+  const sum = [...totals.values()].reduce((total, value) => total + value, 0);
+  const max = Math.max(1, ...totals.values());
+  const cell = small ? "size-9" : "size-14";
+  return (
+    <figure className="flex flex-col items-center">
+      <div className="relative grid grid-cols-3 gap-1" role="img" aria-label={`${title}: ${
+        sum === 0
+          ? "not measured"
+          : [...totals.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([direction, value]) => `${GAZE_LABEL[direction]} ${Math.round((value / sum) * 100)}%`)
+              .join(", ")
+      }`}>
+        {GAZE_GRID.map((direction, index) => {
+          const value = totals.get(direction) ?? 0;
+          const share = sum > 0 ? Math.round((value / sum) * 100) : 0;
+          const centre = direction === "centre";
+          const strength = value / max;
+          return (
+            <motion.span
+              key={direction}
+              title={`${GAZE_LABEL[direction]}: ${share}%`}
+              initial={reduce ? false : { opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.35, delay: index * 0.03, ease: EASE_OUT }}
+              className={`relative grid ${cell} place-items-center rounded-lg text-[11px] font-semibold tabular-nums ${
+                centre ? "ring-1 ring-inset ring-emerald-500/40" : ""
+              }`}
+              style={{
+                backgroundColor:
+                  value === 0
+                    ? "color-mix(in srgb, var(--foreground) 4%, transparent)"
+                    : centre
+                      ? `color-mix(in srgb, rgb(16 185 129) ${Math.round(18 + strength * 62)}%, transparent)`
+                      : `color-mix(in srgb, rgb(244 63 94) ${Math.round(14 + strength * 56)}%, transparent)`,
+                color: strength > 0.55 ? "white" : undefined,
+              }}
+            >
+              {!small && share > 0 ? `${share}%` : ""}
+            </motion.span>
+          );
+        })}
+      </div>
+      <figcaption className="mt-2 text-xs font-medium text-muted">{title}</figcaption>
+    </figure>
   );
 }
 
