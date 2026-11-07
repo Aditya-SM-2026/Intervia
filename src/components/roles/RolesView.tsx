@@ -662,6 +662,7 @@ export function RolesView() {
       <Toast toast={toast} onDismiss={dismissToast} />
 
       <ConfirmDialog
+        busyLabel="Deleting…"
         open={deleteIds !== null}
         title={single ? "Delete this role?" : `Delete ${deleteIds?.length ?? 0} roles?`}
         body={

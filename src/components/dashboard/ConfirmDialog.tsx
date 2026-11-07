@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * Accessible confirmation dialog for destructive actions. Renders a modal
@@ -16,6 +17,10 @@ interface ConfirmDialogProps {
   confirmLabel: string;
   cancelLabel?: string;
   busy?: boolean;
+  /** Text on the confirm button while busy. */
+  busyLabel?: string;
+  /** Red button for destructive actions, accent for everything else. */
+  tone?: "danger" | "default";
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -27,6 +32,8 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel = "Cancel",
   busy = false,
+  busyLabel = "Working…",
+  tone = "danger",
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -61,11 +68,12 @@ export function ConfirmDialog({
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [open, busy, onCancel]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  // Portalled above sheets (z-50) so a confirm opened from a sheet is never hidden behind it.
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-xs"
+      className="fixed inset-0 z-[55] grid place-items-center bg-black/40 p-4 backdrop-blur-xs"
       onPointerDown={(event) => {
         if (event.target === event.currentTarget && !busy) onCancel();
       }}
@@ -98,12 +106,15 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-60"
+            className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition disabled:opacity-60 ${
+              tone === "danger" ? "bg-red-600 hover:bg-red-700" : "bg-accent hover:opacity-90"
+            }`}
           >
-            {busy ? "Deleting…" : confirmLabel}
+            {busy ? busyLabel : confirmLabel}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

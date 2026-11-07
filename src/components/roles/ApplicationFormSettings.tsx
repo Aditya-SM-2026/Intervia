@@ -765,6 +765,7 @@ export function ApplicationFormSettings({
         title="Create a new link?"
         body="Anyone with the current link can no longer apply. Applications already received are kept."
         confirmLabel="Create new link"
+        busyLabel="Creating…"
         busy={saving}
         onConfirm={createNewLink}
         onCancel={() => setConfirmRotate(false)}

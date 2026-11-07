@@ -1085,7 +1085,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
           selected.size
         } candidate${selected.size === 1 ? "" : "s"}?`}
         body="The decision is saved on each person's latest interview. You can change it later from their report."
-        confirmLabel={actionBusy ? "Saving…" : "Confirm"}
+        confirmLabel="Confirm"
+        busyLabel="Saving…"
+        tone={confirmingDecision === "reject" ? "danger" : "default"}
         busy={actionBusy}
         onConfirm={() => confirmingDecision && applyDecision(confirmingDecision)}
         onCancel={() => setConfirmingDecision(null)}
@@ -1096,6 +1098,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         title="Mark this role as completed?"
         body="It stays readable and downloadable, and you can reopen it at any time."
         confirmLabel="Mark completed"
+        busyLabel="Saving…"
+        tone="default"
         busy={actionBusy}
         onConfirm={() => setRoleStatus("completed")}
         onCancel={() => setConfirmingClose(false)}

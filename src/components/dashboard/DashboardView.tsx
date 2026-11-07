@@ -427,6 +427,7 @@ export function DashboardView() {
       </AnimatePresence>
 
       <ConfirmDialog
+        busyLabel="Deleting…"
         open={confirmIds !== null}
         busy={deleting}
         title={confirmIds !== null && confirmIds.length > 1 ? `Delete ${confirmIds.length} interviews?` : "Delete interview?"}
