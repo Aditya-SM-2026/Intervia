@@ -1,10 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 export function LoginForm({ next }: { next: string }) {
-  const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -39,9 +37,9 @@ export function LoginForm({ next }: { next: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-3">
+    <form onSubmit={handleSubmit} className="grid gap-4">
       <div>
-        <label htmlFor="username" className="mb-1 block text-sm font-medium">
+        <label htmlFor="username" className="mb-1.5 block text-sm font-medium">
           Login ID
         </label>
         <input
@@ -53,11 +51,11 @@ export function LoginForm({ next }: { next: string }) {
           spellCheck={false}
           value={username}
           onChange={(event) => setUsername(event.target.value)}
-          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent"
+          className="w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
         />
       </div>
       <div>
-        <label htmlFor="password" className="mb-1 block text-sm font-medium">
+        <label htmlFor="password" className="mb-1.5 block text-sm font-medium">
           Password
         </label>
         <input
@@ -67,13 +65,13 @@ export function LoginForm({ next }: { next: string }) {
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent"
+          className="w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
         />
       </div>
       {error && (
         <p
           role="alert"
-          className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400"
+          className="rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400"
         >
           {error}
         </p>
@@ -81,7 +79,7 @@ export function LoginForm({ next }: { next: string }) {
       <button
         type="submit"
         disabled={isSubmitting}
-        className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isSubmitting ? "Signing in…" : "Sign in"}
       </button>
