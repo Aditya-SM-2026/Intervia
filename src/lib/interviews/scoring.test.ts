@@ -153,24 +153,23 @@ test("overall: answers 70, resume 20, own answers 10; video measured but weighte
   assert.deepEqual(all.factors.map((factor) => factor.id), ["answers", "resume", "authenticity"]);
 });
 
-test("own answers: good answers in the candidate's own words, out of all questions", () => {
+test("own answers: judged per question, only on the good answers", () => {
   const comp = (id: string, score: number) =>
     ({ competencyId: id, name: id, status: "scored", score, rationale: "", evidence: [], gaps: [], secondScore: null, judgesAgree: null }) as CompetencyScore;
-  // Gayathri: 3,2,3,2,2 and every answer natural -> 2 of 5 good and own = 40.
+  // Gayathri: 3,2,3,2,2; both good answers natural -> 100 over 2 good answers.
   const gayathri = [comp("a", 3), comp("b", 2), comp("c", 3), comp("d", 2), comp("e", 2)];
   const tally = ownAnswerTally(gayathri, new Map());
   assert.deepEqual(tally, { scored: 5, good: 2, goodOwn: 2 });
-  assert.equal(ownAnswersFactor(tally), 40);
-  // Strong but read out: four good answers, three of them read.
+  assert.equal(ownAnswersFactor(tally), 100);
+  // Strong but mostly read out: 4 good answers, 3 read -> (0.1*3 + 1) / 4 = 33.
   const strong = [comp("a", 4), comp("b", 4), comp("c", 5), comp("d", 4)];
   const read = new Map([["a", "likely_read"], ["b", "likely_read"], ["c", "likely_read"]] as const);
-  assert.equal(ownAnswersFactor(ownAnswerTally(strong, read)), 25);
-  // Strong and honest.
+  assert.equal(ownAnswersFactor(ownAnswerTally(strong, read)), 33);
   assert.equal(ownAnswersFactor(ownAnswerTally(strong, new Map())), 100);
-  // Polished counts half; not checked has no score.
-  assert.equal(ownAnswersFactor(ownAnswerTally([comp("a", 4), comp("b", 4)], new Map([["a", "polished"]] as const))), 75);
+  assert.equal(ownAnswersFactor(ownAnswerTally([comp("a", 4), comp("b", 4)], new Map([["a", "polished"]] as const))), 80);
+  // No good answers: nothing to judge, so no score (left out of the total).
+  assert.equal(ownAnswersFactor(ownAnswerTally([comp("a", 2), comp("b", 1)], new Map())), null);
   assert.equal(ownAnswersFactor(null), null);
-  // Weakest verdict per question wins.
   const byComp = verdictsByCompetency(
     [{ turnSeq: 1, verdict: "natural" }, { turnSeq: 2, verdict: "likely_read" }],
     new Map([[1, "a"], [2, "a"]]),

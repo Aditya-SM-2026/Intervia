@@ -1027,7 +1027,7 @@ function OverallAssessment({
                   <span className="block truncate text-sm font-semibold">{meta.name}</span>
                   <span className={`mt-0.5 block text-xs font-medium ${TONE_TEXT[chip.tone]}`}>
                     {factor.id === "authenticity" && scorecard.ownAnswers
-                      ? `${formatCount(scorecard.ownAnswers.goodOwn)} of ${scorecard.ownAnswers.scored} good answers in own words`
+                      ? ownAnswersLine(scorecard.ownAnswers)
                       : chip.label}
                   </span>
                   <span className="mt-0.5 block text-[11px] text-muted">{factor.weight}% of the score</span>
@@ -1834,12 +1834,6 @@ function VideoSection({
   const findings = (check?.findings ?? [])
     .filter((finding) => finding.source !== "text")
     .sort((a, b) => b.strength - a.strength);
-  const startByTurn = new Map((measures?.answers ?? []).map((answer) => [answer.turnSeq, answer.start]));
-  const startOf = (seqs: number[], at: number | null) => {
-    if (at !== null) return at;
-    const starts = seqs.map((seq) => startByTurn.get(seq)).filter((v): v is number => v !== undefined);
-    return starts.length ? Math.min(...starts) : null;
-  };
   const turnsOf = (kinds: string[]) =>
     new Set(findings.filter((finding) => kinds.includes(finding.kind)).flatMap((finding) => finding.turnSeqs));
   const spotTurns = turnsOf(["fixed_spot"]);
@@ -1848,28 +1842,84 @@ function VideoSection({
   const voiceTurns = turnsOf(["voice_change"]);
   const judged = measures ? measures.answers.filter((answer) => answer.atScreenShare !== null).length : 0;
 
-  const tiles: { label: string; value: string; tone: Tone }[] = measures
+  const rows = (measures?.answers ?? []).filter((answer) => answer.end - answer.start >= 1);
+
+  // What was checked, one line each: the at-a-glance view of the section.
+  const has = (kinds: string[]) => findings.filter((finding) => kinds.includes(finding.kind));
+  const answersOf = (kinds: string[]) => new Set(has(kinds).flatMap((finding) => finding.turnSeqs)).size;
+  const attention = video.attentionPercent;
+  const checklist: { label: string; value: string; state: "ok" | "warn" | "na" }[] = measures
     ? [
         {
-          label: "At the screen while answering",
-          value: video.attentionPercent === null ? "—" : `${video.attentionPercent}%`,
-          tone: video.attentionPercent !== null && video.attentionPercent < 50 ? "warn" : "muted",
+          label: "Looked at their screen",
+          value: attention === null ? "Could not tell" : `${attention}% of answer time`,
+          state: attention === null ? "na" : attention >= 60 ? "ok" : "warn",
         },
         {
-          label: "Kept going to one spot",
-          value: judged > 0 ? `${spotTurns.size} of ${judged}` : "—",
-          tone: spotTurns.size >= 3 ? "bad" : spotTurns.size > 0 ? "warn" : "muted",
+          label: "Kept looking at one spot",
+          value: spotTurns.size > 0 ? `${spotTurns.size} of ${judged} answers` : "No",
+          state: spotTurns.size > 0 ? "warn" : "ok",
         },
-        { label: "Reading-like answers", value: String(readingTurns.size), tone: readingTurns.size > 0 ? "warn" : "muted" },
         {
-          label: "Lips and voice",
-          value: !measures.checks.audio ? "No sound" : lipTurns.size + voiceTurns.size > 0 ? `${new Set([...lipTurns, ...voiceTurns]).size} to check` : "Match",
-          tone: lipTurns.size + voiceTurns.size > 0 ? "warn" : "muted",
+          label: "Eyes moving like reading",
+          value: readingTurns.size > 0 ? `${readingTurns.size} answers` : "No",
+          state: readingTurns.size > 0 ? "warn" : "ok",
+        },
+        {
+          label: "Lips match the voice",
+          value: !measures.checks.audio ? "No sound" : lipTurns.size > 0 ? `Not in ${lipTurns.size} answers` : "Yes",
+          state: !measures.checks.audio ? "na" : lipTurns.size > 0 ? "warn" : "ok",
+        },
+        {
+          label: "Same voice throughout",
+          value: !measures.checks.voice ? "Not checked" : voiceTurns.size > 0 ? `Changed in ${voiceTurns.size}` : "Yes",
+          state: !measures.checks.voice ? "na" : voiceTurns.size > 0 ? "warn" : "ok",
+        },
+        {
+          label: "Only the candidate in view",
+          value: answersOf(["second_face", "phone"]) > 0 ? "Someone or a phone seen" : "Yes",
+          state: answersOf(["second_face", "phone"]) > 0 ? "warn" : "ok",
+        },
+        {
+          label: "Stayed in the interview tab",
+          value:
+            scorecard.integrity.tabHiddenCount === 0
+              ? "Yes"
+              : `Left ${scorecard.integrity.tabHiddenCount === 1 ? "once" : `${scorecard.integrity.tabHiddenCount} times`}`,
+          state: scorecard.integrity.tabHiddenCount === 0 ? "ok" : "warn",
         },
       ]
     : [];
+  const flagged = checklist.filter((item) => item.state === "warn").length;
+  const headline =
+    flagged === 0
+      ? "Nothing in the recording stood out."
+      : `${flagged} thing${flagged === 1 ? "" : "s"} worth checking before you decide.`;
 
-  const rows = (measures?.answers ?? []).filter((answer) => answer.end - answer.start >= 1);
+  // Timeline markers: one per answer worth watching, coloured by how strong.
+  const duration = video.durationSeconds ?? Math.max(1, ...((measures?.answers ?? []).map((answer) => answer.end)));
+  const strengthByTurn = new Map<number, number>();
+  for (const finding of findings) {
+    for (const seq of finding.turnSeqs) strengthByTurn.set(seq, Math.max(strengthByTurn.get(seq) ?? 0, finding.strength));
+  }
+  const markers = (measures?.answers ?? [])
+    .filter((answer) => strengthByTurn.has(answer.turnSeq))
+    .map((answer) => ({
+      turnSeq: answer.turnSeq,
+      start: answer.start,
+      width: Math.max(0.6, ((answer.end - answer.start) / duration) * 100),
+      left: (answer.start / duration) * 100,
+      strength: strengthByTurn.get(answer.turnSeq) as number,
+      why: [
+        spotTurns.has(answer.turnSeq) ? "one spot" : null,
+        readingTurns.has(answer.turnSeq) ? "reading-like eyes" : null,
+        lipTurns.has(answer.turnSeq) ? "lips off the voice" : null,
+        voiceTurns.has(answer.turnSeq) ? "different voice" : null,
+      ]
+        .filter(Boolean)
+        .join(", "),
+    }));
+  const firstToWatch = [...markers].sort((a, b) => b.strength - a.strength || a.start - b.start)[0] ?? null;
 
   return (
     <section id="video" className={`${cardClasses} scroll-mt-32`} data-video-model={video.model ?? undefined}>
@@ -1905,63 +1955,104 @@ function VideoSection({
         </div>
       ) : (
         <>
-          {check?.summary && <p className="mt-5 max-w-prose text-[15px] leading-7 text-foreground/85">{check.summary}</p>}
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[17px] font-semibold tracking-[-0.01em]">{headline}</p>
+            {firstToWatch && (
+              <button
+                type="button"
+                onClick={() => onPlay(Math.max(0, firstToWatch.start - 2))}
+                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-accent px-3.5 text-sm font-semibold text-white transition hover:bg-accent/90"
+              >
+                <Play className="size-3.5 fill-current" aria-hidden />
+                Watch the clearest moment · {formatClock(firstToWatch.start)}
+              </button>
+            )}
+          </div>
 
-          <dl className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-            {tiles.map((tile) => (
-              <div key={tile.label} className={`rounded-xl px-4 py-3 ${TONE_TILE[tile.tone]}`}>
-                <dd className="text-xl font-semibold leading-none tabular-nums tracking-[-0.02em]">{tile.value}</dd>
-                <dt className="mt-1.5 text-xs font-medium opacity-80">{tile.label}</dt>
-              </div>
+          <ul className="mt-4 grid gap-x-8 sm:grid-cols-2">
+            {checklist.map((item) => (
+              <li key={item.label} className="flex items-center gap-3 border-b border-border py-2.5 text-sm last:border-b-0 sm:[&:nth-last-child(2):nth-child(odd)]:border-b-0">
+                <span
+                  className={`grid size-5 shrink-0 place-items-center rounded-full ${
+                    item.state === "ok"
+                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                      : item.state === "warn"
+                        ? "bg-amber-500/20 text-amber-800 dark:text-amber-300"
+                        : "bg-foreground/[0.06] text-muted"
+                  }`}
+                  aria-hidden
+                >
+                  {item.state === "ok" ? <Check className="size-3" /> : item.state === "warn" ? <AlertTriangle className="size-3" /> : <Minus className="size-3" />}
+                </span>
+                <span className="min-w-0 flex-1 text-foreground/85">{item.label}</span>
+                <span
+                  className={`shrink-0 text-right tabular-nums ${item.state === "warn" ? "font-medium text-amber-800 dark:text-amber-300" : "text-muted"}`}
+                >
+                  {item.value}
+                </span>
+              </li>
             ))}
-          </dl>
+          </ul>
 
-          <h3 className="mt-6 text-sm font-semibold">Worth watching</h3>
-          {findings.length === 0 ? (
-            <p className="mt-2 flex items-start gap-2 rounded-xl bg-emerald-500/[0.07] px-3.5 py-3 text-sm text-emerald-800 dark:text-emerald-200">
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
-              Nothing in the recording stood out.
-            </p>
-          ) : (
-            <ul className="mt-2 grid gap-2">
-              {findings.map((finding, index) => {
-                const tone: Tone = finding.strength >= 3 ? "bad" : finding.strength === 2 ? "warn" : "muted";
-                const at = startOf(finding.turnSeqs, finding.atSeconds);
-                return (
-                  <li key={`${finding.kind}-${index}`} className={`flex items-start gap-3 rounded-xl px-3.5 py-3 ${TONE_TILE[tone]}`}>
-                    {at !== null ? (
-                      <button
-                        type="button"
-                        onClick={() => onPlay(Math.max(0, at - 2))}
-                        className="mt-0.5 inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-surface px-2.5 text-xs font-semibold tabular-nums text-accent shadow-sm shadow-black/[0.04] transition hover:bg-accent hover:text-white"
-                      >
-                        <Play className="size-3 fill-current" aria-hidden />
-                        {formatClock(at)}
-                      </button>
-                    ) : (
-                      <span className="mt-0.5 inline-flex h-7 shrink-0 items-center rounded-full bg-surface/70 px-2.5 text-xs font-medium">
-                        {finding.source === "browser" ? "Browser" : "Recording"}
-                      </span>
-                    )}
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">{finding.title}</p>
-                      <p className="mt-0.5 text-sm leading-6 opacity-80">{finding.detail}</p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+          {markers.length > 0 && (
+            <div className="mt-6">
+              <div className="flex items-baseline justify-between text-xs text-muted">
+                <span className="font-medium text-foreground/85">Answers worth watching</span>
+                <span>Click one to play it</span>
+              </div>
+              <div className="relative mt-2.5 h-9 rounded-lg bg-foreground/[0.05]" role="list">
+                {markers.map((marker) => (
+                  <button
+                    key={marker.turnSeq}
+                    type="button"
+                    role="listitem"
+                    onClick={() => onPlay(Math.max(0, marker.start - 2))}
+                    title={`${formatClock(marker.start)}: ${marker.why}`}
+                    aria-label={`Play the answer at ${formatClock(marker.start)}: ${marker.why}`}
+                    style={{ left: `${marker.left}%`, width: `${marker.width}%` }}
+                    className={`absolute inset-y-1.5 min-w-[6px] rounded transition hover:inset-y-0.5 focus-visible:outline-2 focus-visible:outline-accent ${
+                      marker.strength >= 3 ? "bg-rose-500/80 hover:bg-rose-500" : marker.strength === 2 ? "bg-amber-500/80 hover:bg-amber-500" : "bg-foreground/25 hover:bg-foreground/40"
+                    }`}
+                  />
+                ))}
+              </div>
+              <div className="mt-1.5 flex justify-between text-[11px] tabular-nums text-muted">
+                <span>0:00</span>
+                <span>{formatClock(duration)}</span>
+              </div>
+            </div>
           )}
 
-          {check && check.limits.length > 0 && (
-            <ul className="mt-3 grid gap-1 text-xs text-muted">
-              {check.limits.map((limit) => (
-                <li key={limit} className="flex items-start gap-1.5">
-                  <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                  {limit}
-                </li>
-              ))}
-            </ul>
+          {(check?.summary || (check && check.limits.length > 0)) && (
+            <details className="group mt-5 rounded-xl border border-border">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium">
+                Reviewer&apos;s note
+                <ChevronDown className="ml-auto size-4 text-muted transition group-open:rotate-180" aria-hidden />
+              </summary>
+              <div className="grid gap-3 border-t border-border px-4 py-3.5 text-sm leading-6 text-foreground/85">
+                {check?.summary && <p className="max-w-prose">{check.summary}</p>}
+                {findings.length > 0 && (
+                  <ul className="grid gap-2">
+                    {findings.map((finding, index) => (
+                      <li key={`${finding.kind}-${index}`} className="max-w-prose">
+                        <span className="font-medium">{finding.title}.</span>{" "}
+                        <span className="text-muted">{finding.detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {check && check.limits.length > 0 && (
+                  <ul className="grid gap-1 text-xs text-muted">
+                    {check.limits.map((limit) => (
+                      <li key={limit} className="flex items-start gap-1.5">
+                        <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                        {limit}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </details>
           )}
 
           {rows.length > 0 && (
@@ -2875,9 +2966,11 @@ function evidenceWindow(
   return { from: offsets[0].start, to: Math.max(offsets[offsets.length - 1].end, offsets[0].start + 10) };
 }
 
-/** A count that may be a half (polished answers count half). */
-function formatCount(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+/** The Own answers tile: judged only on the good answers. */
+function ownAnswersLine(own: { good: number; goodOwn: number }): string {
+  if (own.good === 0) return "No good answers to check";
+  if (own.goodOwn >= own.good) return own.good === 1 ? "The good answer was their own" : `All ${own.good} good answers their own`;
+  return `${own.good} good answers, some read out`;
 }
 
 function scoreBand(score: number | null): { label: string; tone: Tone } {

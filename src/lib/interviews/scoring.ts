@@ -67,17 +67,19 @@ export interface OwnAnswerTally {
   scored: number;
   /** Answers that scored 3 or more out of 5. */
   good: number;
-  /** Good answers in the candidate's own words (polished counts half). */
+  /** Sum of own-words credit over the good answers (1 natural, 0.6 polished, 0.1 read out). */
   goodOwn: number;
 }
 
-const OWN_CREDIT = { natural: 1, polished: 0.5, likely_read: 0 } as const;
+const OWN_CREDIT = { natural: 1, polished: 0.6, likely_read: 0.1 } as const;
 
 /**
- * Own answers: of all the scored questions, how many got an answer that was
- * both good (3 or more out of 5) and in the candidate's own words. Originality
- * is only checked where there is a good answer to be original about, so this
- * neither repeats the answer score nor rewards an honest but empty answer.
+ * Own answers, judged question by question: only questions whose answer was
+ * good (3 or more out of 5) are looked at, and for each of those, how much the
+ * answer is the candidate's own (natural 100%, more polished than usual 60%,
+ * sounds read out 10%). The score is the average over those good answers.
+ * Weak answers are left out entirely: there is nothing worth copying in them,
+ * and counting them would only repeat the answer score.
  * A question's verdict is the weakest one among its answers.
  */
 export function ownAnswerTally(
@@ -94,8 +96,9 @@ export function ownAnswerTally(
 }
 
 export function ownAnswersFactor(tally: OwnAnswerTally | null): number | null {
-  if (!tally || tally.scored === 0) return null;
-  return clampScore((tally.goodOwn / tally.scored) * 100);
+  // No good answers: nothing to judge, so the factor is left out of the score.
+  if (!tally || tally.good === 0) return null;
+  return clampScore((tally.goodOwn / tally.good) * 100);
 }
 
 /** The weakest originality verdict per question, from the per-answer readings. */
