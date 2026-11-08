@@ -147,10 +147,16 @@ test("custom parameters: weighted by the recruiter's emphasis", () => {
 });
 
 test("overall: answers 70, resume 20, own answers 10; video measured but weighted 0", () => {
-  const all = overallScore({ answers: 80, resume: 100, authenticity: 60, video: 40 });
-  // (80*70 + 100*20 + 60*10) / 100 = 82; video is left out at weight 0.
-  assert.equal(all.score, 82);
+  const all = overallScore({ answers: 80, resume: 60, authenticity: 50, video: 40 });
+  // (80*70 + 60*20 + 50*10) / 100 = 73; video is left out at weight 0.
+  assert.equal(all.score, 73);
   assert.deepEqual(all.factors.map((factor) => factor.id), ["answers", "resume", "authenticity"]);
+});
+
+test("overall: resume and own answers can hold the score down, never lift it above the answers", () => {
+  // Gayathri: answers 49, resume depth 81, own answers 100 -> 49, not 61.
+  assert.equal(overallScore({ answers: 49, resume: 81, authenticity: 100, video: null }).score, 49);
+  assert.equal(overallScore({ answers: 80, resume: 100, authenticity: 100, video: null }).score, 80);
 });
 
 test("own answers: judged per question, only on the good answers", () => {

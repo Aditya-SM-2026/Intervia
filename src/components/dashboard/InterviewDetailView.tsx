@@ -903,7 +903,9 @@ function OverallAssessment({
       ? "good"
       : insights?.hireBand.band === "insufficient"
         ? "muted"
-        : insights
+        : insights?.hireBand.band === "borderline" || insights?.hireBand.band === "review"
+          ? "warn"
+          : insights
           ? "bad"
           : band.tone;
 
@@ -3024,8 +3026,8 @@ function ownAnswersLine(own: { good: number; goodOwn: number }): string {
 
 function scoreBand(score: number | null): { label: string; tone: Tone } {
   if (score === null) return { label: "Not scored", tone: "muted" };
-  if (score >= 65) return { label: "Good match", tone: "good" };
-  if (score >= 50) return { label: "Needs improvement", tone: "warn" };
+  if (score >= 70) return { label: "Good match", tone: "good" };
+  if (score >= 55) return { label: "Needs improvement", tone: "warn" };
   return { label: "Needs attention", tone: "bad" };
 }
 

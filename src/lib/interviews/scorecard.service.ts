@@ -499,10 +499,15 @@ export async function getInterviewDetail(
   if (scorecard?.integrityCheck && scorecard.overall && scorecard.authenticity) {
     const ownAnswers = ownTally(scorecard.competencies, scorecard.authenticity, turns);
     const factor = ownAnswersFactor(ownAnswers);
-    const stored = scorecard.overall.factors.find((item) => item.id === "authenticity")?.score ?? null;
-    if (factor !== stored || JSON.stringify(ownAnswers) !== JSON.stringify(scorecard.ownAnswers ?? null)) {
-      scorecard = { ...scorecard, ownAnswers };
-      scorecard = { ...scorecard, overall: recomputeOverallWithFactor(scorecard, "authenticity", factor) };
+    // The total is recomputed too, so a change in how factors combine (such
+    // as the cap at answer quality, Nov 8) reaches reports already stored.
+    const withOwn = { ...scorecard, ownAnswers };
+    const overall = recomputeOverallWithFactor(withOwn, "authenticity", factor);
+    if (
+      overall?.score !== scorecard.overall.score ||
+      JSON.stringify(ownAnswers) !== JSON.stringify(scorecard.ownAnswers ?? null)
+    ) {
+      scorecard = { ...withOwn, overall };
       await repository.saveScorecard(scorecard);
     }
   }

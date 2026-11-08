@@ -323,7 +323,11 @@ export function overallScore(
     total += factor.score * factor.weight;
     weight += factor.weight;
   }
-  return { score: weight === 0 ? null : clampScore(total / weight), factors };
+  if (weight === 0) return { score: null, factors };
+  // Answer quality is what decides: resume depth and own answers can hold the
+  // total down, but never lift it above how well the questions were answered.
+  const blended = total / weight;
+  return { score: clampScore(Math.min(blended, scores.answers)), factors };
 }
 
 export interface TimedAnswer {

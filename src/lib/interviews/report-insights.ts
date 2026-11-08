@@ -8,7 +8,7 @@ import type { InterviewRoom, InterviewTurn } from "./interview.types";
 import type { PeerSummary, Scorecard } from "./scorecard.types";
 
 /** "review": the answers say hire, but the integrity check says watch first. */
-export type HireBand = "strong-hire" | "hire" | "review" | "no-hire" | "strong-no-hire" | "insufficient";
+export type HireBand = "strong-hire" | "hire" | "review" | "borderline" | "no-hire" | "strong-no-hire" | "insufficient";
 
 export interface ReportInsights {
   hireBand: { band: HireBand; label: string; basis: string };
@@ -39,6 +39,7 @@ const HIRE_LABELS: Record<HireBand, string> = {
   "strong-hire": "Strong hire",
   hire: "Hire",
   review: "Review before deciding",
+  borderline: "Borderline",
   "no-hire": "No hire",
   "strong-no-hire": "Strong no hire",
   insufficient: "Insufficient evidence",
@@ -73,11 +74,13 @@ export function buildReportInsights(input: {
   let band: HireBand;
   if (score === null || scorecard.suggestion === "insufficient") {
     band = "insufficient";
-  } else if (score >= 75) {
+  } else if (score >= 80) {
     band = "strong-hire";
-  } else if (score >= 60) {
+  } else if (score >= 70) {
     band = "hire";
-  } else if (score >= 45) {
+  } else if (score >= 55) {
+    band = "borderline";
+  } else if (score >= 40) {
     band = "no-hire";
   } else {
     band = "strong-no-hire";
