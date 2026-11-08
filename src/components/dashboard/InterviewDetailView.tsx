@@ -33,6 +33,7 @@ import { CandidateAssistant } from "./CandidateAssistant";
 import {
   AlertCircle,
   AlertTriangle,
+  AppWindow,
   Briefcase,
   Calendar,
   Check,
@@ -49,6 +50,7 @@ import {
   FileText,
   Gauge,
   Maximize2,
+  Mic,
   MessageSquare,
   MessagesSquare,
   Minimize2,
@@ -58,6 +60,7 @@ import {
   Play,
   RotateCcw,
   ScrollText,
+  ScanFace,
   Search,
   ShieldAlert,
   ShieldCheck,
@@ -66,6 +69,7 @@ import {
   Sparkles,
   Trophy,
   User,
+  Users,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -476,6 +480,7 @@ export function InterviewDetailView({
       {scorecard?.video && (
         <VideoSection
           scorecard={scorecard}
+          turns={turns}
           hasRecording={hasRecording}
           onPlay={playFrom}
           onAnalyseVideo={handleAnalyseVideo}
@@ -542,7 +547,7 @@ export function InterviewDetailView({
           }
         />
 
-        <div className="grid min-w-0 gap-5">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
           {scorecard ? (
             <>
               <OverallAssessment scorecard={scorecard} insights={insights} peers={peers} roomId={roomId} />
@@ -1675,271 +1680,411 @@ function OnCameraTile({ check }: { check: IntegrityCheck }) {
   );
 }
 
+type AspectId = "reading" | "lips" | "voice" | "alone" | "tab";
+
+interface Aspect {
+  id: AspectId;
+  state: "ok" | "bad" | "na";
+  /** Chip text. */
+  chip: string;
+  /** Panel heading. */
+  title: string;
+  /** One plain sentence on what it means. */
+  detail: string;
+  /** Short phrase for the summary line when flagged. */
+  phrase: string;
+  icon: LucideIcon;
+  /** Answers it applies to; null when it is not about answers (the browser tab). */
+  seqs: Set<number> | null;
+  /** Weight per answer, for picking the clearest moments. */
+  weight: Map<number, number>;
+}
+
 /**
- * 6. On-camera behaviour: everything the recording shows (eyes, lips, voice,
- * who is in the picture), in one place. It says what is worth watching and
- * why, with a link to each moment; it does not chart where the eyes went.
+ * 6. Recording check, in the style of review highlights: one plain sentence,
+ * then a chip per check (green passed, amber worth a look). Picking a chip
+ * opens what it means, one square per answer grouped by question, and the
+ * clearest moments to watch. Measurements stay under "More detail".
  */
 function VideoSection({
   scorecard,
+  turns,
   hasRecording,
   onPlay,
   onAnalyseVideo,
   isAnalysing,
 }: {
   scorecard: Scorecard;
+  turns: InterviewTurn[];
   hasRecording: boolean;
   onPlay: (seconds: number) => void;
   onAnalyseVideo: () => void;
   isAnalysing: boolean;
 }) {
+  const [picked, setPicked] = useState<AspectId | null>(null);
   const video = scorecard.video;
   if (!video) return null;
   const check = scorecard.integrityCheck ?? null;
   const measures = video.version === 2 ? (video.measures ?? null) : null;
   const running = isAnalysing || video.status === "queued";
   const meta = check ? LEVEL_META[check.level] : null;
-  const chip: { label: string; tone: Tone } = running
+  const badge: { label: string; tone: Tone } = running
     ? { label: "Processing video", tone: "muted" }
     : meta
       ? { label: meta.label, tone: meta.tone }
       : factorChip("video", video.score ?? null);
 
-  // Recording findings only; transcript findings live in Originality.
+  // Recording findings only; transcript findings are part of the answers.
   const findings = (check?.findings ?? [])
     .filter((finding) => finding.source !== "text")
     .sort((a, b) => b.strength - a.strength);
   const turnsOf = (kinds: string[]) =>
     new Set(findings.filter((finding) => kinds.includes(finding.kind)).flatMap((finding) => finding.turnSeqs));
+  const weightOf = (kinds: string[]) => {
+    const weight = new Map<number, number>();
+    for (const finding of findings.filter((item) => kinds.includes(item.kind))) {
+      for (const seq of finding.turnSeqs) weight.set(seq, (weight.get(seq) ?? 0) + finding.strength);
+    }
+    return weight;
+  };
+  const READING = ["fixed_spot", "reading_eyes", "screen_reading", "stall_then_fluent"];
+  const OTHERS = ["second_face", "phone", "left_frame"];
   const spotTurns = turnsOf(["fixed_spot"]);
   const readingTurns = turnsOf(["reading_eyes", "screen_reading"]);
   const lipTurns = turnsOf(["lip_sync"]);
   const voiceTurns = turnsOf(["voice_change"]);
-  const judged = measures ? measures.answers.filter((answer) => answer.atScreenShare !== null).length : 0;
+  const otherTurns = turnsOf(OTHERS);
+  const readingAll = turnsOf(READING);
 
-  const rows = (measures?.answers ?? []).filter((answer) => answer.end - answer.start >= 1);
+  const answers = (measures?.answers ?? [])
+    .filter((answer) => answer.end - answer.start >= 1)
+    .sort((a, b) => a.start - b.start);
+  const total = answers.length;
+  const tabLeft = scorecard.integrity.tabHiddenCount;
+  const times = (n: number) => (n === 1 ? "once" : n === 2 ? "twice" : `${n} times`);
 
-  // What was checked, one line each: the at-a-glance view of the section.
-  const has = (kinds: string[]) => findings.filter((finding) => kinds.includes(finding.kind));
-  const answersOf = (kinds: string[]) => new Set(has(kinds).flatMap((finding) => finding.turnSeqs)).size;
-  const checklist: { label: string; value: string; state: "ok" | "warn" | "na" }[] = measures
+  const aspects: Aspect[] = measures
     ? [
         {
-          label: "Kept looking at one spot",
-          value: spotTurns.size > 0 ? `${spotTurns.size} of ${judged} answers` : "No",
-          state: spotTurns.size > 0 ? "warn" : "ok",
+          id: "reading",
+          state: readingAll.size > 0 ? "bad" : "ok",
+          chip: readingAll.size > 0 ? "Possible reading" : "No sign of reading",
+          title: readingAll.size > 0 ? "May have been reading answers" : "No sign of reading",
+          detail:
+            readingAll.size > 0
+              ? `${[
+                  spotTurns.size > 0 ? `The eyes kept going back to one spot off screen in ${spotTurns.size} of ${total} answers` : null,
+                  readingTurns.size > 0 ? `${spotTurns.size > 0 ? "they" : "The eyes"} moved like reading in ${readingTurns.size}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(", and ") || `Reading-like behaviour in ${readingAll.size} answers`}. This can mean notes or a second screen.`
+              : "The eyes moved naturally while answering.",
+          phrase: `possible reading in ${readingAll.size} of ${total} answers`,
+          icon: Eye,
+          seqs: readingAll,
+          weight: weightOf(READING),
         },
         {
-          label: "Eyes moving like reading",
-          value: readingTurns.size > 0 ? `${readingTurns.size} answers` : "No",
-          state: readingTurns.size > 0 ? "warn" : "ok",
+          id: "lips",
+          state: !measures.checks.audio ? "na" : lipTurns.size > 0 ? "bad" : "ok",
+          chip: !measures.checks.audio ? "Lips not checked" : lipTurns.size > 0 ? "Lips off the voice" : "Lips match the voice",
+          title: !measures.checks.audio ? "Lips not checked" : lipTurns.size > 0 ? "Lips did not match the voice" : "Lips match the voice",
+          detail: !measures.checks.audio
+            ? "There was no sound in the recording to compare with."
+            : lipTurns.size > 0
+              ? `In ${lipTurns.size} answers the lips did not move with the voice. Someone else may have been speaking.`
+              : "The lips moved with the voice in every answer.",
+          phrase: `lips off the voice in ${lipTurns.size} answers`,
+          icon: ScanFace,
+          seqs: lipTurns,
+          weight: weightOf(["lip_sync"]),
         },
         {
-          label: "Lips match the voice",
-          value: !measures.checks.audio ? "No sound" : lipTurns.size > 0 ? `Not in ${lipTurns.size} answers` : "Yes",
-          state: !measures.checks.audio ? "na" : lipTurns.size > 0 ? "warn" : "ok",
+          id: "voice",
+          state: !measures.checks.voice ? "na" : voiceTurns.size > 0 ? "bad" : "ok",
+          chip: !measures.checks.voice ? "Voice not checked" : voiceTurns.size > 0 ? "Voice changed" : "Same voice throughout",
+          title: !measures.checks.voice ? "Voice not checked" : voiceTurns.size > 0 ? "A different voice answered" : "Same voice throughout",
+          detail: !measures.checks.voice
+            ? "The voice could not be compared across answers."
+            : voiceTurns.size > 0
+              ? `In ${voiceTurns.size} answers the voice sounded like a different person.`
+              : "The same voice answered every question.",
+          phrase: `a different voice in ${voiceTurns.size} answers`,
+          icon: Mic,
+          seqs: voiceTurns,
+          weight: weightOf(["voice_change"]),
         },
         {
-          label: "Same voice throughout",
-          value: !measures.checks.voice ? "Not checked" : voiceTurns.size > 0 ? `Changed in ${voiceTurns.size}` : "Yes",
-          state: !measures.checks.voice ? "na" : voiceTurns.size > 0 ? "warn" : "ok",
+          id: "alone",
+          state: otherTurns.size > 0 ? "bad" : "ok",
+          chip: otherTurns.size > 0 ? "Someone else in view" : "Alone on camera",
+          title: otherTurns.size > 0 ? "Someone else or a phone in view" : "Alone on camera",
+          detail:
+            otherTurns.size > 0
+              ? `Another person, a phone, or an empty frame was seen in ${otherTurns.size} answers.`
+              : "No other person or phone was seen, and the candidate stayed in the frame.",
+          phrase: `someone else or a phone in view in ${otherTurns.size} answers`,
+          icon: Users,
+          seqs: otherTurns,
+          weight: weightOf(OTHERS),
         },
         {
-          label: "Only the candidate in view",
-          value: answersOf(["second_face", "phone"]) > 0 ? "Someone or a phone seen" : "Yes",
-          state: answersOf(["second_face", "phone"]) > 0 ? "warn" : "ok",
-        },
-        {
-          label: "Stayed in the interview tab",
-          value:
-            scorecard.integrity.tabHiddenCount === 0
-              ? "Yes"
-              : `Left ${scorecard.integrity.tabHiddenCount === 1 ? "once" : `${scorecard.integrity.tabHiddenCount} times`}`,
-          state: scorecard.integrity.tabHiddenCount === 0 ? "ok" : "warn",
+          id: "tab",
+          state: tabLeft > 0 ? "bad" : "ok",
+          chip: tabLeft > 0 ? `Left the tab ${times(tabLeft)}` : "Stayed in the tab",
+          title: tabLeft > 0 ? "Left the interview tab" : "Stayed in the interview tab",
+          detail:
+            tabLeft > 0
+              ? `The candidate switched away from the interview ${times(tabLeft)}${scorecard.integrity.tabHiddenSeconds > 0 ? `, for about ${Math.round(scorecard.integrity.tabHiddenSeconds)} seconds in all` : ""}.`
+              : "The interview tab stayed open and in front the whole time.",
+          phrase: `left the tab ${times(tabLeft)}`,
+          icon: AppWindow,
+          seqs: null,
+          weight: new Map(),
         },
       ]
     : [];
-  const flagged = checklist.filter((item) => item.state === "warn").length;
-  const headline =
-    flagged === 0
-      ? "Nothing in the recording stood out."
-      : `${flagged} thing${flagged === 1 ? "" : "s"} worth checking before you decide.`;
+  const order = { bad: 0, ok: 1, na: 2 } as const;
+  aspects.sort((a, b) => order[a.state] - order[b.state]);
+  const flagged = aspects.filter((aspect) => aspect.state === "bad");
+  const selected = aspects.find((aspect) => aspect.id === (picked ?? flagged[0]?.id)) ?? null;
 
-  // Timeline markers: one per answer worth watching, coloured by how strong.
-  const duration = video.durationSeconds ?? Math.max(1, ...((measures?.answers ?? []).map((answer) => answer.end)));
-  const strengthByTurn = new Map<number, number>();
-  for (const finding of findings) {
-    for (const seq of finding.turnSeqs) strengthByTurn.set(seq, Math.max(strengthByTurn.get(seq) ?? 0, finding.strength));
+  const summary =
+    flagged.length === 0
+      ? "Nothing in the recording stood out. Everything below looked normal."
+      : `${flagged
+          .map((aspect, index) => (index === 0 ? aspect.phrase.charAt(0).toUpperCase() + aspect.phrase.slice(1) : aspect.phrase))
+          .join(flagged.length > 2 ? ", " : " and ")}. ${
+          aspects.some((aspect) => aspect.state === "ok") ? "Everything else looked normal." : ""
+        }`;
+
+  // Answers grouped by the question they belong to, for the squares.
+  const questionIndex = new Map(scorecard.competencies.map((item, index) => [item.competencyId, index + 1]));
+  const turnBySeq = new Map(turns.map((turn) => [turn.seq, turn]));
+  const groups: { label: string; answers: typeof answers }[] = [];
+  for (const answer of answers) {
+    const q = questionIndex.get(turnBySeq.get(answer.turnSeq)?.competencyId ?? "");
+    const label = q ? `Q${q}` : (groups.at(-1)?.label ?? "Intro");
+    const last = groups.at(-1);
+    if (last && last.label === label) last.answers.push(answer);
+    else groups.push({ label, answers: [answer] });
   }
-  const markers = (measures?.answers ?? [])
-    .filter((answer) => strengthByTurn.has(answer.turnSeq))
-    .map((answer) => ({
-      turnSeq: answer.turnSeq,
-      start: answer.start,
-      width: Math.max(0.6, ((answer.end - answer.start) / duration) * 100),
-      left: (answer.start / duration) * 100,
-      strength: strengthByTurn.get(answer.turnSeq) as number,
-      why: [
-        spotTurns.has(answer.turnSeq) ? "eyes kept going to one spot" : null,
-        readingTurns.has(answer.turnSeq) ? "eyes moved like reading" : null,
-        lipTurns.has(answer.turnSeq) ? "lips did not match the voice" : null,
-        voiceTurns.has(answer.turnSeq) ? "the voice changed" : null,
-      ]
-        .filter(Boolean)
-        .join(" and "),
-    }));
-  // The three strongest moments, in the order they happened.
-  const watchFirst = [...markers]
-    .sort((a, b) => b.strength - a.strength || a.start - b.start)
-    .slice(0, 3)
-    .sort((a, b) => a.start - b.start);
+
+  const clips = selected?.state === "bad" && selected.seqs
+    ? answers
+        .filter((answer) => selected.seqs?.has(answer.turnSeq))
+        .sort((a, b) => (selected.weight.get(b.turnSeq) ?? 0) - (selected.weight.get(a.turnSeq) ?? 0) || a.start - b.start)
+        .slice(0, 3)
+        .sort((a, b) => a.start - b.start)
+    : [];
 
   return (
     <div id="video" className="mt-7 scroll-mt-32 border-t border-border pt-6" data-video-model={video.model ?? undefined}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1.5">
-          <Eye className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />
-          <h3 className="text-[15px] font-semibold">What the recording shows</h3>
-          <InfoTip text="Measured from the video and audio with our own tools: where the eyes go while answering, whether the lips match the voice, whether the voice stays the same, and who is in the picture. Not part of the score yet." />
+          <h3 className="text-[17px] font-semibold">Recording check</h3>
+          <InfoTip text="Measured from the video and audio with our own tools: where the eyes go while answering, whether the lips match the voice, whether the voice stays the same, and who is in the picture. Not part of the score yet. Watch the moments before relying on it." />
         </div>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_TILE[chip.tone]}`}>{chip.label}</span>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_TILE[badge.tone]}`}>{badge.label}</span>
       </div>
 
       {running ? (
-        <div className="mt-5 rounded-xl bg-accent/[0.07] px-4 py-3.5 text-sm">
+        <div className="mt-4 rounded-xl bg-accent/[0.07] px-4 py-3.5 text-sm">
           <p className="flex items-center gap-2 font-medium text-accent">
             <span className="size-1.5 animate-pulse rounded-full bg-accent" />
             Processing the video and audio
           </p>
           <p className="mt-1.5 text-muted">
-            We check every frame of every answer, the lips against the voice, and the voice itself. A 30-minute interview
-            takes about 10 to 15 minutes. You can read the rest of the report meanwhile; this part updates by itself.
+            A 30-minute interview takes about 10 to 15 minutes. You can read the rest of the report meanwhile; this part
+            updates by itself.
           </p>
         </div>
       ) : video.status !== "analysed" ? (
-        <p className="mt-5 rounded-xl bg-foreground/[0.035] px-4 py-3.5 text-sm text-muted">
+        <p className="mt-4 rounded-xl bg-foreground/[0.035] px-4 py-3.5 text-sm text-muted">
           {video.reason ?? "The recording has not been analysed."}
         </p>
       ) : !measures ? (
-        <div className="mt-5 grid gap-3 text-sm">
+        <div className="mt-4 grid gap-3 text-sm">
           <p className="text-muted">
-            This recording was read with the earlier analysis. Run it again for the full check of eyes, lips and voice.
+            This recording was read with the earlier analysis. Re-check it for the full check of eyes, lips and voice.
           </p>
-          {video.summary && <p className="leading-6 text-foreground/85">{video.summary}</p>}
+          {video.summary && <p className="leading-6 text-foreground/85">{plain(video.summary)}</p>}
         </div>
       ) : (
         <>
-          <p className="mt-4 text-[15px] font-medium">{headline}</p>
+          <p className="mt-3 text-[15px] font-medium leading-7 text-foreground/90">{summary}</p>
 
-          <ul className="mt-4 grid gap-x-8 sm:grid-cols-2">
-            {checklist.map((item) => (
-              <li key={item.label} className="flex items-center gap-3 border-b border-border py-2.5 text-sm last:border-b-0 sm:[&:nth-last-child(2):nth-child(odd)]:border-b-0">
-                <span
-                  className={`grid size-5 shrink-0 place-items-center rounded-full ${
-                    item.state === "ok"
-                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                      : item.state === "warn"
-                        ? "bg-amber-500/20 text-amber-800 dark:text-amber-300"
-                        : "bg-foreground/[0.06] text-muted"
+          <div className="-mx-5 mt-4 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0 [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Recording checks">
+            {aspects.map((aspect) => {
+              const active = selected?.id === aspect.id;
+              const count = aspect.state === "bad" && aspect.seqs ? aspect.seqs.size : null;
+              return (
+                <button
+                  key={aspect.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setPicked(aspect.id)}
+                  className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-full border px-3.5 text-sm font-medium transition ${
+                    active
+                      ? "border-foreground bg-foreground/[0.05] ring-1 ring-inset ring-foreground"
+                      : "border-border bg-surface hover:border-foreground/30"
                   }`}
-                  aria-hidden
                 >
-                  {item.state === "ok" ? <Check className="size-3" /> : item.state === "warn" ? <AlertTriangle className="size-3" /> : <Minus className="size-3" />}
-                </span>
-                <span className="min-w-0 flex-1 text-foreground/85">{item.label}</span>
-                <span
-                  className={`shrink-0 text-right tabular-nums ${item.state === "warn" ? "font-medium text-amber-800 dark:text-amber-300" : "text-muted"}`}
-                >
-                  {item.value}
-                </span>
-              </li>
-            ))}
-          </ul>
+                  {aspect.state === "ok" ? (
+                    <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                  ) : aspect.state === "bad" ? (
+                    <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />
+                  ) : (
+                    <Minus className="size-4 text-muted" aria-hidden />
+                  )}
+                  <span className={aspect.state === "na" ? "text-muted" : ""}>{aspect.chip}</span>
+                  {count !== null && (
+                    <span className="rounded-full bg-amber-500/15 px-1.5 text-xs font-semibold tabular-nums text-amber-800 dark:text-amber-300">
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
 
-          {watchFirst.length > 0 && (
-            <div className="mt-6">
-              <h4 className="text-sm font-medium text-foreground/85">Watch these first</h4>
-              <ul className="mt-2 grid gap-2">
-                {watchFirst.map((marker) => (
-                  <li key={marker.turnSeq}>
-                    <button
-                      type="button"
-                      onClick={() => onPlay(Math.max(0, marker.start - 2))}
-                      className="flex w-full items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-left text-sm transition hover:border-foreground/20 hover:bg-foreground/[0.03]"
-                    >
-                      <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-white">
-                        <Play className="size-3 fill-current" aria-hidden />
-                      </span>
-                      <span className="w-12 shrink-0 font-semibold tabular-nums text-accent">{formatClock(marker.start)}</span>
-                      <span className="min-w-0 flex-1 text-foreground/85">{marker.why.charAt(0).toUpperCase() + marker.why.slice(1)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {(check?.summary || (check && check.limits.length > 0)) && (
-            <details className="group mt-5 rounded-xl border border-border">
-              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium">
-                Reviewer&apos;s note
-                <ChevronDown className="ml-auto size-4 text-muted transition group-open:rotate-180" aria-hidden />
-              </summary>
-              <div className="border-t border-border px-4 py-4 text-sm leading-6 text-foreground/85">
-                {check?.summary && <p>{plain(check.summary)}</p>}
-                {findings.length > 0 && (
-                  <ul className="mt-3 divide-y divide-border rounded-lg border border-border">
-                    {findings.map((finding, index) => (
-                      <li key={`${finding.kind}-${index}`} className="flex items-start gap-3 px-3.5 py-3">
-                        <AlertTriangle
-                          className={`mt-1 size-3.5 shrink-0 ${finding.strength >= 2 ? "text-amber-600 dark:text-amber-400" : "text-muted"}`}
-                          aria-hidden
-                        />
-                        <div className="min-w-0">
-                          <p className="font-medium text-foreground">{plain(finding.title)}</p>
-                          <p className="text-muted">{plain(finding.detail)}</p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {check && check.limits.length > 0 && (
-                  <ul className="mt-3 grid gap-1 text-xs text-muted">
-                    {check.limits.map((limit) => (
-                      <li key={limit} className="flex items-start gap-1.5">
-                        <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                        {limit}
-                      </li>
-                    ))}
-                  </ul>
+          {selected && (
+            <motion.div
+              key={selected.id}
+              role="tabpanel"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2, ease: EASE_OUT }}
+              className={`mt-4 rounded-2xl p-5 ring-1 ring-inset ${
+                selected.state === "bad"
+                  ? "bg-amber-500/[0.07] ring-amber-500/20"
+                  : selected.state === "ok"
+                    ? "bg-emerald-500/[0.06] ring-emerald-500/15"
+                    : "bg-foreground/[0.03] ring-border"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span
+                    className={`grid size-9 shrink-0 place-items-center rounded-full ${
+                      selected.state === "bad"
+                        ? "bg-amber-500 text-white"
+                        : selected.state === "ok"
+                          ? "bg-emerald-500 text-white"
+                          : "bg-foreground/10 text-muted"
+                    }`}
+                  >
+                    <selected.icon className="size-[18px]" aria-hidden />
+                  </span>
+                  <h4 className="text-base font-semibold">{selected.title}</h4>
+                </div>
+                {selected.state === "bad" && selected.seqs && total > 0 && (
+                  <p className="shrink-0 text-right leading-none">
+                    <span className="text-2xl font-semibold tabular-nums">{selected.seqs.size}</span>
+                    <span className="text-sm text-muted"> / {total}</span>
+                    <span className="mt-1 block text-xs text-muted">answers</span>
+                  </p>
                 )}
               </div>
-            </details>
+              <p className="mt-2 text-sm leading-6 text-foreground/80 sm:pl-12">{selected.detail}</p>
+
+              {selected.seqs && selected.state !== "na" && groups.length > 0 && (
+                <div className="mt-4 sm:pl-12">
+                  <div className="flex flex-wrap gap-x-5 gap-y-3">
+                    {groups.map((group, groupIndex) => (
+                      <div key={`${group.label}-${groupIndex}`}>
+                        <p className="mb-1.5 text-[11px] font-medium text-muted">{group.label}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {group.answers.map((answer) => {
+                            const hit = selected.seqs?.has(answer.turnSeq) ?? false;
+                            return (
+                              <button
+                                key={answer.turnSeq}
+                                type="button"
+                                onClick={() => onPlay(Math.max(0, answer.start - 2))}
+                                title={`Answer at ${formatClock(answer.start)}${hit ? ", flagged" : ""}`}
+                                aria-label={`Play the answer at ${formatClock(answer.start)}${hit ? ", flagged" : ""}`}
+                                className={`size-4 rounded-[4px] transition hover:scale-125 focus-visible:scale-125 ${
+                                  selected.state === "ok"
+                                    ? "bg-emerald-500/55 hover:bg-emerald-500"
+                                    : hit
+                                      ? "bg-amber-500 hover:bg-amber-600"
+                                      : "bg-foreground/[0.12] hover:bg-foreground/25"
+                                }`}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-2.5 text-[11px] text-muted">One square per answer. Click any to play it.</p>
+                </div>
+              )}
+
+              {clips.length > 0 && (
+                <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-amber-500/20 pt-4 sm:ml-12">
+                  <span className="mr-1 text-xs font-medium text-muted">Clearest moments</span>
+                  {clips.map((clip) => (
+                    <button
+                      key={clip.turnSeq}
+                      type="button"
+                      onClick={() => onPlay(Math.max(0, clip.start - 2))}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent px-3 text-xs font-semibold tabular-nums text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90"
+                    >
+                      <Play className="size-3 fill-current" aria-hidden />
+                      {formatClock(clip.start)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </motion.div>
           )}
+        </>
+      )}
 
-          {rows.length > 0 && (
-            <details className="group mt-5 rounded-xl border border-border">
-              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium">
-                Every answer
-                <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs tabular-nums text-muted">{rows.length}</span>
-
-                <ChevronDown className="ml-auto size-4 text-muted transition group-open:rotate-180" aria-hidden />
-              </summary>
-              <div className="relative overflow-x-auto border-t border-border">
+      <details className="group mt-5">
+        <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-muted transition hover:text-foreground">
+          More detail
+          <ChevronDown className="size-4 transition group-open:rotate-180" aria-hidden />
+        </summary>
+        <div className="mt-3 grid gap-5 text-sm">
+          {check?.summary && (
+            <div>
+              <h5 className="font-medium">Reviewer&apos;s note</h5>
+              <p className="mt-1 leading-6 text-foreground/80">{plain(check.summary)}</p>
+              {check.limits.length > 0 && (
+                <ul className="mt-2 grid gap-1 text-xs text-muted">
+                  {check.limits.map((limit) => (
+                    <li key={limit} className="flex items-start gap-1.5">
+                      <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                      {limit}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {answers.length > 0 && (
+            <div>
+              <h5 className="font-medium">Every answer</h5>
+              <div className="mt-2 max-h-80 overflow-auto rounded-xl border border-border">
                 <table className="w-full text-left text-[13px]">
-                  <thead>
+                  <thead className="sticky top-0 bg-surface">
                     <tr className="border-b border-border text-xs font-medium text-muted">
                       <th className="px-4 py-2.5">Answer at</th>
                       <th className="px-3 py-2.5">What stood out</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {rows.map((answer) => {
+                    {answers.map((answer) => {
                       const notes = [
                         spotTurns.has(answer.turnSeq) ? "Kept going to one spot" : null,
                         readingTurns.has(answer.turnSeq) ? "Reading-like eyes" : null,
                         lipTurns.has(answer.turnSeq) ? "Lips off the voice" : null,
                         voiceTurns.has(answer.turnSeq) ? "Different voice" : null,
+                        otherTurns.has(answer.turnSeq) ? "Someone else or a phone" : null,
                       ].filter(Boolean);
                       return (
                         <tr key={answer.turnSeq} className={notes.length ? "bg-amber-500/[0.06]" : undefined}>
@@ -1960,25 +2105,24 @@ function VideoSection({
                   </tbody>
                 </table>
               </div>
-            </details>
+            </div>
           )}
-        </>
-      )}
-
-      {hasRecording && (
-        <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-4">
-          <button
-            type="button"
-            onClick={onAnalyseVideo}
-            disabled={running}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <RotateCcw className={`size-3.5 ${running ? "animate-spin" : ""}`} />
-            {running ? "Analysing recording" : video.status === "analysed" ? "Re-check video" : video.status === "failed" ? "Try video analysis again" : "Analyse this video"}
-          </button>
-          <InfoTip text="An automated reading from the recording. Watch the moments before relying on it. Re-checking takes about 10 to 15 minutes for a 30-minute interview." />
+          {hasRecording && (
+            <div>
+              <button
+                type="button"
+                onClick={onAnalyseVideo}
+                disabled={running}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RotateCcw className={`size-3.5 ${running ? "animate-spin" : ""}`} />
+                {running ? "Analysing recording" : video.status === "analysed" ? "Re-check video" : video.status === "failed" ? "Try video analysis again" : "Analyse this video"}
+              </button>
+              <p className="mt-1.5 text-xs text-muted">Takes about 10 to 15 minutes for a 30-minute interview.</p>
+            </div>
+          )}
         </div>
-      )}
+      </details>
     </div>
   );
 }
