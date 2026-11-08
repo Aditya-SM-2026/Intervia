@@ -1000,7 +1000,7 @@ function OverallAssessment({
         </div>
 
         {/* factors */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {overall.factors.map((factor, index) => {
             const meta = FACTOR_META[factor.id];
             const chip = factorChip(factor.id, factor.score);
