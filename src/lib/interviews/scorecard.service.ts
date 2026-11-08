@@ -65,6 +65,9 @@ import {
  * Nothing here scores voice, emotion or appearance: only what was said.
  */
 
+/** Interviews shorter than this are test calls and are left out of role comparisons. */
+const MIN_PEER_SECONDS = 10 * 60;
+
 /** Below this many candidate answers there is nothing meaningful to grade. */
 const MIN_CANDIDATE_TURNS = 3;
 const SCORING_TIMEOUT_MS = 150_000;
@@ -539,8 +542,13 @@ async function findPeers(session: InterviewRoom): Promise<PeerSummary[]> {
   const role = (session.roleTitle ?? session.title).trim().toLowerCase();
   if (!role) return [];
   const repository = getInterviewRepository();
+  // Only real interviews count towards the comparison: short test calls
+  // (under 10 minutes actually spoken) would skew the ranking and average.
   const rooms = (await repository.list({ limit: 300 })).filter(
-    (room) => (room.roleTitle ?? room.title).trim().toLowerCase() === role,
+    (room) =>
+      (room.roleTitle ?? room.title).trim().toLowerCase() === role &&
+      (room.id === session.id ||
+        (room.outcome?.elapsedSeconds ?? room.durationMinutes * 60) >= MIN_PEER_SECONDS),
   );
   const summaries = await repository.getScorecardSummaries(rooms.map((room) => room.id));
   return rooms

@@ -48,7 +48,6 @@ import {
   FileSearch,
   FileText,
   Fingerprint,
-  Flag,
   Gauge,
   ListChecks,
   Maximize2,
@@ -178,7 +177,7 @@ const REPORT_SECTIONS = [
   { id: "overview", label: "Overview" },
   { id: "answers", label: "Answers" },
   { id: "resume", label: "Resume" },
-  { id: "authenticity", label: "Originality" },
+  { id: "authenticity", label: "Own answers" },
   { id: "recording", label: "Recording" },
   { id: "video", label: "On camera" },
   { id: "comments", label: "Decision" },
@@ -908,13 +907,8 @@ function OverallAssessment({
           ? "bad"
           : band.tone;
 
-  const claims = scorecard.resumeMatch?.claims ?? [];
-  const backed = claims.filter((claim) => claim.verdict === "confirmed").length;
-  const partly = claims.filter((claim) => claim.verdict === "partly_supported").length;
-  const contradicted = claims.filter((claim) => claim.verdict === "not_supported").length;
   const ranked = [...peers].sort((x, y) => (y.overall?.score ?? -1) - (x.overall?.score ?? -1));
   const rank = ranked.findIndex((peer) => peer.roomId === roomId) + 1;
-  const flags = insights?.redFlags.items ?? [];
   const coverage = insights?.coverage;
   const talk = insights?.talk.candidatePercent ?? null;
   const medianAnswer = insights?.speaking.medianAnswerSeconds ?? null;
@@ -931,27 +925,6 @@ function OverallAssessment({
           : "No plan recorded",
       tone: coverage && coverage.planned > 0 && coverage.scored < coverage.planned ? "warn" : "muted",
       href: "#answers",
-    },
-    {
-      label: "Resume claims backed up",
-      value: claims.length > 0 ? `${backed} of ${claims.length}` : "—",
-      note:
-        claims.length === 0
-          ? "Resume not checked"
-          : contradicted > 0
-            ? `${contradicted} contradicted`
-            : partly > 0
-              ? `${partly} only partly`
-              : "No contradictions",
-      tone: contradicted > 0 ? "bad" : partly > 0 ? "warn" : "muted",
-      href: "#resume",
-    },
-    {
-      label: "Red flags",
-      value: flags.length === 0 ? "None" : String(flags.length),
-      note: flags.length === 0 ? "Nothing unusual" : flags[0],
-      tone: flags.length === 0 ? "muted" : insights?.redFlags.level === "high" ? "bad" : "warn",
-      href: "#authenticity",
     },
     {
       label: "Rank for this role",
@@ -976,8 +949,6 @@ function OverallAssessment({
 
   const outcomeIcons: Record<string, LucideIcon> = {
     "Topics covered": ListChecks,
-    "Resume claims backed up": FileSearch,
-    "Red flags": Flag,
     "Rank for this role": Trophy,
     "Candidate talk time": Mic,
   };
@@ -999,7 +970,7 @@ function OverallAssessment({
               {verdict}
             </motion.p>
             <p className="mt-1 text-sm opacity-75">
-              {scorecard.integrityCheck ? "Answer score" : `Overall ${band.label.toLowerCase()}`}
+              {scorecard.integrityCheck ? "Overall score" : `Overall ${band.label.toLowerCase()}`}
             </p>
           </div>
         </div>
@@ -1040,7 +1011,7 @@ function OverallAssessment({
         </div>
       </div>
 
-      <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <dl className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-3">
         {outcomes.map((item) => {
           const Icon = outcomeIcons[item.label] ?? Gauge;
           return (
@@ -1306,52 +1277,76 @@ function AnswerQualityTable({
                 ? Math.round(((covered.endedAtSeconds - covered.startedAtSeconds) / 60) * 10) / 10
                 : null;
             const window = evidenceWindow(item.evidence, bySeq, offsetFor);
-            const scoreOut10 = item.score !== null ? item.score * 2 : null;
-            const tone: Tone =
-              scoreOut10 === null ? "muted" : scoreOut10 >= 7 ? "good" : scoreOut10 >= 5 ? "warn" : "bad";
+            const verdict = ANSWER_VERDICT[item.score ?? 0] ?? ANSWER_VERDICT[0];
             return (
               <li
                 key={item.competencyId}
-                className="grid grid-cols-[auto_minmax(0,1fr)] gap-4 rounded-2xl border border-border p-4 transition hover:border-foreground/15 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+                className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 rounded-2xl border border-border p-4 transition hover:border-foreground/15"
               >
-                <div className={`grid size-14 place-content-center rounded-xl text-center ${TONE_TILE[tone]}`}>
-                  <span className="text-xl font-semibold leading-none tabular-nums">{scoreOut10 ?? "–"}</span>
-                  <span className="mt-0.5 text-[10px] font-medium opacity-70">of 10</span>
-                </div>
                 <div className="min-w-0">
-                  <p className="flex items-baseline gap-2">
+                  <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <span className="text-xs font-semibold tabular-nums text-muted">Q{index + 1}</span>
                     <span className="font-semibold text-foreground">{item.name}</span>
+                    {plan?.part && (
+                      <span className="text-xs text-muted">
+                        {plan.part === "projects" ? `Own project${plan.project ? `: ${plan.project.name}` : ""}` : "This job's needs"}
+                      </span>
+                    )}
                   </p>
-                  {plan?.question && <p className="mt-0.5 line-clamp-1 text-xs text-muted">{plan.question}</p>}
-                  {(plan?.part || plan?.skill || plan?.minutes) && (
-                    <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted">
-                      {plan?.part && (
-                        <span>{plan.part === "projects" ? `Own project${plan.project ? `: ${plan.project.name}` : ""}` : "This job's needs"}</span>
-                      )}
-                      {plan?.skill && <span>Skill: {plan.skill}</span>}
-                      {plan?.minutes ? (
-                        <span className="tabular-nums">
-                          {plan.minutes} min planned{actualMinutes !== null ? ` · ${actualMinutes} min spent` : ""}
-                        </span>
-                      ) : null}
-                    </p>
-                  )}
-                  {item.dimensions && <DimensionChips dimensions={item.dimensions} definitionOnly={item.definitionOnly === true} />}
-                  <Clamp text={plain(item.rationale)} lines={2} className="mt-2 max-w-[75ch] text-sm leading-6 text-foreground/80" />
+                  <div className="mt-2 flex items-center gap-2.5">
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${TONE_TILE[verdict.tone]}`}>{verdict.label}</span>
+                    <span className="flex gap-0.5" aria-hidden>
+                      {[1, 2, 3, 4, 5].map((step) => (
+                        <span
+                          key={step}
+                          className={`h-1.5 w-5 rounded-full ${
+                            item.score !== null && step <= item.score ? TONE_BAR[verdict.tone] : "bg-foreground/10"
+                          }`}
+                        />
+                      ))}
+                    </span>
+                  </div>
+                  <p className="mt-2 max-w-[75ch] text-sm leading-6 text-foreground/85">{firstSentence(plain(item.rationale))}</p>
                 </div>
-                <div className="col-span-2 flex items-start sm:col-span-1">
+                <div className="flex items-start">
                   {window ? (
                     <button
                       type="button"
                       onClick={() => onPlay(window.from)}
+                      aria-label={`Play this answer from ${formatClock(window.from)}`}
                       className="inline-flex h-8 items-center gap-1.5 rounded-full bg-accent-soft px-3 text-xs font-semibold tabular-nums text-accent transition hover:bg-accent hover:text-white"
                     >
                       <Play className="size-3 fill-current" aria-hidden />
-                      {formatClock(window.from)}–{formatClock(window.to)}
+                      {formatClock(window.from)}
                     </button>
                   ) : null}
                 </div>
+                <details className="group col-span-2">
+                  <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted hover:text-foreground">
+                    Details
+                    <ChevronDown className="size-3.5 transition group-open:rotate-180" aria-hidden />
+                  </summary>
+                  <div className="mt-2.5 grid gap-2.5 text-sm">
+                    {plan?.question && (
+                      <p className="max-w-[75ch] text-foreground/85">
+                        <span className="text-muted">Asked: </span>
+                        {plan.question}
+                      </p>
+                    )}
+                    {item.dimensions && <DimensionChips dimensions={item.dimensions} definitionOnly={item.definitionOnly === true} />}
+                    <p className="max-w-[75ch] leading-6 text-foreground/80">{plain(item.rationale)}</p>
+                    {(plan?.skill || plan?.minutes) && (
+                      <p className="flex flex-wrap gap-x-3 text-xs text-muted">
+                        {plan?.skill && <span>Skill: {plan.skill}</span>}
+                        {plan?.minutes ? (
+                          <span className="tabular-nums">
+                            {plan.minutes} min planned{actualMinutes !== null ? ` · ${actualMinutes} min spent` : ""}
+                          </span>
+                        ) : null}
+                      </p>
+                    )}
+                  </div>
+                </details>
               </li>
             );
           })}
@@ -1550,9 +1545,15 @@ function ResumeTable({
         </p>
       ) : (
         <>
-          <ul className="mt-5 grid gap-2.5 md:grid-cols-2">
+          {!resume.claims.some((claim) => claim.verdict === "partly_supported" || claim.verdict === "not_supported") && (
+            <p className="mt-5 flex items-center gap-2 text-[15px] text-foreground/85">
+              <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
+              Every resume claim that came up was explained in depth.
+            </p>
+          )}
+          <ul className="mt-5 grid gap-2.5 md:grid-cols-2 empty:hidden">
             {resume.claims
-              .filter((claim) => claim.verdict !== "not_discussed")
+              .filter((claim) => claim.verdict === "partly_supported" || claim.verdict === "not_supported")
               .map((claim) => {
                 const questions = [
                   ...new Set(
@@ -1584,6 +1585,28 @@ function ResumeTable({
                 );
               })}
           </ul>
+          {resume.claims.some((claim) => claim.verdict === "confirmed") && (
+            <details className="group mt-3 rounded-xl border border-border">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium transition hover:text-foreground">
+                <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                Backed up in depth
+                <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs tabular-nums text-muted">
+                  {resume.claims.filter((claim) => claim.verdict === "confirmed").length}
+                </span>
+                <ChevronDown className="ml-auto size-4 text-muted transition group-open:rotate-180" aria-hidden />
+              </summary>
+              <ul className="grid gap-1.5 px-4 pb-4">
+                {resume.claims
+                  .filter((claim) => claim.verdict === "confirmed")
+                  .map((claim) => (
+                    <li key={claim.claim} className="text-sm leading-6 text-foreground/85">
+                      {claim.claim}
+                      {claim.note && <span className="text-muted"> {claim.note}</span>}
+                    </li>
+                  ))}
+              </ul>
+            </details>
+          )}
           {resume.claims.some((claim) => claim.verdict === "not_discussed") && (
             <details className="group mt-3 rounded-xl border border-dashed border-border">
               <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium text-muted transition hover:text-foreground">
@@ -1669,8 +1692,8 @@ function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
       <CardHeading
         icon={Fingerprint}
         iconColor="emerald"
-        title="Originality"
-        subtitle="Whether the answers sound like the candidate's own words, or read out."
+        title="Own answers"
+        subtitle="Whether each good answer was in the candidate's own words, or read out."
         right={
           isNew ? (
             <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_TILE[chip.tone]}`}>{chip.label}</span>
@@ -1679,6 +1702,15 @@ function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
           )
         }
       />
+
+      {!notChecked && scorecard.ownAnswers && (
+        <p className="mt-5 text-[17px] font-semibold tracking-[-0.01em]">
+          {ownAnswersLine(scorecard.ownAnswers)}
+          <span className="ml-2 text-sm font-normal text-muted">
+            Only answers rated Fair or better are checked.
+          </span>
+        </p>
+      )}
 
       {notChecked ? (
         <p className="mt-5 flex items-center gap-2 text-[15px] text-muted">
@@ -2965,6 +2997,23 @@ function evidenceWindow(
   offsets.sort((a, b) => a.start - b.start);
   return { from: offsets[0].start, to: Math.max(offsets[offsets.length - 1].end, offsets[0].start + 10) };
 }
+
+/** One plain word per answer score (1-5), instead of a number on another scale. */
+const ANSWER_VERDICT: Record<number, { label: string; tone: Tone }> = {
+  0: { label: "Not scored", tone: "muted" },
+  1: { label: "Missed", tone: "bad" },
+  2: { label: "Thin", tone: "bad" },
+  3: { label: "Fair", tone: "warn" },
+  4: { label: "Good", tone: "good" },
+  5: { label: "Strong", tone: "good" },
+};
+
+const TONE_BAR: Record<Tone, string> = {
+  good: "bg-emerald-500",
+  warn: "bg-amber-500",
+  bad: "bg-rose-500",
+  muted: "bg-foreground/30",
+};
 
 /** The Own answers tile: judged only on the good answers. */
 function ownAnswersLine(own: { good: number; goodOwn: number }): string {

@@ -210,7 +210,7 @@ export function buildReportInsights(input: {
   const steps: string[] = [];
   const skipped = scorecard.competencies.filter((item) => item.status === "not_assessed");
   for (const topic of skipped) {
-    steps.push(`Cover "${topic.name}" — it was planned but never reached in this interview.`);
+    steps.push(`${topic.name}: not reached in this interview. Cover it next round.`);
   }
   const weakest = scorecard.competencies
     .filter((item) => item.status === "scored" && item.score !== null)
@@ -218,7 +218,7 @@ export function buildReportInsights(input: {
     .slice(0, 2);
   for (const item of weakest) {
     if ((item.score as number) < 3.5) {
-      steps.push(`Probe "${item.name}" further in the next round — scored ${item.score}/5 here.`);
+      steps.push(`${item.name}: answers stayed thin. Ask for a concrete example next round.`);
     }
   }
   if (check?.level === "high_risk" || check?.level === "review") {
@@ -227,13 +227,13 @@ export function buildReportInsights(input: {
     steps.push("Watch the flagged on-camera moments in the video analysis before deciding.");
   }
   if (scorecard.needsHumanReview) {
-    steps.push("A human should review the disputed answers — the graders did not agree.");
+    steps.push("Two graders disagreed on an answer. Read it yourself before deciding.");
   }
   if (steps.length === 0 && (band === "strong-hire" || band === "hire")) {
-    steps.push("Evidence supports advancing this candidate to the next round.");
+    steps.push("Strong enough to move to the next round.");
   }
   if (steps.length === 0) {
-    steps.push("Re-interview or extend the next conversation to gather more evidence.");
+    steps.push("Not enough evidence yet. A longer next conversation would help.");
   }
 
   // --- coverage ------------------------------------------------------------
