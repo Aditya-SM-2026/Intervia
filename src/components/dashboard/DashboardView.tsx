@@ -242,7 +242,7 @@ export function DashboardView() {
         } else {
           setFeedback({
             tone: "error",
-            message: `${result.failed.length} of ${roomIds.length} interview${roomIds.length === 1 ? "" : "s"} could not be deleted — they stay selected. ${result.failed[0].error}`,
+            message: `${result.failed.length} of ${roomIds.length} interview${roomIds.length === 1 ? "" : "s"} could not be deleted. They stay selected. ${result.failed[0].error}`,
           });
         }
       })

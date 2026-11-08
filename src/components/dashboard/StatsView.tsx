@@ -6,6 +6,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { ArrowUpRight, Info, TriangleAlert } from "lucide-react";
 import type { DashboardStats, StatsRange } from "@/lib/dashboard/stats.types";
 import { EASE_OUT, NumberTicker, SegmentedTabs } from "@/components/ui/animated";
+import { InfoTip } from "@/components/ui/InfoTip";
 
 const RANGE_TABS: { value: StatsRange; label: string }[] = [
   { value: "30", label: "30 days" },
@@ -48,8 +49,10 @@ export function StatsView() {
     <div className="grid gap-10">
       <header className="flex flex-wrap items-end justify-between gap-6 pt-9">
         <div className="max-w-2xl">
-          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] text-foreground">Stats</h1>
-          <p className="mt-1.5 text-sm text-muted">Hiring across every role, with AI cost.</p>
+          <h1 className="flex items-center gap-2 text-[28px] font-semibold leading-tight tracking-[-0.02em] text-foreground">
+            Stats
+            <InfoTip text="Hiring across every role, with what the AI cost." />
+          </h1>
         </div>
         <SegmentedTabs id="stats-range" label="Time range" options={RANGE_TABS} value={range} onChange={setRange} />
       </header>
@@ -141,8 +144,10 @@ function Funnel({ stats }: { stats: DashboardStats }) {
   return (
     <section aria-label="Hiring funnel" className="rounded-3xl border border-border bg-surface p-6 sm:p-8">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-medium">From interview to decision</h2>
-        <p className="text-sm text-muted">Percentages show how many moved on from the step above</p>
+        <h2 className="flex items-center gap-1.5 text-sm font-medium">
+          From interview to decision
+          <InfoTip text="Percentages show how many moved on from the step above." />
+        </h2>
       </div>
       <ol className="mt-6 grid gap-3">
         {steps.map((step, index) => {
@@ -187,8 +192,10 @@ function Funnel({ stats }: { stats: DashboardStats }) {
 function Panel({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col rounded-2xl border border-border bg-surface p-6">
-      <h2 className="text-sm font-medium">{title}</h2>
-      <p className="mt-0.5 text-sm text-muted">{hint}</p>
+      <h2 className="flex items-center gap-1.5 text-sm font-medium">
+        {title}
+        <InfoTip text={hint} />
+      </h2>
       <div className="mt-6 flex-1">{children}</div>
     </section>
   );
@@ -269,8 +276,10 @@ function RolesTable({ stats }: { stats: DashboardStats }) {
     <section aria-label="Roles" className="overflow-hidden rounded-2xl border border-border bg-surface">
       <div className="flex flex-wrap items-baseline justify-between gap-2 px-6 pb-4 pt-6">
         <div>
-          <h2 className="text-sm font-medium">Roles</h2>
-          <p className="mt-0.5 text-sm text-muted">Where candidates are, role by role</p>
+          <h2 className="flex items-center gap-1.5 text-sm font-medium">
+            Roles
+            <InfoTip text="Where candidates are, role by role." />
+          </h2>
         </div>
         <Link href="/dashboard/roles" className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline">
           Manage roles
@@ -342,8 +351,10 @@ function CostSection({ stats }: { stats: DashboardStats }) {
   return (
     <section aria-label="AI cost" className="grid gap-6 rounded-3xl border border-border bg-surface p-6 sm:p-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
       <div>
-        <h2 className="text-sm font-medium">AI cost</h2>
-        <p className="mt-0.5 text-sm text-muted">Estimated from recorded usage at list prices</p>
+        <h2 className="flex items-center gap-1.5 text-sm font-medium">
+          AI cost
+          <InfoTip text="Estimated from recorded usage at list prices." />
+        </h2>
         <p className="mt-5 text-[32px] font-semibold leading-none tracking-[-0.02em]">{formatUsd(cost.totalUsd)}</p>
         <div className="mt-6 h-2.5 overflow-hidden rounded-full bg-gold/30">
           <div className="h-full rounded-full bg-accent" style={{ width: `${voiceShare}%` }} />

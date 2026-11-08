@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { InfoTip } from "@/components/ui/InfoTip";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -499,10 +500,10 @@ export function RolesView() {
     <>
       <header className="flex flex-wrap items-end justify-between gap-4 pb-7 pt-9">
         <div>
-          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">Roles</h1>
-          <p className="mt-1.5 max-w-xl text-sm text-muted">
-            The jobs you are hiring for, and where each one&apos;s candidates are.
-          </p>
+          <h1 className="flex items-center gap-2 text-[28px] font-semibold leading-tight tracking-[-0.02em]">
+            Roles
+            <InfoTip text="The jobs you are hiring for, and where each one's candidates are." />
+          </h1>
         </div>
         <button
           type="button"

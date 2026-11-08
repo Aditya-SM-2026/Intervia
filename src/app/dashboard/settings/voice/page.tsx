@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { InfoTip } from "@/components/ui/InfoTip";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { TopNav } from "@/components/dashboard/TopNav";
@@ -29,11 +30,10 @@ export default async function AgentVoicePage() {
             <ArrowLeft className="size-4" aria-hidden />
             Settings
           </Link>
-          <h1 className="text-4xl font-semibold tracking-tight">Voice and engine</h1>
-          <p className="mt-2 max-w-2xl text-muted">
-            Pick how the interviewer sounds, and which engine runs the call. Listen to a sample for
-            each voice, choose the engine, then save. Every interview from then on uses both.
-          </p>
+          <h1 className="flex items-center gap-2 text-4xl font-semibold tracking-tight">
+            Voice and engine
+            <InfoTip text="Pick how the interviewer sounds and which engine runs the call. Listen to a sample, choose, then save. Every interview from then on uses both." />
+          </h1>
         </div>
         {!available && (
           <p className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">

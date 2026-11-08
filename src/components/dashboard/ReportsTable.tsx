@@ -45,7 +45,7 @@ export function reportCell(summary: DashboardInterviewSummary): { state: ReportC
   if (status === "active") return { state: "processing", detail: "Interview in progress" };
   if (status === "waiting") return { state: "processing", detail: "Candidate joining" };
   if (status === "completed") {
-    return { state: "processing", detail: "Awaiting analysis — opens on first view" };
+    return { state: "processing", detail: "Awaiting analysis, ready when first opened" };
   }
   if (status === "scheduled") return { state: "not-started", detail: "Not started" };
   if (status === "expired") return { state: "not-started", detail: "Never joined" };

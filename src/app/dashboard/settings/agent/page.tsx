@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { InfoTip } from "@/components/ui/InfoTip";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { TopNav } from "@/components/dashboard/TopNav";
@@ -29,11 +30,10 @@ export default async function AgentBehaviourPage() {
             <ArrowLeft className="size-4" aria-hidden />
             Settings
           </Link>
-          <h1 className="text-4xl font-semibold tracking-tight">Modify agent behaviour</h1>
-          <p className="mt-2 max-w-2xl text-muted">
-            The interviewer&apos;s instructions, editable without a code change. Each part is
-            optional: leave it empty to keep the built-in text from the agent&apos;s prompts.
-          </p>
+          <h1 className="flex items-center gap-2 text-4xl font-semibold tracking-tight">
+            Modify agent behaviour
+            <InfoTip text="The interviewer's instructions, editable without a code change. Each part is optional: leave it empty to keep the built-in text." />
+          </h1>
         </div>
         {!available && (
           <p className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">

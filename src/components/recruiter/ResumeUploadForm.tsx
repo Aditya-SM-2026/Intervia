@@ -109,7 +109,7 @@ export function ResumeUploadForm({ token }: { token: string }) {
 
       {done ? (
         <p className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-400">
-          <span className="font-medium">{done}</span> uploaded. Thank you — you can close this page.
+          <span className="font-medium">{done}</span> uploaded. Thank you, you can close this page.
         </p>
       ) : (
         <form onSubmit={handleSubmit} className="grid gap-4">

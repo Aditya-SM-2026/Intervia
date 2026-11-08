@@ -194,7 +194,7 @@ export function TopNav() {
                     ? [{ id: "empty", label: "No interviews are awaiting analysis.", disabled: true }]
                     : analytics.awaitingRecent.slice(0, 8).map((item) => ({
                         id: item.roomId,
-                        label: `${item.candidateName ?? "Unnamed candidate"} — ${item.roleTitle ?? "interview"}`,
+                        label: `${item.candidateName ?? "Unnamed candidate"} · ${item.roleTitle ?? "interview"}`,
                         icon: <FileText className="size-4 text-accent" aria-hidden />,
                         onSelect: () => router.push(`/dashboard/${item.roomId}`),
                       }))),

@@ -229,7 +229,7 @@ export function InterviewRoom({
         return;
       }
       setFailure(
-        "The connection to the interview was lost. Rejoin within 5 minutes and the interview continues exactly where it stopped — same question, same transcript, same clock.",
+        "The connection to the interview was lost. Rejoin within 5 minutes and the interview continues exactly where it stopped: same question, same transcript, same clock.",
       );
       setStage("error");
     });

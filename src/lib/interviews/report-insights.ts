@@ -176,7 +176,7 @@ export function buildReportInsights(input: {
     const authenticity = scorecard.authenticity.score as number;
     if (authenticity < 50) {
       flags.push(
-        `Answer-pattern check scored ${authenticity} of 100 — signs of prepared or fed answers may be present.`,
+        `Answer-pattern check scored ${authenticity} of 100. Some answers may have been prepared or fed.`,
       );
     }
   }
@@ -197,7 +197,7 @@ export function buildReportInsights(input: {
     );
   }
   if (scorecard.needsHumanReview) {
-    flags.push("Graders disagreed on one or more answers — review the evidence below.");
+    flags.push("Graders disagreed on one or more answers. Review the evidence below.");
   }
   const level: "low" | "medium" | "high" =
     check?.level === "high_risk"

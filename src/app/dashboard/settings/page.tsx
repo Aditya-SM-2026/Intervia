@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { InfoTip } from "@/components/ui/InfoTip";
 import Link from "next/link";
 import { Bot, ChevronRight, Database, Mic, SlidersHorizontal } from "lucide-react";
 import { BrandEmblem } from "@/components/brand/BrandMark";
@@ -26,10 +27,10 @@ export default async function SettingsPage() {
       <TopNav />
       <main className="mx-auto w-full max-w-5xl px-4 pb-16 sm:px-6">
         <div className="py-10">
-          <h1 className="text-4xl font-semibold tracking-tight">Settings</h1>
-          <p className="mt-2 max-w-2xl text-muted">
-            What this workspace runs on, and how the interview agent behaves.
-          </p>
+          <h1 className="flex items-center gap-2 text-4xl font-semibold tracking-tight">
+            Settings
+            <InfoTip text="What this workspace runs on, and how the interview agent behaves." />
+          </h1>
         </div>
 
         <div className="grid gap-6">

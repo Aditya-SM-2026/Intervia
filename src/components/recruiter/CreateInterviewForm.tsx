@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
+import { InfoTip } from "@/components/ui/InfoTip";
 import type { DifficultyLevel } from "@/lib/interviews/interview.types";
 import { DEFAULT_SKILL_WEIGHT, normalizeSkillFocus, type SkillFocus } from "@/lib/interviews/skill-focus";
 import type { InterviewRoleDefaults } from "@/lib/roles/interview-role-defaults";
@@ -606,8 +607,10 @@ function Step({
           {number}
         </span>
         <div>
-          <h2 className="text-[15px] font-semibold leading-6">{title}</h2>
-          {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
+          <h2 className="flex items-center gap-1.5 text-[15px] font-semibold leading-6">
+            {title}
+            {description && <InfoTip text={description} />}
+          </h2>
         </div>
       </div>
       {children}

@@ -747,7 +747,7 @@ function Confidence({ confidence, reason, caveats }: { confidence: string; reaso
       <p className="flex items-center gap-1.5">
         <span aria-hidden className={`size-1.5 rounded-full ${CONFIDENCE_DOT[confidence] ?? CONFIDENCE_DOT.low}`} />
         <span className="font-medium capitalize text-foreground/80">{confidence} confidence</span>
-        {reason && <span className="truncate">— {reason}</span>}
+        {reason && <span className="truncate">· {reason}</span>}
       </p>
       {caveats.length > 0 && (
         <ul className="mt-1.5 list-disc space-y-0.5 pl-4">

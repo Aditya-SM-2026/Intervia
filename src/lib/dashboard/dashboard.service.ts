@@ -35,7 +35,7 @@ function reportStateFor(
       // a completed session opens (and generates) on first view.
       return {
         reportState: "processing",
-        reportReason: "Awaiting analysis — opens on first view",
+        reportReason: "Awaiting analysis, ready when first opened",
       };
     case "scheduled":
       return { reportState: "not-started", reportReason: "Not started" };

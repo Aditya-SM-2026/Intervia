@@ -163,7 +163,7 @@ export function DashboardInterviewList() {
           <p className="mt-1 text-sm text-muted">
             {activeSearch
               ? "Check the spelling or clear the search to see all interviews."
-              : "Create an interview and share the link — it appears here as soon as it exists."}
+              : "Create an interview and share the link. It appears here as soon as it exists."}
           </p>
           {!activeSearch && (
             <Link
