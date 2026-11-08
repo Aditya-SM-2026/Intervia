@@ -28,7 +28,7 @@ const turns = answerStarts.flatMap((answerAt, index) => {
 const candidateSeqs = turns.filter((turn) => turn.speaker === "candidate").map((turn) => turn.seq);
 
 const competencies = [
-  { score: 3, originality: "natural", rationale: "She describes a real feature: the backend call to the OpenAI API, the response returned to the frontend and stored in MongoDB, and one concrete problem (slow responses on long prompts) with a fix. She does not cover prompt structure, parameters, streaming or rate limits." },
+  { score: 3, originality: "natural", rationale: "She describes a real feature end to end in her own project, which meets the fair anchor: the backend call to the OpenAI API, the response returned to the frontend and stored in MongoDB, and one concrete problem (slow responses on long prompts) with a fix. She does not cover prompt structure, parameters, streaming or rate limits." },
   { score: 1, originality: "natural", rationale: "She never describes a retrieval step. Asked how to put specific source information in front of the model, she talks about training a model and then a spam classifier, and says she has not done this." },
   { score: 3, originality: "natural", rationale: "She names Express, a concrete route, Passport.js for authentication and MongoDB for storage, and a real design problem (local image storage) solved with Cloudinary. No validation, status codes or error handling." },
   { score: 2, originality: "natural", rationale: "She says plainly that her projects have not been deployed. Keeping keys in a .env file and moving images to Cloudinary lift it above the bottom." },
@@ -108,19 +108,20 @@ export const PREVIEW_DETAIL = {
     model: "preview",
     transcriptSource: "live",
     summary:
-      "Gayathri walked through three student projects: Sigma GPT (an OpenAI API chat app), Wanderlust (an Express listings app) and a spam classifier. Her LLM integration answer was the strongest. The retrieval question was not answered, deployment was a clear gap, and frontend answers stayed at the level of naming React and Axios.",
+      "Gayathri walked through three student projects: Sigma GPT (an OpenAI API chat app), Wanderlust (an Express listings app with Passport.js login and Cloudinary uploads) and a spam classifier, and does produce concrete detail when pushed on the first two. Her LLM integration answer was the strongest: she traced a request from the React frontend through the Express backend to the OpenAI API and back, and named one real problem, slow responses on long prompts, with the fix she tried. The weakness is depth beyond her own projects: the retrieval question was never answered, she moved to the spam classifier instead, and she says plainly that nothing she built has been deployed. Frontend and backend answers stay at the level of naming tools, with nothing on loading and error states, validation, status codes or how failures reach the user.",
     strengths: [
-      "Traced a request from frontend to backend to an external API in her own projects.",
-      "Recognised a real LLM failure mode: stale model knowledge and slow long prompts.",
-      "Kept API keys and the Cloudinary URL in a .env file rather than in source.",
-      "Explained Passport.js authentication and Cloudinary image storage in Wanderlust.",
+      "Traced a full request in her own Sigma GPT project, from the React frontend through the Express backend to the OpenAI API, and explained where the response is stored in MongoDB.",
+      "Recognised a real LLM failure mode in her own work, slow responses on long prompts, and described the change she made to shorten them.",
+      "Kept API keys and the Cloudinary URL in a .env file rather than in source, and could say why that matters.",
+      "Explained Passport.js authentication and owner-only edit rights in Wanderlust with a concrete route.",
+      "Answered honestly when she had not done something, instead of guessing.",
     ],
     concerns: [
-      "The retrieval question was never answered; she moved to a spam classifier instead.",
-      "No deployment experience: no Docker, no cloud hosting, no production debugging.",
-      "Frontend answers had no loading or error states.",
-      "Backend answers never reached validation, status codes or error handling.",
-      "Answers often opened with a definition before any detail of her own work.",
+      "The retrieval and grounding question was never answered; she moved to a spam classifier and said she has not built retrieval over documents.",
+      "No deployment experience at all: no Docker, no cloud hosting, and no production debugging story.",
+      "Frontend answers named React and Axios but said nothing about loading or error states the user would see.",
+      "Backend answers never reached validation, status codes or error handling, even when asked directly.",
+      "Answers often opened with a textbook definition before any detail of her own work, which cost time.",
     ],
     competencies,
     overallScore: 2.2,

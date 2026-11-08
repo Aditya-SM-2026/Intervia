@@ -993,87 +993,90 @@ function SummarySection({
   scorecard: Scorecard;
   insights: ReportInsights | null;
 }) {
-  const [full, setFull] = useState(false);
-  const [open, setOpen] = useState<"strengths" | "concerns" | "next" | null>(null);
-  // The model writes one long paragraph; read as separate points it scans far
-  // better. Two points show, the rest on request.
-  const sentences = plain(scorecard.summary)
-    .split(/(?<=[.!?])\s+(?=[A-Z0-9"“'(])/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-  const points = full ? sentences : sentences.slice(0, 2);
+  const [showSummary, setShowSummary] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const summary = plain(scorecard.summary);
   const groups = [
-    { id: "strengths" as const, label: "Strengths", items: scorecard.strengths.map(plain), icon: Check, tone: "good" as Tone },
-    { id: "concerns" as const, label: "Concerns", items: scorecard.concerns.map(plain), icon: AlertCircle, tone: "warn" as Tone },
-    { id: "next" as const, label: "Ask next round", items: (insights?.nextSteps ?? []).map(plain), icon: ArrowRight, tone: "muted" as Tone },
+    { id: "strengths", label: "Strengths", items: scorecard.strengths.map(plain), icon: Check, tone: "good" as Tone },
+    { id: "concerns", label: "Concerns", items: scorecard.concerns.map(plain), icon: AlertCircle, tone: "warn" as Tone },
+    { id: "next", label: "Ask next round", items: (insights?.nextSteps ?? []).map(plain), icon: ArrowRight, tone: "muted" as Tone },
   ].filter((group) => group.items.length > 0);
-  const shown = groups.find((group) => group.id === open) ?? null;
+  // Three points per column keep the block short; the rest open together.
+  const LIMIT = 3;
+  const hidden = groups.reduce((sum, group) => sum + Math.max(0, group.items.length - LIMIT), 0);
+  const columns = groups.length >= 3 ? "lg:grid-cols-3" : groups.length === 2 ? "md:grid-cols-2" : "";
 
   return (
     <section id="summary" className={`${cardClasses} scroll-mt-32`}>
-      <CardHeading icon={ScrollText} iconColor="indigo" title="Takeaways" />
+      <CardHeading
+        title="Takeaways"
+        right={
+          summary ? (
+            <button
+              type="button"
+              onClick={() => setShowSummary((current) => !current)}
+              aria-expanded={showSummary}
+              className="inline-flex items-center gap-1 text-sm font-medium text-muted transition hover:text-foreground"
+            >
+              {showSummary ? "Hide summary" : "Read summary"}
+              <ChevronDown className={`size-4 transition ${showSummary ? "rotate-180" : ""}`} aria-hidden />
+            </button>
+          ) : undefined
+        }
+      />
 
-      <ul className="mt-4 grid max-w-[72ch] gap-2.5">
-        {points.map((point, index) => (
-          <li key={index} className="flex gap-3 text-[15px] leading-6 text-foreground/90">
-            <span className="mt-[9px] size-1.5 shrink-0 rounded-full bg-foreground/35" aria-hidden />
-            <span>{point}</span>
-          </li>
-        ))}
-      </ul>
-      {sentences.length > 2 && (
-        <button
-          type="button"
-          onClick={() => setFull((current) => !current)}
-          aria-expanded={full}
-          className="ml-[18px] mt-2 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
-        >
-          {full ? "Show less" : `Show ${sentences.length - 2} more`}
-          <ChevronDown className={`size-3.5 transition ${full ? "rotate-180" : ""}`} aria-hidden />
-        </button>
+      {showSummary && (
+        <p className="mt-4 rounded-xl bg-foreground/[0.035] px-5 py-4 text-[15px] leading-7 text-foreground/90">
+          {summary}
+        </p>
       )}
 
-      <div className="mt-5 flex flex-wrap gap-2 border-t border-border pt-5" role="tablist" aria-label="Takeaways">
-        {groups.map((group) => {
-          const Icon = group.icon;
-          const active = open === group.id;
-          return (
-            <button
-              key={group.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setOpen(active ? null : group.id)}
-              className={`inline-flex h-9 items-center gap-2 rounded-full border px-3.5 text-sm font-medium transition ${
-                active
-                  ? "border-foreground bg-foreground text-background"
-                  : "border-border bg-surface hover:border-foreground/25"
-              }`}
-            >
-              <Icon
-                className={`size-3.5 ${active ? "" : group.tone === "good" ? "text-emerald-600 dark:text-emerald-400" : group.tone === "warn" ? "text-amber-600 dark:text-amber-400" : "text-accent"}`}
-                aria-hidden
-              />
-              {group.label}
-              <span className={`tabular-nums ${active ? "opacity-70" : "text-muted"}`}>{group.items.length}</span>
-              <ChevronDown className={`size-3.5 transition ${active ? "rotate-180" : ""}`} aria-hidden />
-            </button>
-          );
-        })}
-      </div>
+      {groups.length > 0 && (
+        <div className={`mt-5 grid gap-x-10 gap-y-7 ${columns}`}>
+          {groups.map((group) => {
+            const Icon = group.icon;
+            const items = showAll ? group.items : group.items.slice(0, LIMIT);
+            return (
+              <div key={group.id} className="min-w-0">
+                <h3 className="flex items-center gap-2 text-sm font-semibold">
+                  <span
+                    className={`grid size-5 place-items-center rounded-full ${
+                      group.tone === "good"
+                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                        : group.tone === "warn"
+                          ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                          : "bg-accent/10 text-accent"
+                    }`}
+                    aria-hidden
+                  >
+                    <Icon className="size-3 stroke-[2.5]" />
+                  </span>
+                  {group.label}
+                  <span className="font-normal tabular-nums text-muted">{group.items.length}</span>
+                </h3>
+                <ul className="mt-3 grid gap-3 border-t border-border pt-3">
+                  {items.map((item, index) => (
+                    <li key={index} className="text-sm leading-6 text-foreground/85">
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-      {shown && (
-        <ul role="tabpanel" className="mt-4 grid max-w-[72ch] gap-2.5">
-          {shown.items.map((item, index) => (
-            <li key={index} className="flex gap-3 text-sm leading-6 text-foreground/85">
-              <span
-                className={`mt-2 size-1.5 shrink-0 rounded-full ${shown.tone === "good" ? "bg-emerald-500" : shown.tone === "warn" ? "bg-amber-500" : "bg-accent"}`}
-                aria-hidden
-              />
-              {item}
-            </li>
-          ))}
-        </ul>
+      {hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((current) => !current)}
+          aria-expanded={showAll}
+          className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+        >
+          {showAll ? "Show less" : `Show ${hidden} more`}
+          <ChevronDown className={`size-3.5 transition ${showAll ? "rotate-180" : ""}`} aria-hidden />
+        </button>
       )}
     </section>
   );
@@ -1163,7 +1166,7 @@ function AnswerQualityTable({
             return (
               <li
                 key={item.competencyId}
-                className="grid grid-cols-1 gap-x-4 gap-y-2 py-5 sm:grid-cols-[minmax(0,1fr)_auto]"
+                className="grid gap-x-8 gap-y-2 py-5 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)_auto]"
               >
                 <div className="min-w-0">
                   <p className="flex items-baseline gap-x-2.5">
@@ -1183,7 +1186,7 @@ function AnswerQualityTable({
                       {[1, 2, 3, 4, 5].map((step) => (
                         <span
                           key={step}
-                          className={`h-1.5 w-5 rounded-full ${
+                          className={`h-1.5 w-4 rounded-full ${
                             item.score !== null && step <= item.score ? TONE_BAR[verdict.tone] : "bg-foreground/10"
                           }`}
                         />
@@ -1200,9 +1203,37 @@ function AnswerQualityTable({
                       </span>
                     )}
                   </div>
-                  <p className="mt-2 max-w-[75ch] pl-[34px] text-sm leading-6 text-foreground/85">{firstSentence(plain(item.rationale))}</p>
                 </div>
-                <div className="flex items-start pl-[34px] sm:pl-0">
+                <div className="min-w-0 pl-[34px] lg:pl-0">
+                  <p className="text-sm leading-6 text-foreground/85">{firstSentence(plain(item.rationale))}</p>
+                  <details className="group mt-1.5">
+                    <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted hover:text-foreground">
+                      Details
+                      <ChevronDown className="size-3.5 transition group-open:rotate-180" aria-hidden />
+                    </summary>
+                    <div className="mt-2.5 grid gap-2.5 text-sm">
+                      {plan?.question && (
+                        <p className="text-foreground/85">
+                          <span className="text-muted">Asked: </span>
+                          {plan.question}
+                        </p>
+                      )}
+                      {item.dimensions && <DimensionChips dimensions={item.dimensions} definitionOnly={item.definitionOnly === true} />}
+                      <p className="leading-6 text-foreground/80">{plain(item.rationale)}</p>
+                      {(plan?.skill || plan?.minutes) && (
+                        <p className="flex flex-wrap gap-x-3 text-xs text-muted">
+                          {plan?.skill && <span>Skill: {plan.skill}</span>}
+                          {plan?.minutes ? (
+                            <span className="tabular-nums">
+                              {plan.minutes} min planned{actualMinutes !== null ? ` · ${actualMinutes} min spent` : ""}
+                            </span>
+                          ) : null}
+                        </p>
+                      )}
+                    </div>
+                  </details>
+                </div>
+                <div className="flex items-start pl-[34px] lg:justify-end lg:pl-0">
                   {window ? (
                     <button
                       type="button"
@@ -1215,32 +1246,6 @@ function AnswerQualityTable({
                     </button>
                   ) : null}
                 </div>
-                <details className="group pl-[34px] sm:col-span-2">
-                  <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted hover:text-foreground">
-                    Details
-                    <ChevronDown className="size-3.5 transition group-open:rotate-180" aria-hidden />
-                  </summary>
-                  <div className="mt-2.5 grid gap-2.5 text-sm">
-                    {plan?.question && (
-                      <p className="max-w-[75ch] text-foreground/85">
-                        <span className="text-muted">Asked: </span>
-                        {plan.question}
-                      </p>
-                    )}
-                    {item.dimensions && <DimensionChips dimensions={item.dimensions} definitionOnly={item.definitionOnly === true} />}
-                    <p className="max-w-[75ch] leading-6 text-foreground/80">{plain(item.rationale)}</p>
-                    {(plan?.skill || plan?.minutes) && (
-                      <p className="flex flex-wrap gap-x-3 text-xs text-muted">
-                        {plan?.skill && <span>Skill: {plan.skill}</span>}
-                        {plan?.minutes ? (
-                          <span className="tabular-nums">
-                            {plan.minutes} min planned{actualMinutes !== null ? ` · ${actualMinutes} min spent` : ""}
-                          </span>
-                        ) : null}
-                      </p>
-                    )}
-                  </div>
-                </details>
               </li>
             );
           })}
@@ -2709,8 +2714,12 @@ function plain(text: string): string {
 
 function firstSentence(text: string): string {
   const clean = plain(text);
-  const match = clean.match(/^(.{20,240}?[.!?])(?:\s|$)/);
-  return match ? match[1] : clean.slice(0, 240);
+  const match = clean.match(/^(.{20,320}?[.!?])(?:\s|$)/);
+  if (match) return match[1];
+  if (clean.length <= 320) return clean;
+  // No sentence end in reach: stop at a whole word, never mid-word.
+  const cut = clean.slice(0, 260);
+  return `${cut.slice(0, cut.lastIndexOf(" ")).replace(/[,;:]$/, "")}…`;
 }
 
 function evidenceWindow(
