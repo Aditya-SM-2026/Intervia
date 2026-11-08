@@ -41,6 +41,35 @@ export interface PlanCompetency {
    * parameters. Lets the scorecard score the same parameter from the answers.
    */
   skill?: string | null;
+  /**
+   * Which part of the interview this topic belongs to (plans from 2026-11):
+   * "projects" digs into one of the candidate's own resume projects;
+   * "requirements" covers what the job needs, as scenarios in our context.
+   * Absent on older plans.
+   */
+  part?: InterviewPart;
+  /** For a projects topic: which resume project, and why it was picked for this job. */
+  project?: { name: string; whyChosen: string } | null;
+  /**
+   * Probes from surface to fundamentals, in order. The interviewer climbs one
+   * rung only when an answer stays shallow, and stops once it is solid.
+   */
+  depthLadder?: string[];
+  /** For a projects topic: applying what they did to a specific need of this job. */
+  bridge?: string | null;
+}
+
+export type InterviewPart = "projects" | "requirements";
+
+/** Default share of topic time for the candidate's own projects. */
+export const DEFAULT_PROJECT_SHARE = 50;
+
+/** How many of an interview's topics dig into the candidate's projects. */
+export function projectTopicCount(total: number, hasResume: boolean, projectShare = DEFAULT_PROJECT_SHARE): number {
+  if (!hasResume || projectShare <= 0 || total <= 1) return 0;
+  if (projectShare >= 100) return total;
+  const byShare = Math.round((total * projectShare) / 100);
+  return Math.max(1, Math.min(total - 1, Math.min(2, byShare)));
 }
 
 export interface InterviewPlan {
@@ -61,6 +90,8 @@ export interface InterviewPlan {
    * which case the plan and the scorecard behave exactly as before.
    */
   skillFocus?: SkillFocus[];
+  /** Share of topic time (0-100) planned for the candidate's own projects. */
+  projectShare?: number;
 }
 
 /** How many competencies an interview of a given length can cover properly. */

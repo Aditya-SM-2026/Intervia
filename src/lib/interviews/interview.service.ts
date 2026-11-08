@@ -177,6 +177,7 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     jobDescription: input.jobDescription,
     resume: input.resume,
     skillFocus: input.skillFocus ?? [],
+    projectShare: input.projectShare,
   });
 
   const room: InterviewRoom = {
@@ -637,6 +638,7 @@ export async function updateScheduledInterview(
       jobDescription: next.jobDescription,
       resume: next.resume,
       skillFocus: focus,
+      projectShare: room.plan?.projectShare,
     });
   }
 

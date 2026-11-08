@@ -182,6 +182,8 @@ export interface CreateInterviewInput {
    * means the recruiter left custom scoring alone.
    */
   skillFocus?: SkillFocus[];
+  /** Share of topic time for the candidate's own projects (0-100); default 50. */
+  projectShare?: number;
 }
 
 export type TranscriptSpeaker = "interviewer" | "candidate";

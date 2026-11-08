@@ -478,6 +478,12 @@ export interface Scorecard {
    * existed do not have it; regenerating one adds it.
    */
   answerQuality?: number | null;
+  /**
+   * Answer quality per part of a two-part interview (plans from 2026-11):
+   * their own projects in depth, and what the job needs. Null for a part the
+   * interview did not have or did not reach.
+   */
+  partScores?: { projects: number | null; requirements: number | null } | null;
   resumeMatch?: ResumeMatch;
   authenticity?: Authenticity;
   video?: VideoBehaviour;

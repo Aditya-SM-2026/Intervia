@@ -153,6 +153,11 @@ export const createInterviewSchema = z.object({
   ),
   /** Optional custom scoring parameters and their question weights. */
   skillFocus: skillFocusSchema,
+  /** Share of topic time for the candidate's own projects (0-100); default 50. */
+  projectShare: z.preprocess(
+    (value) => (value === undefined || value === null || value === "" ? undefined : Number(value)),
+    z.number().int().min(0).max(100).optional(),
+  ),
 });
 
 export type CreateInterviewPayload = z.infer<typeof createInterviewSchema>;

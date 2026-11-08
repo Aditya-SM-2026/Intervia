@@ -13,6 +13,12 @@ import {
   MIN_DURATION_MINUTES,
 } from "@/lib/interviews/interview.validation";
 
+const PROJECT_SPLITS = [
+  { value: 30, label: "Job first", hint: "30% projects, 70% job" },
+  { value: 50, label: "Even", hint: "50% projects, 50% job" },
+  { value: 70, label: "Projects first", hint: "70% projects, 30% job" },
+] as const;
+
 export interface CreateInterviewFormValues {
   recruiterName: string;
   candidateName: string;
@@ -27,6 +33,8 @@ export interface CreateInterviewFormValues {
   resume?: File;
   /** Optional per-skill question weights (custom scoring). */
   skillFocus?: SkillFocus[];
+  /** Share of topic time for the candidate's own projects (0-100). */
+  projectShare?: number;
 }
 
 interface CreateInterviewFormProps {
@@ -189,6 +197,7 @@ export function CreateInterviewForm({
   // null means untouched: show the role's skills at normal weight. An empty
   // list means the recruiter removed them all, and stays empty.
   const [skillFocus, setSkillFocus] = useState<SkillFocus[] | null>(() => initial?.skillFocus ?? null);
+  const [projectShare, setProjectShare] = useState<number>(() => initial?.projectShare ?? 50);
 
   const style = DIFFICULTY_OPTIONS.find((option) => option.value === difficulty);
   const selectedRole = roles.find((role) => role.id === roleChoice) ?? null;
@@ -252,7 +261,15 @@ export function CreateInterviewForm({
         ? { jobDescriptionPdf }
         : { jobDescriptionText: jobDescriptionText.trim() }),
       ...(resume ? { resume } : {}),
-      ...(skillFocus && skillFocus.length > 0 ? { skillFocus: normalizeSkillFocus(skillFocus) } : {}),
+      // A new interview always sends the role's skills, even untouched at
+      // normal weight, so they steer the questions and are scored. Editing
+      // only sends them when the recruiter changed them.
+      ...(skillFocus && skillFocus.length > 0
+        ? { skillFocus: normalizeSkillFocus(skillFocus) }
+        : !initial && focusRows.length > 0
+          ? { skillFocus: normalizeSkillFocus(focusRows) }
+          : {}),
+      projectShare,
     });
   }
 
@@ -421,6 +438,30 @@ export function CreateInterviewForm({
             rows={focusRows}
             onChange={setSkillFocus}
           />
+          <fieldset className="mt-6">
+            <legend className="text-sm font-medium">Time split</legend>
+            <p className="mt-0.5 text-xs text-muted">
+              First their own projects, in depth. Then what this job needs, weighted by the skills above.
+            </p>
+            <div className="mt-2.5 grid grid-cols-3 gap-1.5">
+              {PROJECT_SPLITS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setProjectShare(option.value)}
+                  aria-pressed={projectShare === option.value}
+                  className={`rounded-lg px-2.5 py-2 text-left text-xs transition ${
+                    projectShare === option.value
+                      ? "bg-foreground text-background"
+                      : "bg-foreground/[0.05] text-foreground/75 hover:bg-foreground/[0.09] hover:text-foreground"
+                  }`}
+                >
+                  <span className="block text-sm font-medium">{option.label}</span>
+                  <span className="mt-0.5 block opacity-75">{option.hint}</span>
+                </button>
+              ))}
+            </div>
+          </fieldset>
         </Step>
 
         <Step number={4} title="How it runs">

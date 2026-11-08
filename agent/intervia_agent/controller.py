@@ -241,6 +241,13 @@ class InterviewController:
             "specific situation, what they personally did, why they chose that approach over "
             "the alternatives, what went wrong, or how they measured the result."),
         ]
+        ladder = topic.competency.depth_ladder
+        if ladder:
+            lines.append(
+                "Take it from the next rung of the depth ladder you have not used yet: "
+                + " | ".join(ladder)
+                + "."
+            )
         if topic.competency.look_for:
             lines.append(
                 "If you have not heard these yet, probe for them: "
@@ -259,30 +266,65 @@ class InterviewController:
         lines = [
             f"Topic {position} of {len(self.topics)}: {competency.name}.",
         ]
+        first_of_part = position == 1 or self.topics[position - 2].competency.part != competency.part
+        if competency.part == "projects":
+            if first_of_part:
+                lines.append(
+                    "This part of the interview is about the candidate's OWN projects, in depth. "
+                    "Prepared answers stay on the surface; your job is to find out whether they "
+                    "really built it and understand how it works."
+                )
+            if competency.project_name:
+                lines.append(
+                    f"Project: {competency.project_name}."
+                    + (f" Chosen because: {competency.project_why}" if competency.project_why else "")
+                )
+        elif competency.part == "requirements":
+            if first_of_part:
+                lines.append(
+                    "Now move to what THIS job needs. Say so in one short sentence (for example "
+                    "\"Now I'd like to talk about some of the work this role involves.\"). These are "
+                    "scenarios in our context: do not steer back to the candidate's resume projects "
+                    "unless they bring them in themselves."
+                )
         if competency.description:
             lines.append(f"What you are assessing: {competency.description}")
         lines.append(
             "First ask this core question, in your own natural spoken words but keeping its "
             f'meaning (every candidate for this role is asked it): "{competency.question}"'
         )
-        if competency.resume_probe:
+        ladder = competency.depth_ladder or competency.follow_ups
+        if ladder:
             lines.append(
-                "A follow-up specific to this candidate, for after they have answered the core "
-                f"question: {competency.resume_probe}"
+                "Depth ladder, from surface to fundamentals: "
+                + " | ".join(f"({i + 1}) {rung}" for i, rung in enumerate(ladder))
+            )
+            lines.append(
+                "How to use it: after each answer, judge whether it was SOLID (specific, their own "
+                "work, explains how or why) or SHALLOW (generic, definitions, \"we\" without their own "
+                "part, buzzwords, or avoiding the question). If shallow, ask the next rung, rephrased "
+                "to build on what they just said. If solid, you may skip a rung and go one deeper. "
+                "Never read the rungs out as a list, and ask one question at a time."
+            )
+        if competency.resume_probe and competency.part != "projects":
+            lines.append(
+                "Only after they have answered the scenario, you may connect it to their background: "
+                f"{competency.resume_probe}"
             )
         if competency.look_for:
             lines.append("Listen for: " + "; ".join(competency.look_for) + ".")
-        if competency.follow_ups:
+        if competency.bridge:
             lines.append(
-                "Possible follow-ups, only where they fit what the candidate actually said: "
-                + " | ".join(competency.follow_ups)
+                f"Before leaving this project, ask this bridge question in your own words: \"{competency.bridge}\""
             )
+        probes = self.probe_limit + (1 if competency.part == "projects" else 0)
         lines.append(
             f"You have about {minutes} minute{'s' if minutes != 1 else ''} for this topic: use them. "
-            f"Ask at least {self.probe_limit} follow-up question{'s' if self.probe_limit != 1 else ''}, "
+            f"Ask at least {probes} follow-up question{'s' if probes != 1 else ''}, "
             "each one building on the candidate's last answer, and keep going deeper while time "
             "remains. Call start_next_topic when the time is nearly used, or when the candidate "
-            "clearly has nothing more to add. Do not announce topic numbers."
+            "clearly has nothing more to add. Do not announce topic numbers. Never ask about "
+            "technologies or facts that do not exist."
         )
         return "\n".join(lines)
 

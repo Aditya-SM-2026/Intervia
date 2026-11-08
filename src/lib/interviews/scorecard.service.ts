@@ -716,6 +716,20 @@ async function buildScorecard(
   // Only near-empty transcripts (short test calls) skip them now.
   const weights = new Map(plan.competencies.map((item) => [item.id, item.minutes]));
   const answerQuality = answerQualityScore(competencies, weights);
+  const partOf = new Map(plan.competencies.map((item) => [item.id, item.part ?? null]));
+  const hasParts = plan.competencies.some((item) => item.part);
+  const partScores = hasParts
+    ? {
+        projects: answerQualityScore(
+          competencies.filter((item) => partOf.get(item.competencyId) === "projects"),
+          weights,
+        ),
+        requirements: answerQualityScore(
+          competencies.filter((item) => partOf.get(item.competencyId) === "requirements"),
+          weights,
+        ),
+      }
+    : null;
   const deeperAnalysis = quality.level === "good";
   const skipReason = quality.reason ?? "the transcript was too thin";
 
@@ -919,6 +933,7 @@ async function buildScorecard(
 
   return {
     answerQuality,
+    partScores,
     resumeMatch,
     authenticity,
     video,
@@ -1301,6 +1316,11 @@ function renderAnswerRubric(plan: InterviewPlan): string {
       [
         `competencyId: ${competency.id}`,
         `topic: ${competency.name}`,
+        competency.part === "projects"
+          ? `part: the candidate's own project${competency.project ? ` (${competency.project.name})` : ""}. Grade how well they explained their own work in depth, down to how and why it works.`
+          : competency.part === "requirements"
+            ? "part: what the job needs, asked as a scenario. Grade the approach to the scenario, not their resume."
+            : null,
         `question: ${competency.question}`,
         competency.followUps.length ? `planned follow-ups: ${competency.followUps.join(" | ")}` : null,
         competency.lookFor.length ? `a strong answer shows: ${competency.lookFor.join("; ")}` : null,

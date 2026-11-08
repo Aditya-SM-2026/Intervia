@@ -65,6 +65,7 @@ export function CreateInterviewPanel({
       if (values.skillFocus && values.skillFocus.length > 0) {
         form.set("skillFocus", JSON.stringify(values.skillFocus));
       }
+      if (values.projectShare !== undefined) form.set("projectShare", String(values.projectShare));
       if (values.jobDescriptionPdf) {
         form.set("jobDescriptionPdf", values.jobDescriptionPdf);
       } else if (values.jobDescriptionText) {

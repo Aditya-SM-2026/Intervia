@@ -26,6 +26,16 @@ class Competency:
     minutes: float = 4.0
     # The recruiter's custom-scoring parameter this topic assesses, if any.
     skill: str | None = None
+    # "projects" (a deep dive into one of the candidate's own projects) or
+    # "requirements" (what the job needs, as scenarios). Older plans: None.
+    part: str | None = None
+    # For a projects topic: which project, and why it was picked for this job.
+    project_name: str | None = None
+    project_why: str | None = None
+    # Probes from surface to fundamentals, in order.
+    depth_ladder: tuple[str, ...] = ()
+    # For a projects topic: applying their work to a need of this job.
+    bridge: str | None = None
 
 
 @dataclass(frozen=True)
@@ -122,6 +132,8 @@ def _competency(raw: Any, index: int) -> Competency | None:
     if not question or not name:
         return None
     minutes = raw.get("minutes")
+    part = _text(raw.get("part"))
+    project = raw.get("project")
     return Competency(
         id=_text(raw.get("id"), f"competency-{index + 1}"),
         name=name,
@@ -132,6 +144,11 @@ def _competency(raw: Any, index: int) -> Competency | None:
         resume_probe=_text(raw.get("resumeProbe")) or None,
         minutes=float(minutes) if isinstance(minutes, (int, float)) and minutes > 0 else 4.0,
         skill=_text(raw.get("skill")) or None,
+        part=part if part in ("projects", "requirements") else None,
+        project_name=_text(project.get("name")) or None if isinstance(project, dict) else None,
+        project_why=_text(project.get("whyChosen")) or None if isinstance(project, dict) else None,
+        depth_ladder=_strings(raw.get("depthLadder")),
+        bridge=_text(raw.get("bridge")) or None,
     )
 
 

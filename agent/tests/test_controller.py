@@ -245,3 +245,57 @@ def test_parse_context_reads_the_web_payload():
     assert context.role_title == "Data Engineer" and context.difficulty == "hard"
     assert [c.id for c in context.competencies] == ["sql"]
     assert context.competencies[0].follow_ups == ("Why?",) and context.competencies[0].minutes == 6
+
+
+def test_two_part_plan_briefings():
+    from dataclasses import replace
+
+    base = make_context(minutes=30, topics=3)
+    competencies = (
+        Competency(
+            id="p1", name="SigmaGPT project", description="", question="Walk me through SigmaGPT.",
+            part="projects", project_name="SigmaGPT", project_why="Uses the OpenAI API",
+            depth_ladder=("What did you build yourself?", "How does a request flow?", "Why MongoDB?"),
+            bridge="How would you apply this to our support chatbot?",
+        ),
+        Competency(
+            id="r1", name="Retrieval", description="", question="We need answers grounded in our docs. How?",
+            part="requirements", depth_ladder=("How would you chunk the documents?",),
+            resume_probe="Their spam classifier project",
+        ),
+        Competency(id="r2", name="Deployment", description="", question="How would you deploy it?", part="requirements"),
+    )
+    clock = FakeClock()
+    controller = InterviewController(replace(base, competencies=competencies), clock=clock)
+    controller.begin()
+    clock.advance(60)
+    first = controller.next_topic(None, None)
+    assert "OWN projects" in first
+    assert "Project: SigmaGPT" in first
+    assert "Depth ladder" in first and "(2) How does a request flow?" in first
+    assert "bridge question" in first and "support chatbot" in first
+    assert "do not exist" in first
+    clock.advance(12 * 60)
+    second = controller.next_topic("summary", "adequate")
+    assert "what THIS job needs" in second
+    assert "spam classifier" in second  # resume link, only after the scenario
+    clock.advance(6 * 60)
+    third = controller.next_topic("summary", "adequate")
+    assert "what THIS job needs" not in third  # the part is introduced once
+
+
+def test_parse_context_reads_two_part_fields():
+    raw = {
+        "interview": {"roleTitle": "AI Developer", "durationMinutes": 30, "difficulty": "medium"},
+        "plan": {"competencies": [{
+            "id": "p1", "name": "Project", "question": "Walk me through it.", "part": "projects",
+            "project": {"name": "SigmaGPT", "whyChosen": "LLM work"},
+            "depthLadder": ["Your part?", "How does it work?"], "bridge": "Apply it to us?",
+        }]},
+    }
+    context = parse_context("x", raw)
+    competency = context.competencies[0]
+    assert competency.part == "projects"
+    assert competency.project_name == "SigmaGPT"
+    assert competency.depth_ladder == ("Your part?", "How does it work?")
+    assert competency.bridge == "Apply it to us?"

@@ -591,6 +591,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
               <AnswerQualityTable
                 scorecard={scorecard}
                 competencies={competencies}
+                coverage={session.outcome?.coverage ?? []}
                 turns={turns}
                 offsetFor={recordingOffset}
                 onPlay={playFrom}
@@ -1242,12 +1243,14 @@ function SummarySection({
 function AnswerQualityTable({
   scorecard,
   competencies,
+  coverage,
   turns,
   offsetFor,
   onPlay,
 }: {
   scorecard: Scorecard;
   competencies: PlanCompetency[];
+  coverage: { competencyId: string; startedAtSeconds: number | null; endedAtSeconds: number | null }[];
   turns: InterviewTurn[];
   offsetFor: (turn: InterviewTurn) => number | null;
   onPlay: (seconds: number) => void;
@@ -1266,12 +1269,38 @@ function AnswerQualityTable({
         right={<HeadingScore score={score} tone={chip.tone} label={chip.label} />}
       />
 
+      {scorecard.partScores && (
+        <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
+          {(
+            [
+              { id: "projects", label: "Their own projects", hint: "Could they explain their own work in depth?" },
+              { id: "requirements", label: "What this job needs", hint: "How they handled our scenarios." },
+            ] as const
+          ).map((part) => {
+            const value = scorecard.partScores?.[part.id] ?? null;
+            const tone: Tone = value === null ? "muted" : value >= 65 ? "good" : value >= 50 ? "warn" : "bad";
+            return (
+              <div key={part.id} className={`rounded-xl px-4 py-3 ${TONE_TILE[tone]}`}>
+                <p className="text-xl font-semibold leading-none tabular-nums">{value ?? "—"}</p>
+                <p className="mt-1.5 text-xs font-medium">{part.label}</p>
+                <p className="mt-0.5 text-[11px] opacity-70">{part.hint}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {scorecard.competencies.length === 0 ? (
         <p className="mt-4 text-sm text-muted">No competency questions were scored for this interview.</p>
       ) : (
         <ol className="mt-6 grid gap-3">
           {scorecard.competencies.map((item, index) => {
             const plan = competencies.find((c) => c.id === item.competencyId);
+            const covered = coverage.find((entry) => entry.competencyId === item.competencyId);
+            const actualMinutes =
+              covered && covered.startedAtSeconds !== null && covered.endedAtSeconds !== null
+                ? Math.round(((covered.endedAtSeconds - covered.startedAtSeconds) / 60) * 10) / 10
+                : null;
             const window = evidenceWindow(item.evidence, bySeq, offsetFor);
             const scoreOut10 = item.score !== null ? item.score * 2 : null;
             const tone: Tone =
@@ -1291,6 +1320,19 @@ function AnswerQualityTable({
                     <span className="font-semibold text-foreground">{item.name}</span>
                   </p>
                   {plan?.question && <p className="mt-0.5 line-clamp-1 text-xs text-muted">{plan.question}</p>}
+                  {(plan?.part || plan?.skill || plan?.minutes) && (
+                    <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted">
+                      {plan?.part && (
+                        <span>{plan.part === "projects" ? `Own project${plan.project ? `: ${plan.project.name}` : ""}` : "This job's needs"}</span>
+                      )}
+                      {plan?.skill && <span>Skill: {plan.skill}</span>}
+                      {plan?.minutes ? (
+                        <span className="tabular-nums">
+                          {plan.minutes} min planned{actualMinutes !== null ? ` · ${actualMinutes} min spent` : ""}
+                        </span>
+                      ) : null}
+                    </p>
+                  )}
                   {item.dimensions && <DimensionChips dimensions={item.dimensions} definitionOnly={item.definitionOnly === true} />}
                   <Clamp text={plain(item.rationale)} lines={2} className="mt-2 max-w-[75ch] text-sm leading-6 text-foreground/80" />
                 </div>

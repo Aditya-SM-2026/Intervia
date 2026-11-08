@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
     voiceMode: text("voiceMode"),
     jobDescriptionText: text("jobDescriptionText"),
     skillFocus: text("skillFocus"),
+    projectShare: text("projectShare"),
   });
   if (!parsed.success) {
     return invalidInput(formatValidationIssues(parsed.error));
