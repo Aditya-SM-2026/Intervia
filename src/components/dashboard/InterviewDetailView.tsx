@@ -1521,7 +1521,7 @@ function ResumeTable({
             })}
           </div>
           {shown && (
-            <ul role="tabpanel" className="mt-3 divide-y divide-border border-t border-border">
+            <ul role="tabpanel" className="mt-3 grid border-t border-border pt-2">
               {shown.claims.map((claim) => {
                 const questions = [
                   ...new Set(
@@ -1531,17 +1531,13 @@ function ResumeTable({
                   ),
                 ];
                 return (
-                  <li key={claim.claim} className="py-3 text-sm">
-                    <p className="flex flex-wrap items-baseline gap-x-2 font-medium text-foreground">
-                      {plain(claim.claim)}
-                      {questions.map((q) => (
-                        <span key={q} className="text-xs font-normal tabular-nums text-muted">
-                          Q{q}
-                        </span>
-                      ))}
-                    </p>
-                    {claim.note && <p className="mt-0.5 leading-6 text-muted">{plain(claim.note)}</p>}
-                  </li>
+                  <ClaimItem
+                    key={claim.claim}
+                    claim={claim.claim}
+                    note={claim.note}
+                    questions={questions}
+                    dot={shown.bar}
+                  />
                 );
               })}
             </ul>
@@ -1562,6 +1558,55 @@ function ResumeTable({
         <InfoTip text="Checks the resume against the job description and against what the candidate actually said. Takes a few seconds." />
       </div>
     </section>
+  );
+}
+
+/** One resume claim: a short line with the questions it came up in; the full claim and the evidence on click. */
+function ClaimItem({
+  claim,
+  note,
+  questions,
+  dot,
+}: {
+  claim: string;
+  note: string;
+  questions: number[];
+  dot: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const full = plain(claim);
+  const head = keyPhrase(full, 80);
+  const detail = note ? plain(note) : "";
+  const more = Boolean(detail) || head.replace(/…$/, "") !== full.replace(/[.!?]$/, "");
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => more && setOpen((current) => !current)}
+        aria-expanded={more ? open : undefined}
+        className={`-mx-2 flex w-[calc(100%+1rem)] items-start gap-3 rounded-lg px-2 py-2 text-left text-sm leading-6 transition ${
+          more ? "hover:bg-foreground/[0.04]" : "cursor-default"
+        }`}
+      >
+        <span className={`mt-[9px] size-2 shrink-0 rounded-full ${dot}`} aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="block font-medium text-foreground">{open ? full : head}</span>
+          {open && detail && <span className="mt-1 block leading-6 text-foreground/70">{detail}</span>}
+        </span>
+        {questions.length > 0 && (
+          <span className="mt-0.5 flex shrink-0 gap-1">
+            {questions.map((q) => (
+              <span key={q} className="rounded-md bg-foreground/[0.06] px-1.5 text-xs font-medium tabular-nums leading-5 text-muted">
+                Q{q}
+              </span>
+            ))}
+          </span>
+        )}
+        {more && (
+          <ChevronDown className={`mt-[3px] size-4 shrink-0 text-muted transition ${open ? "rotate-180" : ""}`} aria-hidden />
+        )}
+      </button>
+    </li>
   );
 }
 
