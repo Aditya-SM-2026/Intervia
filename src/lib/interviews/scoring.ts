@@ -34,7 +34,8 @@ import type {
  * - answers: how well the questions were answered (the core);
  * - resume: whether they could back up their own resume in depth;
  * - authenticity ("own answers"): counted only as far as the answers were good,
- *   see ownAnswersFactor; an off-topic answer in your own words earns nothing;
+ *   see ownAnswerTally: good answers in the candidate's own words, out of all
+ *   scored questions; an off-topic answer in your own words earns nothing;
  * - video: 0 for now. It is measured and shown, and can be given 10-15% once
  *   it has been validated on staged interviews (SCORE_WEIGHTS_V2).
  */
@@ -61,15 +62,55 @@ export function parseWeights(setting: string | undefined): Record<FactorId, numb
   return { answers: parts[0], resume: parts[1], authenticity: parts[2], video: parts[3] };
 }
 
+export interface OwnAnswerTally {
+  /** Scored answers. */
+  scored: number;
+  /** Answers that scored 3 or more out of 5. */
+  good: number;
+  /** Good answers in the candidate's own words (polished counts half). */
+  goodOwn: number;
+}
+
+const OWN_CREDIT = { natural: 1, polished: 0.5, likely_read: 0 } as const;
+
 /**
- * Own answers as a factor of the score: originality multiplied by answer
- * quality. Being original only counts when there was a good answer to be
- * original about, so a candidate who talks about something else entirely in
- * their own words does not collect originality points.
+ * Own answers: of all the scored questions, how many got an answer that was
+ * both good (3 or more out of 5) and in the candidate's own words. Originality
+ * is only checked where there is a good answer to be original about, so this
+ * neither repeats the answer score nor rewards an honest but empty answer.
+ * A question's verdict is the weakest one among its answers.
  */
-export function ownAnswersFactor(originality: number | null, answerQuality: number | null): number | null {
-  if (originality === null || answerQuality === null) return null;
-  return clampScore((originality * answerQuality) / 100);
+export function ownAnswerTally(
+  competencies: readonly CompetencyScore[],
+  verdictByCompetency: ReadonlyMap<string, keyof typeof OWN_CREDIT>,
+): OwnAnswerTally {
+  const scored = competencies.filter((item) => item.status === "scored" && item.score !== null);
+  const good = scored.filter((item) => (item.score as number) >= 3);
+  const goodOwn = good.reduce(
+    (sum, item) => sum + OWN_CREDIT[verdictByCompetency.get(item.competencyId) ?? "natural"],
+    0,
+  );
+  return { scored: scored.length, good: good.length, goodOwn };
+}
+
+export function ownAnswersFactor(tally: OwnAnswerTally | null): number | null {
+  if (!tally || tally.scored === 0) return null;
+  return clampScore((tally.goodOwn / tally.scored) * 100);
+}
+
+/** The weakest originality verdict per question, from the per-answer readings. */
+export function verdictsByCompetency(
+  readings: readonly { turnSeq: number; verdict: keyof typeof OWN_CREDIT }[],
+  competencyOfTurn: ReadonlyMap<number, string | null>,
+): Map<string, keyof typeof OWN_CREDIT> {
+  const out = new Map<string, keyof typeof OWN_CREDIT>();
+  for (const reading of readings) {
+    const competency = competencyOfTurn.get(reading.turnSeq);
+    if (!competency) continue;
+    const current = out.get(competency);
+    if (!current || OWN_CREDIT[reading.verdict] < OWN_CREDIT[current]) out.set(competency, reading.verdict);
+  }
+  return out;
 }
 
 /**

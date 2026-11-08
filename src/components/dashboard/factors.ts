@@ -23,7 +23,7 @@ export const FACTOR_META: Record<
     name: "Own answers",
     short: "Own answers",
     explains:
-      "Whether the answers were the candidate's own words, counted only as far as the answers were good: an original but off-topic or weak answer earns little.",
+      "Of all the questions, how many got an answer that was both good (3 or more out of 5) and in the candidate's own words. An honest but weak or off-topic answer earns nothing here, and neither does a good answer that was read out.",
     bar: "bg-candidate",
   },
   video: {

@@ -15,6 +15,8 @@ import {
   cappedAnswerScore,
   integritySummary,
   ownAnswersFactor,
+  ownAnswerTally,
+  verdictsByCompetency,
   customScore as combineCustomScore,
   measuredAuthenticitySignals,
   overallScore as combineFactors,
@@ -284,8 +286,8 @@ export function recomputeOverallWithFactor(
   for (const factor of scorecard.overall?.factors ?? []) {
     scores[factor.id] = factor.score;
   }
-  if (scores.authenticity === null && scorecard.authenticity) {
-    scores.authenticity = ownAnswersFactor(scorecard.authenticity.score, scorecard.answerQuality ?? null);
+  if (scores.authenticity === null && scorecard.ownAnswers) {
+    scores.authenticity = ownAnswersFactor(scorecard.ownAnswers);
   }
   scores[factorId] = factorScore;
   return combineFactors(scores, weights);
@@ -489,22 +491,17 @@ export async function getInterviewDetail(
     }
   }
 
-  // Reports scored before own answers joined the score (Nov 8) get it on open.
-  if (
-    scorecard?.integrityCheck &&
-    scorecard.overall &&
-    scorecard.authenticity &&
-    !scorecard.overall.factors.some((factor) => factor.id === "authenticity")
-  ) {
-    scorecard = {
-      ...scorecard,
-      overall: recomputeOverallWithFactor(
-        scorecard,
-        "authenticity",
-        ownAnswersFactor(scorecard.authenticity.score, scorecard.answerQuality ?? null),
-      ),
-    };
-    await repository.saveScorecard(scorecard);
+  // Own answers is recomputed from the stored readings on open, so reports
+  // scored under an earlier rule (Nov 8) show the current one.
+  if (scorecard?.integrityCheck && scorecard.overall && scorecard.authenticity) {
+    const ownAnswers = ownTally(scorecard.competencies, scorecard.authenticity, turns);
+    const factor = ownAnswersFactor(ownAnswers);
+    const stored = scorecard.overall.factors.find((item) => item.id === "authenticity")?.score ?? null;
+    if (factor !== stored || JSON.stringify(ownAnswers) !== JSON.stringify(scorecard.ownAnswers ?? null)) {
+      scorecard = { ...scorecard, ownAnswers };
+      scorecard = { ...scorecard, overall: recomputeOverallWithFactor(scorecard, "authenticity", factor) };
+      await repository.saveScorecard(scorecard);
+    }
   }
 
   // The integrity rules run in code over stored measurements, so when the
@@ -913,11 +910,12 @@ async function buildScorecard(
     notes.push("The check for signs of prompted answers did not run.");
   }
 
+  const ownAnswers = ownTally(competencies, authenticity, turns);
   const overall = combineFactors(
     {
       answers: answerQuality,
       resume: resumeMatch.score,
-      authenticity: ownAnswersFactor(authenticity.score, answerQuality),
+      authenticity: ownAnswersFactor(ownAnswers),
       video: video.score,
     },
     parseWeights(process.env.SCORE_WEIGHTS_V2),
@@ -934,6 +932,7 @@ async function buildScorecard(
   return {
     answerQuality,
     partScores,
+    ownAnswers,
     resumeMatch,
     authenticity,
     video,
@@ -1064,6 +1063,17 @@ function buildAuthenticity(
   const score = Math.max(0, authenticityScore(signals) - verdictPenalty);
 
   return { score, signals, status: "checked", reason: null, answers };
+}
+
+/** Good answers in the candidate's own words; null when originality was not checked. */
+function ownTally(
+  competencies: readonly CompetencyScore[],
+  authenticity: Authenticity,
+  turns: readonly InterviewTurn[],
+): { scored: number; good: number; goodOwn: number } | null {
+  if (authenticity.status === "not_checked") return null;
+  const competencyOfTurn = new Map(turns.map((turn) => [turn.seq, turn.competencyId ?? null]));
+  return ownAnswerTally(competencies, verdictsByCompetency(authenticity.answers ?? [], competencyOfTurn));
 }
 
 /** Adds the code-written summary; the model's summary replaces it when the video lands. */

@@ -484,6 +484,8 @@ export interface Scorecard {
    * interview did not have or did not reach.
    */
   partScores?: { projects: number | null; requirements: number | null } | null;
+  /** Good answers (3+ of 5) in the candidate's own words, out of scored questions. */
+  ownAnswers?: { scored: number; good: number; goodOwn: number } | null;
   resumeMatch?: ResumeMatch;
   authenticity?: Authenticity;
   video?: VideoBehaviour;

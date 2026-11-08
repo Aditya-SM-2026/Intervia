@@ -1025,7 +1025,11 @@ function OverallAssessment({
                 />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold">{meta.name}</span>
-                  <span className={`mt-0.5 block text-xs font-medium ${TONE_TEXT[chip.tone]}`}>{chip.label}</span>
+                  <span className={`mt-0.5 block text-xs font-medium ${TONE_TEXT[chip.tone]}`}>
+                    {factor.id === "authenticity" && scorecard.ownAnswers
+                      ? `${formatCount(scorecard.ownAnswers.goodOwn)} of ${scorecard.ownAnswers.scored} good answers in own words`
+                      : chip.label}
+                  </span>
                   <span className="mt-0.5 block text-[11px] text-muted">{factor.weight}% of the score</span>
                 </span>
                 <ChevronRight className="ml-auto size-4 shrink-0 text-muted opacity-0 transition group-hover:opacity-100" aria-hidden />
@@ -2869,6 +2873,11 @@ function evidenceWindow(
   if (offsets.length === 0) return null;
   offsets.sort((a, b) => a.start - b.start);
   return { from: offsets[0].start, to: Math.max(offsets[offsets.length - 1].end, offsets[0].start + 10) };
+}
+
+/** A count that may be a half (polished answers count half). */
+function formatCount(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
 function scoreBand(score: number | null): { label: string; tone: Tone } {
