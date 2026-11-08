@@ -365,7 +365,7 @@ class InterviewController:
         role = f"the {context.role_title} role" if context.role_title else "this role"
         return (
             f"The candidate has just joined. Open with exactly this, short and plain: "
-            f"\"Hey {name}, I am the Sreemedhas Interview Agent, I am going to take your "
+            f"\"Hey {name}, I am the Medhas Academy interviewer, and I am going to take your "
             f"interview for {role}.\" Say nothing else first: no small talk, no mention of "
             "recording, length or next steps. Then go straight into your first question."
         )
