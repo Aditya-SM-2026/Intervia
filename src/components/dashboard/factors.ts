@@ -23,7 +23,7 @@ export const FACTOR_META: Record<
     name: "Own answers",
     short: "Own answers",
     explains:
-      "Signs in the wording and timing that answers were the candidate's own, not read out or prompted.",
+      "Whether the answers were the candidate's own words, counted only as far as the answers were good: an original but off-topic or weak answer earns little.",
     bar: "bg-candidate",
   },
   video: {

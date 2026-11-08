@@ -576,14 +576,14 @@ export async function renderScorecardPdf(
   const integrityCheck = scorecard.integrityCheck;
   if (integrityCheck) {
     const level = {
-      clear: "Clear",
+      clear: "Nothing stood out",
       review: "Worth a look",
       high_risk: "High risk",
       pending: "Video still being checked",
       not_checked: "Not checked",
     }[integrityCheck.level];
-    sectionTitle(ctx, `Integrity: ${level}`);
-    paragraph(ctx, `${integrityCheck.summary} Integrity is not part of the score.`, {
+    sectionTitle(ctx, `On-camera behaviour: ${level}`);
+    paragraph(ctx, `${integrityCheck.summary} Not part of the score yet.`, {
       size: 9.5,
       color: MUTED,
       gap: 4,
@@ -675,7 +675,7 @@ export async function renderScorecardPdf(
   sectionTitle(ctx, "Concerns");
   bulletList(ctx, scorecard.concerns, { color: AMBER, empty: "No concerns were recorded." });
 
-  sectionTitle(ctx, "Integrity signals (measured)");
+  sectionTitle(ctx, "Browser signals (measured)");
   table(
     ctx,
     [

@@ -14,8 +14,8 @@ import {
   buildIntegrityCheck,
   cappedAnswerScore,
   integritySummary,
+  ownAnswersFactor,
   customScore as combineCustomScore,
-  DEFAULT_WEIGHTS,
   measuredAuthenticitySignals,
   overallScore as combineFactors,
   parseWeights,
@@ -280,10 +280,12 @@ export function recomputeOverallWithFactor(
     authenticity: null,
     video: null,
   };
-  const weights: Record<FactorId, number> = { ...DEFAULT_WEIGHTS };
+  const weights: Record<FactorId, number> = parseWeights(process.env.SCORE_WEIGHTS_V2);
   for (const factor of scorecard.overall?.factors ?? []) {
     scores[factor.id] = factor.score;
-    weights[factor.id] = factor.weight;
+  }
+  if (scores.authenticity === null && scorecard.authenticity) {
+    scores.authenticity = ownAnswersFactor(scorecard.authenticity.score, scorecard.answerQuality ?? null);
   }
   scores[factorId] = factorScore;
   return combineFactors(scores, weights);
@@ -485,6 +487,24 @@ export async function getInterviewDetail(
       scorecard = { ...scorecard, integrityCheck: refreshIntegrity(scorecard) };
       await repository.saveScorecard(scorecard);
     }
+  }
+
+  // Reports scored before own answers joined the score (Nov 8) get it on open.
+  if (
+    scorecard?.integrityCheck &&
+    scorecard.overall &&
+    scorecard.authenticity &&
+    !scorecard.overall.factors.some((factor) => factor.id === "authenticity")
+  ) {
+    scorecard = {
+      ...scorecard,
+      overall: recomputeOverallWithFactor(
+        scorecard,
+        "authenticity",
+        ownAnswersFactor(scorecard.authenticity.score, scorecard.answerQuality ?? null),
+      ),
+    };
+    await repository.saveScorecard(scorecard);
   }
 
   // The integrity rules run in code over stored measurements, so when the
@@ -883,10 +903,10 @@ async function buildScorecard(
     {
       answers: answerQuality,
       resume: resumeMatch.score,
-      authenticity: authenticity.score,
+      authenticity: ownAnswersFactor(authenticity.score, answerQuality),
       video: video.score,
     },
-    parseWeights(process.env.SCORE_WEIGHTS),
+    parseWeights(process.env.SCORE_WEIGHTS_V2),
   );
 
   const integrityCheck = finishIntegrity(

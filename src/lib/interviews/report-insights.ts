@@ -94,7 +94,7 @@ export function buildReportInsights(input: {
       score === null
         ? "Not enough scored answers for a verdict."
         : held
-          ? `The answers score ${score} of 100, but the integrity check found signs the answers may not be the candidate's own. Watch the flagged moments first.`
+          ? `The answers score ${score} of 100, but the recording shows signs the answers may not be the candidate's own. Watch the flagged moments first.`
           : `From the answer score of ${score} of 100. The final call stays with you.`,
   };
 
@@ -222,7 +222,7 @@ export function buildReportInsights(input: {
     }
   }
   if (check?.level === "high_risk" || check?.level === "review") {
-    steps.push("Watch the moments listed under Integrity before deciding.");
+    steps.push("Watch the moments listed under On-camera behaviour before deciding.");
   } else if (!check && scorecard.video?.status === "analysed" && (scorecard.video.score ?? 100) < 60) {
     steps.push("Watch the flagged on-camera moments in the video analysis before deciding.");
   }

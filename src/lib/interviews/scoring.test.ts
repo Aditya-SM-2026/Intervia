@@ -8,6 +8,7 @@ import {
   cappedAnswerScore,
   integrityLevel,
   measuredFindings,
+  ownAnswersFactor,
   authenticityScore,
   customScore,
   measuredAuthenticitySignals,
@@ -143,20 +144,25 @@ test("custom parameters: weighted by the recruiter's emphasis", () => {
   assert.equal(customScore([]), null);
 });
 
-test("overall: ability only - answers and resume depth, never integrity", () => {
+test("overall: answers 70, resume 20, own answers 10; video measured but weighted 0", () => {
   const all = overallScore({ answers: 80, resume: 100, authenticity: 60, video: 40 });
-  // (80*80 + 100*20) / 100 = 84; own answers and video do not move it.
-  assert.equal(all.score, 84);
-  assert.deepEqual(
-    all.factors.map((factor) => factor.id),
-    ["answers", "resume"],
-  );
-  const honestButWeak = overallScore({ answers: 44, resume: 50, authenticity: 100, video: 100 });
-  assert.equal(honestButWeak.score, 45);
+  // (80*70 + 100*20 + 60*10) / 100 = 82; video is left out at weight 0.
+  assert.equal(all.score, 82);
+  assert.deepEqual(all.factors.map((factor) => factor.id), ["answers", "resume", "authenticity"]);
+});
+
+test("own answers only count as far as the answers were good", () => {
+  assert.equal(ownAnswersFactor(100, 49), 49); // honest but weak
+  assert.equal(ownAnswersFactor(100, 85), 85); // honest and strong
+  assert.equal(ownAnswersFactor(30, 85), 26); // strong but read out
+  assert.equal(ownAnswersFactor(null, 85), null); // not checked
+  // An honest candidate who talks about something else gains almost nothing.
+  const offTopic = overallScore({ answers: 20, resume: null, authenticity: ownAnswersFactor(100, 20), video: null });
+  assert.equal(offTopic.score, 20);
 });
 
 test("overall: a missing factor is left out, not counted as zero", () => {
-  const noResume = overallScore({ answers: 70, resume: null, authenticity: 60, video: null });
+  const noResume = overallScore({ answers: 70, resume: null, authenticity: null, video: null });
   assert.equal(noResume.score, 70);
   assert.equal(noResume.factors.find((factor) => factor.id === "resume")?.score, null);
 });
@@ -165,13 +171,12 @@ test("overall: no scored answers means no overall score", () => {
   assert.equal(overallScore({ answers: null, resume: 90, authenticity: 90, video: 90 }).score, null);
 });
 
-test("weights setting: answers and resume only; an old four-part setting keeps its first two", () => {
-  assert.deepEqual(parseWeights("70,30"), { answers: 70, resume: 30, authenticity: 0, video: 0 });
-  assert.deepEqual(parseWeights("45,20,20,15"), { answers: 45, resume: 20, authenticity: 0, video: 0 });
-  assert.deepEqual(parseWeights("1,2,3"), DEFAULT_WEIGHTS);
-  assert.deepEqual(parseWeights("a,b"), DEFAULT_WEIGHTS);
+test("weights setting: four parts, video can be switched on later", () => {
+  assert.deepEqual(parseWeights("60,20,10,10"), { answers: 60, resume: 20, authenticity: 10, video: 10 });
+  assert.deepEqual(parseWeights("70,30"), DEFAULT_WEIGHTS);
+  assert.deepEqual(parseWeights("a,b,c,d"), DEFAULT_WEIGHTS);
   assert.deepEqual(parseWeights(undefined), DEFAULT_WEIGHTS);
-  assert.deepEqual(parseWeights("0,0"), DEFAULT_WEIGHTS);
+  assert.deepEqual(parseWeights("0,0,0,0"), DEFAULT_WEIGHTS);
 });
 
 test("answer caps: off the question or definitions only cannot score high", () => {

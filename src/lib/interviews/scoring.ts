@@ -30,37 +30,46 @@ import type {
  */
 
 /**
- * Percent of the score each factor carries. The score measures ability only:
- * how well the questions were answered, and whether the candidate could back
- * up their own resume in depth. Own answers and on-camera behaviour are
- * integrity checks (see buildIntegrityCheck): they never add points, because
- * an honest candidate who cannot do the job is still not a hire.
+ * Percent of the score each factor carries.
+ * - answers: how well the questions were answered (the core);
+ * - resume: whether they could back up their own resume in depth;
+ * - authenticity ("own answers"): counted only as far as the answers were good,
+ *   see ownAnswersFactor; an off-topic answer in your own words earns nothing;
+ * - video: 0 for now. It is measured and shown, and can be given 10-15% once
+ *   it has been validated on staged interviews (SCORE_WEIGHTS_V2).
  */
 export const DEFAULT_WEIGHTS: Record<FactorId, number> = {
-  answers: 80,
+  answers: 70,
   resume: 20,
-  authenticity: 0,
+  authenticity: 10,
   video: 0,
 };
 
-/** The factors that make up the score. */
-export const FACTOR_ORDER: FactorId[] = ["answers", "resume"];
+export const FACTOR_ORDER: FactorId[] = ["answers", "resume", "authenticity", "video"];
 
 /**
- * Weights from an "80,20" (answers, resume) setting; falls back to the
- * defaults. An older four-part "45,20,20,15" setting keeps its first two
- * parts: integrity is never weighted into the score.
+ * Weights from a "70,20,10,0" (answers, resume, own answers, video) setting;
+ * falls back to the defaults. Read from SCORE_WEIGHTS_V2, so an older
+ * SCORE_WEIGHTS value from the four-factor blend cannot switch video on.
  */
 export function parseWeights(setting: string | undefined): Record<FactorId, number> {
   const parts = (setting ?? "").split(",").map((part) => Number(part.trim()));
-  if (
-    (parts.length !== 2 && parts.length !== 4) ||
-    parts.some((value) => !Number.isFinite(value) || value < 0)
-  ) {
+  if (parts.length !== 4 || parts.some((value) => !Number.isFinite(value) || value < 0)) {
     return DEFAULT_WEIGHTS;
   }
-  if (parts[0] + parts[1] <= 0) return DEFAULT_WEIGHTS;
-  return { answers: parts[0], resume: parts[1], authenticity: 0, video: 0 };
+  if (parts[0] <= 0) return DEFAULT_WEIGHTS;
+  return { answers: parts[0], resume: parts[1], authenticity: parts[2], video: parts[3] };
+}
+
+/**
+ * Own answers as a factor of the score: originality multiplied by answer
+ * quality. Being original only counts when there was a good answer to be
+ * original about, so a candidate who talks about something else entirely in
+ * their own words does not collect originality points.
+ */
+export function ownAnswersFactor(originality: number | null, answerQuality: number | null): number | null {
+  if (originality === null || answerQuality === null) return null;
+  return clampScore((originality * answerQuality) / 100);
 }
 
 /**
@@ -254,8 +263,12 @@ export function overallScore(
   scores: Record<FactorId, number | null>,
   weights: Record<FactorId, number> = DEFAULT_WEIGHTS,
 ): OverallScore {
-  const factors = FACTOR_ORDER.map((id) => ({ id, score: scores[id], weight: weights[id] }));
-  // Integrity factors are never part of the total, whatever weights are passed.
+  // Factors weighted 0 (video, for now) are left out of the list entirely.
+  const factors = FACTOR_ORDER.filter((id) => weights[id] > 0).map((id) => ({
+    id,
+    score: scores[id],
+    weight: weights[id],
+  }));
   // Without scored answers there is nothing to anchor a total on.
   if (scores.answers === null) return { score: null, factors };
 
