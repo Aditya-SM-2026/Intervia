@@ -23,6 +23,7 @@ import type {
   IntegrityLevel,
   InterviewDetailResponse,
   PeerSummary,
+  ResumeProfile,
   ResumeVerdict,
   Scorecard,
   ScoreEvidence,
@@ -46,7 +47,6 @@ import {
   Download,
   ExternalLink,
   Eye,
-  FileSearch,
   FileText,
   Gauge,
   Maximize2,
@@ -1418,6 +1418,8 @@ function ResumeTable({
   isAnalysing: boolean;
 }) {
   const [open, setOpen] = useState<ResumeVerdict | null>(null);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [tab, setTab] = useState<"fit" | "claims" | null>(null);
   const resume = scorecard.resumeMatch;
   if (!resume) return null;
 
@@ -1445,25 +1447,85 @@ function ResumeTable({
   const total = resume.claims.length;
   const shown = groups.find((group) => group.id === open) ?? null;
 
+  const backedUp = resume.claims.filter((claim) => claim.verdict === "confirmed").length;
+  const activeTab = tab ?? (fit.length > 0 ? "fit" : "claims");
+
   return (
     <section id="resume" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
-        icon={FileSearch}
-        iconColor="violet"
         title="Resume"
-        subtitle="How the resume fits this job, and whether the candidate could back up its claims in the interview with real depth: how it works, their part, a problem they solved. Naming a project is only partly backed up."
+        subtitle="The resume at a glance, then how it fits this job and whether the candidate could back it up in the interview with real depth: how it works, their part, a problem they solved."
         right={<HeadingScore score={resume.score} tone={chip.tone} label={chip.label} />}
       />
 
-      {fit.length > 0 && (
-        <div className="mt-5">
-          <div className="flex items-baseline justify-between gap-3">
-            <h3 className="text-sm font-semibold">Fit with this job</h3>
-            <span className="text-xs tabular-nums text-muted">
-              {fitCovered} of {fit.length} requirements on the resume
+      {resume.profile ? (
+        <ResumeProfileView profile={resume.profile} />
+      ) : (
+        <p className="mt-4 rounded-xl bg-foreground/[0.035] px-4 py-3 text-sm text-muted">
+          Re-check the resume to see experience, top skills and what stands out.
+        </p>
+      )}
+
+      {(fit.length > 0 || total > 0) && (
+        <div className="mt-5 rounded-2xl bg-foreground/[0.03]">
+          <button
+            type="button"
+            onClick={() => setCompareOpen((current) => !current)}
+            aria-expanded={compareOpen}
+            className="flex w-full items-center gap-4 rounded-2xl px-5 py-4 text-left transition hover:bg-foreground/[0.02]"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold">Compared with the job and the interview</span>
+              <span className="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted">
+                {fit.length > 0 && (
+                  <span>
+                    <b className="font-semibold tabular-nums text-foreground">
+                      {fitCovered} of {fit.length}
+                    </b>{" "}
+                    job needs on the resume
+                  </span>
+                )}
+                {total > 0 && (
+                  <span>
+                    <b className="font-semibold tabular-nums text-foreground">
+                      {backedUp} of {total}
+                    </b>{" "}
+                    claims backed up in the interview
+                  </span>
+                )}
+              </span>
             </span>
-          </div>
-          <ul className="mt-2 grid gap-x-8 sm:grid-cols-2">
+            <ChevronDown className={`size-5 shrink-0 text-muted transition ${compareOpen ? "rotate-180" : ""}`} aria-hidden />
+          </button>
+
+          {compareOpen && (
+            <div className="border-t border-border px-5 pb-5 pt-4">
+              {fit.length > 0 && total > 0 && (
+                <div className="mb-4 inline-flex rounded-xl bg-foreground/[0.05] p-1" role="tablist" aria-label="Resume comparison">
+                  {(
+                    [
+                      { id: "fit", label: "Fit with this job" },
+                      { id: "claims", label: "Backed up in the interview" },
+                    ] as const
+                  ).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeTab === item.id}
+                      onClick={() => setTab(item.id)}
+                      className={`h-8 rounded-lg px-3 text-sm font-medium transition ${
+                        activeTab === item.id ? "bg-surface text-foreground shadow-sm" : "text-muted hover:text-foreground"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {activeTab === "fit" && fit.length > 0 ? (
+                <>
+          <ul className="grid gap-x-8 sm:grid-cols-2">
             {fit.map((item) => (
               <li
                 key={item.requirement}
@@ -1491,15 +1553,14 @@ function ResumeTable({
               </li>
             ))}
           </ul>
-        </div>
-      )}
-
+                </>
+              ) : (
+                <>
       {total === 0 ? (
-        <p className="mt-5 text-sm text-muted">{resume.reason ?? "No resume claims were checked for this interview."}</p>
+        <p className="text-sm text-muted">{resume.reason ?? "No resume claims were checked for this interview."}</p>
       ) : (
-        <div className="mt-6">
-          <h3 className="text-sm font-semibold">Backed up in the interview</h3>
-          <div className="mt-2.5 flex h-2 gap-0.5 overflow-hidden rounded-full" aria-hidden>
+        <div>
+          <div className="flex h-2 gap-0.5 overflow-hidden rounded-full" aria-hidden>
             {groups.map((group) => (
               <span key={group.id} className={group.bar} style={{ width: `${(group.claims.length / total) * 100}%` }} />
             ))}
@@ -1550,6 +1611,13 @@ function ResumeTable({
         </div>
       )}
 
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mt-5 flex items-center gap-1.5">
         <button
           type="button"
@@ -1563,6 +1631,79 @@ function ResumeTable({
         <InfoTip text="Checks the resume against the job description and against what the candidate actually said. Takes a few seconds." />
       </div>
     </section>
+  );
+}
+
+/** The resume at a glance: experience, current role, education, top skills and what stands out. */
+function ResumeProfileView({ profile }: { profile: ResumeProfile }) {
+  const years =
+    profile.experienceYears !== null
+      ? `${Number.isInteger(profile.experienceYears) ? profile.experienceYears : profile.experienceYears.toFixed(1)}`
+      : null;
+  const facts = [
+    profile.currentRole ? { label: "Current role", value: plain(profile.currentRole) } : null,
+    profile.education ? { label: "Education", value: plain(profile.education) } : null,
+  ].filter((fact): fact is { label: string; value: string } => fact !== null);
+
+  return (
+    <div className="mt-5 grid gap-6">
+      <div className="grid gap-5 sm:grid-cols-[minmax(0,9rem)_repeat(2,minmax(0,1fr))] sm:gap-8">
+        <div>
+          <p className="text-3xl font-semibold leading-none tracking-[-0.02em] tabular-nums">
+            {years ?? (profile.experienceNote ? plain(profile.experienceNote) : "—")}
+            {years !== null && (
+              <span className="ml-1 text-base font-medium tracking-normal text-muted">
+                {profile.experienceYears === 1 ? "year" : "years"}
+              </span>
+            )}
+          </p>
+          <p className="mt-2 text-xs text-muted">Experience</p>
+        </div>
+        {facts.map((fact) => (
+          <div key={fact.label} className="min-w-0 sm:border-l sm:border-border sm:pl-8">
+            <p className="text-[15px] font-semibold leading-6">{fact.value}</p>
+            <p className="mt-1 text-xs text-muted">{fact.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {(profile.topSkills.length > 0 || profile.standouts.length > 0) && (
+        <div className="grid gap-6 lg:grid-cols-2 lg:gap-8">
+          {profile.topSkills.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-muted">Top skills</p>
+              <ul className="mt-2.5 flex flex-wrap gap-2">
+                {profile.topSkills.map((skill, index) => (
+                  <li
+                    key={skill}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                      index < 2 ? "bg-accent text-white" : "bg-accent/[0.08] text-accent"
+                    }`}
+                  >
+                    {plain(skill)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {profile.standouts.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-muted">Stands out</p>
+              <ul className="mt-2.5 grid gap-2.5">
+                {profile.standouts.map((item) => (
+                  <li key={item} className="flex items-start gap-2.5 text-sm leading-6">
+                    <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-gold/15 text-gold" aria-hidden>
+                      <Sparkles className="size-3" />
+                    </span>
+                    <span className="font-medium text-foreground/90">{plain(item)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

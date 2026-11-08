@@ -124,6 +124,22 @@ export interface ResumeClaim {
   turnSeqs: number[];
 }
 
+/** What stands out on the resume itself, read from the resume alone. */
+export interface ResumeProfile {
+  /** Total years of professional work, rounded to a half; null when the resume does not say. */
+  experienceYears: number | null;
+  /** Short label when years do not fit, e.g. "Fresher" or "2 internships"; empty otherwise. */
+  experienceNote: string;
+  /** Most recent role and employer, e.g. "BW/4HANA developer at Apprisia Consulting". */
+  currentRole: string;
+  /** Highest qualification, e.g. "B.Tech, Arya College". */
+  education: string;
+  /** Up to six skills the resume shows real work in, strongest first. */
+  topSkills: string[];
+  /** Up to three things that make this resume stand out: results, notable projects, certifications. */
+  standouts: string[];
+}
+
 /** Whether the interview backs up the resume. */
 export interface ResumeMatch {
   /** 0-100 over the claims that were actually discussed; null when too few were. */
@@ -131,6 +147,8 @@ export interface ResumeMatch {
   claims: ResumeClaim[];
   /** How the resume lines up with the job description's main requirements. */
   jobFit?: { requirement: string; level: "strong" | "some" | "none"; evidence: string }[];
+  /** The resume at a glance; missing on reports made before it existed. */
+  profile?: ResumeProfile;
   /** Why there is no score, when there is none. */
   reason: string | null;
 }

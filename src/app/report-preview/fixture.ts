@@ -135,6 +135,18 @@ export const PREVIEW_DETAIL = {
     resumeMatch: {
       score: 81,
       reason: null,
+      profile: {
+        experienceYears: null,
+        experienceNote: "Fresher",
+        currentRole: "Intern at Skill Desire",
+        education: "B.Tech in Computer Science, CGPA 8.94",
+        topSkills: ["Node.js and Express", "React", "MongoDB", "OpenAI API", "Python", "TensorFlow"],
+        standouts: [
+          "Built SigmaGPT, a chat app on the OpenAI API with saved threads",
+          "Shipped Wanderlust, a full stack listings app with login and image uploads",
+          "Trained an RNN LSTM sentiment model in TensorFlow",
+        ],
+      },
       jobFit: [
         { requirement: "LLM API integration", level: "strong", evidence: "SigmaGPT uses the OpenAI API" },
         { requirement: "REST APIs with Node.js", level: "strong", evidence: "Wanderlust, Express routes and auth" },
