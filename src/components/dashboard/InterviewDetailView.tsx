@@ -49,9 +49,7 @@ import {
   FileSearch,
   FileText,
   Gauge,
-  ListChecks,
   Maximize2,
-  Mic,
   MessageSquare,
   MessagesSquare,
   Minimize2,
@@ -106,17 +104,6 @@ const TONE_TEXT: Record<Tone, string> = {
 
 const cardClasses =
   "rounded-2xl border border-border bg-surface p-5 shadow-sm shadow-black/[0.02] sm:p-7";
-
-/** Tinted tiles behind section icons. */
-const ICON_TINTS: Record<string, string> = {
-  purple: "bg-violet-500/10 text-violet-600 dark:text-violet-300",
-  violet: "bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-300",
-  indigo: "bg-accent/10 text-accent",
-  emerald: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
-  rose: "bg-rose-500/10 text-rose-600 dark:text-rose-300",
-  sky: "bg-sky-500/10 text-sky-600 dark:text-sky-300",
-  amber: "bg-amber-500/10 text-amber-600 dark:text-amber-300",
-};
 
 const TONE_TILE: Record<Tone, string> = {
   good: "bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-300",
@@ -633,32 +620,32 @@ function CardHeading({
   subtitle?: string;
   right?: ReactNode;
 }) {
+  // Icons stay in the signature for callers, but headings are plain text:
+  // tinted icon tiles on every card made the page look busy.
+  void Icon;
+  void iconColor;
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex min-w-0 items-center gap-3">
-        {Icon && (
-          <span
-            className={`grid size-10 shrink-0 place-items-center rounded-xl ${ICON_TINTS[iconColor ?? ""] ?? "bg-foreground/[0.05] text-foreground/70"}`}
-          >
-            <Icon className="size-[18px]" aria-hidden />
-          </span>
-        )}
-        <div className="flex min-w-0 items-center gap-1.5">
-          <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
-          {subtitle && <InfoTip text={subtitle} />}
-        </div>
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
+        {subtitle && <InfoTip text={subtitle} />}
       </div>
       {right}
     </div>
   );
 }
 
-/** Section score at the right of a heading: a ring, then what it means. */
+/** Section score at the right of a heading: the number, then one word on what it means. */
 function HeadingScore({ score, tone, label }: { score: number | null; tone: Tone; label: string }) {
   return (
-    <div className="flex items-center gap-3">
-      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_TILE[tone]}`}>{label}</span>
-      <ScoreRing score={score} size={48} stroke={4.5} toneClass={TONE_STROKE[tone]} />
+    <div className="flex items-baseline gap-2">
+      <span className={`whitespace-nowrap text-sm font-medium ${TONE_TEXT[tone]}`}>{label}</span>
+      {score !== null && (
+        <span className="text-lg font-semibold tabular-nums leading-none text-foreground">
+          {score}
+          <span className="text-xs font-normal text-muted">/100</span>
+        </span>
+      )}
     </div>
   );
 }
@@ -883,7 +870,7 @@ function OverallAssessment({
 
   const outcomes: { label: string; value: string; note: string; tone: Tone; href?: string }[] = [
     {
-      label: "Topics covered",
+      label: "topics covered",
       value: coverage && coverage.planned > 0 ? `${coverage.scored} of ${coverage.planned}` : "—",
       note:
         coverage && coverage.planned > 0
@@ -895,7 +882,7 @@ function OverallAssessment({
       href: "#answers",
     },
     {
-      label: "Rank for this role",
+      label: "rank for this role",
       value: rank > 0 && peers.length > 1 ? `${rank} of ${peers.length}` : "—",
       note:
         insights?.benchmark.average != null
@@ -907,7 +894,7 @@ function OverallAssessment({
       href: "#peers",
     },
     {
-      label: "Candidate talk time",
+      label: "candidate talk time",
       value: talk !== null ? `${talk}%` : "—",
       note: medianAnswer !== null ? `About ${Math.round(medianAnswer)}s per answer` : "Not measured",
       tone: talk !== null && talk < 40 ? "warn" : "muted",
@@ -915,87 +902,75 @@ function OverallAssessment({
     },
   ];
 
-  const outcomeIcons: Record<string, LucideIcon> = {
-    "Topics covered": ListChecks,
-    "Rank for this role": Trophy,
-    "Candidate talk time": Mic,
-  };
-
   return (
     <section id="overview" className={`${cardClasses} scroll-mt-32`}>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] lg:gap-6">
-        {/* verdict */}
-        <div className={`relative flex items-center gap-5 rounded-2xl p-5 ${TONE_TILE[verdictTone]}`}>
-          <ScoreRing score={score} size={92} stroke={8} toneClass={TONE_STROKE[band.tone]} label="of 100" />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+        {/* verdict: the ring and one word, no tinted tile */}
+        <div className="flex items-center gap-5 lg:border-r lg:border-border lg:pr-8">
+          <ScoreRing score={score} size={88} stroke={7} toneClass={TONE_STROKE[band.tone]} label="of 100" />
           <div className="min-w-0">
-            <p className="text-sm font-medium opacity-75">Recommendation</p>
+            <p className="text-sm text-muted">Recommendation</p>
             <motion.p
-              className="mt-0.5 text-[30px] font-semibold leading-tight tracking-[-0.03em]"
+              className={`mt-0.5 text-[28px] font-semibold leading-tight tracking-[-0.03em] ${TONE_TEXT[verdictTone]}`}
               initial={reduce ? false : { opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, delay: 0.2, ease: EASE_OUT }}
             >
               {verdict}
             </motion.p>
-            <p className="mt-1 text-sm opacity-75">
-              {scorecard.integrityCheck ? "Overall score" : `Overall ${band.label.toLowerCase()}`}
-            </p>
           </div>
         </div>
 
-        {/* factors, then the supporting numbers */}
-        <div className="grid min-w-0 content-start gap-3">
-        <div className="grid content-start gap-3 sm:grid-cols-3">
-          {overall.factors.map((factor, index) => {
-            const meta = FACTOR_META[factor.id];
-            const chip = factorChip(factor.id, factor.score);
-            return (
-              <div
-                key={factor.id}
-                className="group relative flex items-center gap-3.5 rounded-2xl border border-border p-4 transition hover:border-foreground/15 hover:shadow-md hover:shadow-black/[0.04]"
-              >
-                <a href={`#${factorLink(factor.id)}`} className="absolute inset-0 rounded-2xl" aria-label={`Go to ${meta.name}`} />
-                <ScoreRing
-                  score={factor.score}
-                  size={48}
-                  stroke={4.5}
-                  toneClass={TONE_STROKE[chip.tone]}
-                  delay={0.15 + index * 0.08}
-                />
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">
+        {/* what the score is made of, then the supporting numbers */}
+        <div className="grid min-w-0 content-center gap-5 lg:pl-2">
+          <div className="grid gap-x-8 gap-y-4 sm:grid-cols-3">
+            {overall.factors.map((factor) => {
+              const meta = FACTOR_META[factor.id];
+              const chip = factorChip(factor.id, factor.score);
+              return (
+                <div
+                  key={factor.id}
+                  className="group relative -m-2 min-w-0 rounded-xl p-2 transition hover:bg-foreground/[0.03]"
+                >
+                  <a href={`#${factorLink(factor.id)}`} className="absolute inset-0 rounded-xl" aria-label={`Go to ${meta.name}`} />
+                  <span className="flex items-center gap-1 text-sm text-muted">
                     {meta.name}
-                    <span className="relative z-10 ml-1 inline-flex align-middle">
+                    <span className="relative z-10 inline-flex">
                       <InfoTip text={`${meta.explains} Counts for ${factor.weight}% of the overall score.`} />
                     </span>
                   </span>
-                  <span className={`mt-0.5 block text-xs font-medium ${TONE_TEXT[chip.tone]}`}>{chip.label}</span>
-                </span>
-                <ChevronRight className="ml-auto size-4 shrink-0 text-muted opacity-0 transition group-hover:opacity-100" aria-hidden />
-              </div>
-            );
-          })}
-          {scorecard.integrityCheck && <OnCameraTile check={scorecard.integrityCheck} />}
-        </div>
-        <dl className="grid grid-cols-3 gap-2 sm:gap-3">
-          {outcomes.map((item) => {
-            const Icon = outcomeIcons[item.label] ?? Gauge;
-            return (
+                  <span className="mt-1.5 flex items-baseline gap-2">
+                    <span className="text-2xl font-semibold leading-none tabular-nums tracking-[-0.02em]">
+                      {factor.score ?? "—"}
+                    </span>
+                    <span className={`text-sm font-medium ${TONE_TEXT[chip.tone]}`}>{chip.label}</span>
+                  </span>
+                  <span className="mt-2.5 block h-1 overflow-hidden rounded-full bg-foreground/[0.07]" aria-hidden>
+                    <span
+                      className={`block h-full rounded-full ${TONE_BAR[chip.tone]}`}
+                      style={{ width: `${factor.score ?? 0}%` }}
+                    />
+                  </span>
+                </div>
+              );
+            })}
+            {scorecard.integrityCheck && <OnCameraTile check={scorecard.integrityCheck} />}
+          </div>
+          <dl className="flex flex-wrap gap-x-8 gap-y-2 border-t border-border pt-4 text-sm">
+            {outcomes.filter((item) => item.value !== "—").map((item) => (
               <a
                 key={item.label}
                 href={item.href}
                 title={item.note}
-                className={`flex min-w-0 items-center gap-3 rounded-2xl px-3 py-3 transition hover:brightness-[0.98] sm:px-4 sm:py-3.5 ${TONE_TILE[item.tone]}`}
+                className="flex items-baseline gap-1.5 text-muted transition hover:text-foreground"
               >
-                <Icon className="hidden size-4 shrink-0 opacity-60 sm:block" aria-hidden />
-                <span className="min-w-0">
-                  <dd className="text-lg font-semibold leading-none tabular-nums tracking-[-0.02em]">{item.value}</dd>
-                  <dt className="mt-1 text-xs opacity-75">{item.label}</dt>
-                </span>
+                <dt className="order-2">{item.label}</dt>
+                <dd className={`order-1 font-semibold tabular-nums ${item.tone === "warn" ? TONE_TEXT.warn : "text-foreground"}`}>
+                  {item.value}
+                </dd>
               </a>
-            );
-          })}
-        </dl>
+            ))}
+          </dl>
         </div>
       </div>
 
@@ -1020,9 +995,13 @@ function SummarySection({
 }) {
   const [full, setFull] = useState(false);
   const [open, setOpen] = useState<"strengths" | "concerns" | "next" | null>(null);
-  const summary = plain(scorecard.summary);
-  const lead = firstSentence(summary);
-  const rest = summary.slice(lead.length).trim();
+  // The model writes one long paragraph; read as separate points it scans far
+  // better. Two points show, the rest on request.
+  const sentences = plain(scorecard.summary)
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9"“'(])/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  const points = full ? sentences : sentences.slice(0, 2);
   const groups = [
     { id: "strengths" as const, label: "Strengths", items: scorecard.strengths.map(plain), icon: Check, tone: "good" as Tone },
     { id: "concerns" as const, label: "Concerns", items: scorecard.concerns.map(plain), icon: AlertCircle, tone: "warn" as Tone },
@@ -1034,22 +1013,27 @@ function SummarySection({
     <section id="summary" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading icon={ScrollText} iconColor="indigo" title="Takeaways" />
 
-      <p className="mt-4 max-w-[75ch] text-[15px] leading-7 text-foreground/90">
-        {lead}
-        {rest && full && <span className="text-foreground/75"> {rest}</span>}
-        {rest && (
-          <button
-            type="button"
-            onClick={() => setFull((current) => !current)}
-            aria-expanded={full}
-            className="ml-1.5 text-sm font-medium text-accent hover:underline"
-          >
-            {full ? "Less" : "More"}
-          </button>
-        )}
-      </p>
+      <ul className="mt-4 grid max-w-[72ch] gap-2.5">
+        {points.map((point, index) => (
+          <li key={index} className="flex gap-3 text-[15px] leading-6 text-foreground/90">
+            <span className="mt-[9px] size-1.5 shrink-0 rounded-full bg-foreground/35" aria-hidden />
+            <span>{point}</span>
+          </li>
+        ))}
+      </ul>
+      {sentences.length > 2 && (
+        <button
+          type="button"
+          onClick={() => setFull((current) => !current)}
+          aria-expanded={full}
+          className="ml-[18px] mt-2 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+        >
+          {full ? "Show less" : `Show ${sentences.length - 2} more`}
+          <ChevronDown className={`size-3.5 transition ${full ? "rotate-180" : ""}`} aria-hidden />
+        </button>
+      )}
 
-      <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Takeaways">
+      <div className="mt-5 flex flex-wrap gap-2 border-t border-border pt-5" role="tablist" aria-label="Takeaways">
         {groups.map((group) => {
           const Icon = group.icon;
           const active = open === group.id;
@@ -1079,10 +1063,13 @@ function SummarySection({
       </div>
 
       {shown && (
-        <ul role="tabpanel" className="mt-3 divide-y divide-border rounded-xl border border-border">
+        <ul role="tabpanel" className="mt-4 grid max-w-[72ch] gap-2.5">
           {shown.items.map((item, index) => (
-            <li key={index} className="flex gap-3 px-4 py-3 text-sm leading-6 text-foreground/85">
-              <span className="mt-2 size-1.5 shrink-0 rounded-full bg-foreground/30" aria-hidden />
+            <li key={index} className="flex gap-3 text-sm leading-6 text-foreground/85">
+              <span
+                className={`mt-2 size-1.5 shrink-0 rounded-full ${shown.tone === "good" ? "bg-emerald-500" : shown.tone === "warn" ? "bg-amber-500" : "bg-accent"}`}
+                aria-hidden
+              />
               {item}
             </li>
           ))}
@@ -1121,7 +1108,7 @@ function AnswerQualityTable({
         subtitle="Each planned topic is one question plus the follow-ups on it, graded together. Answers that sounded read out count for less."
         right={
           <div className="flex items-center gap-3">
-            <span className="text-sm tabular-nums text-muted">
+            <span className="hidden text-sm tabular-nums text-muted sm:inline">
               {scorecard.competencies.length} topics · {turns.filter((turn) => turn.speaker === "candidate").length} answers
             </span>
             <HeadingScore score={score} tone={chip.tone} label={chip.label} />
@@ -1130,7 +1117,7 @@ function AnswerQualityTable({
       />
 
       {scorecard.partScores && (
-        <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
+        <div className="mt-5 grid gap-x-8 gap-y-4 sm:grid-cols-2">
           {(
             [
               { id: "projects", label: "Their own projects", hint: "Could they explain their own work in depth?" },
@@ -1140,10 +1127,17 @@ function AnswerQualityTable({
             const value = scorecard.partScores?.[part.id] ?? null;
             const tone: Tone = value === null ? "muted" : value >= 65 ? "good" : value >= 50 ? "warn" : "bad";
             return (
-              <div key={part.id} className={`rounded-xl px-4 py-3 ${TONE_TILE[tone]}`}>
-                <p className="text-xl font-semibold leading-none tabular-nums">{value ?? "—"}</p>
-                <p className="mt-1.5 text-xs font-medium">{part.label}</p>
-                <p className="mt-0.5 text-[11px] opacity-70">{part.hint}</p>
+              <div key={part.id} className="min-w-0">
+                <p className="flex items-center gap-1 text-sm text-muted">
+                  {part.label}
+                  <InfoTip text={part.hint} />
+                </p>
+                <p className={`mt-1 text-2xl font-semibold leading-none tabular-nums ${value === null ? "text-muted" : "text-foreground"}`}>
+                  {value ?? "—"}
+                </p>
+                <span className="mt-2.5 block h-1 overflow-hidden rounded-full bg-foreground/[0.07]" aria-hidden>
+                  <span className={`block h-full rounded-full ${TONE_BAR[tone]}`} style={{ width: `${value ?? 0}%` }} />
+                </span>
               </div>
             );
           })}
@@ -1153,7 +1147,7 @@ function AnswerQualityTable({
       {scorecard.competencies.length === 0 ? (
         <p className="mt-4 text-sm text-muted">No competency questions were scored for this interview.</p>
       ) : (
-        <ol className="mt-6 grid gap-3">
+        <ol className="mt-5 divide-y divide-border border-t border-border">
           {scorecard.competencies.map((item, index) => {
             const plan = competencies.find((c) => c.id === item.competencyId);
             const covered = coverage.find((entry) => entry.competencyId === item.competencyId);
@@ -1169,19 +1163,21 @@ function AnswerQualityTable({
             return (
               <li
                 key={item.competencyId}
-                className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2 rounded-2xl border border-border p-4 transition hover:border-foreground/15"
+                className="grid grid-cols-1 gap-x-4 gap-y-2 py-5 sm:grid-cols-[minmax(0,1fr)_auto]"
               >
                 <div className="min-w-0">
-                  <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <span className="text-xs font-semibold tabular-nums text-muted">Q{index + 1}</span>
-                    <span className="font-semibold text-foreground">{item.name}</span>
-                    {plan?.part && (
-                      <span className="text-xs text-muted">
-                        {plan.part === "projects" ? `Own project${plan.project ? `: ${plan.project.name}` : ""}` : "This job's needs"}
-                      </span>
-                    )}
+                  <p className="flex items-baseline gap-x-2.5">
+                    <span className="w-6 shrink-0 text-xs font-medium tabular-nums text-muted">Q{index + 1}</span>
+                    <span className="min-w-0">
+                      <span className="text-[15px] font-semibold text-foreground">{item.name}</span>
+                      {plan?.part && (
+                        <span className="ml-2 text-xs text-muted">
+                          {plan.part === "projects" ? `Own project${plan.project ? `: ${plan.project.name}` : ""}` : "This job's needs"}
+                        </span>
+                      )}
+                    </span>
                   </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2.5">
+                  <div className="mt-2 flex flex-wrap items-center gap-2.5 pl-[34px]">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${TONE_TILE[verdict.tone]}`}>{verdict.label}</span>
                     <span className="flex gap-0.5" aria-hidden>
                       {[1, 2, 3, 4, 5].map((step) => (
@@ -1204,9 +1200,9 @@ function AnswerQualityTable({
                       </span>
                     )}
                   </div>
-                  <p className="mt-2 max-w-[75ch] text-sm leading-6 text-foreground/85">{firstSentence(plain(item.rationale))}</p>
+                  <p className="mt-2 max-w-[75ch] pl-[34px] text-sm leading-6 text-foreground/85">{firstSentence(plain(item.rationale))}</p>
                 </div>
-                <div className="flex items-start">
+                <div className="flex items-start pl-[34px] sm:pl-0">
                   {window ? (
                     <button
                       type="button"
@@ -1219,7 +1215,7 @@ function AnswerQualityTable({
                     </button>
                   ) : null}
                 </div>
-                <details className="group col-span-2">
+                <details className="group pl-[34px] sm:col-span-2">
                   <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted hover:text-foreground">
                     Details
                     <ChevronDown className="size-3.5 transition group-open:rotate-180" aria-hidden />
@@ -1417,26 +1413,30 @@ function ResumeTable({
               {fitCovered} of {fit.length} requirements on the resume
             </span>
           </div>
-          <ul className="mt-2.5 flex flex-wrap gap-2">
+          <ul className="mt-2 grid gap-x-8 sm:grid-cols-2">
             {fit.map((item) => (
               <li
                 key={item.requirement}
                 title={item.evidence ? plain(item.evidence) : "Nothing on the resume for this"}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm ${
-                  item.level === "strong"
-                    ? "border-emerald-500/30 bg-emerald-500/[0.07]"
-                    : item.level === "some"
-                      ? "border-amber-500/30 bg-amber-500/[0.07]"
-                      : "border-border text-muted"
-                }`}
+                className="flex items-center gap-3 border-b border-border py-2.5 text-sm"
               >
                 <span
-                  className={`size-2 rounded-full ${item.level === "strong" ? "bg-emerald-500" : item.level === "some" ? "bg-amber-500" : "bg-foreground/20"}`}
+                  className={`grid size-5 shrink-0 place-items-center rounded-full ${
+                    item.level === "strong"
+                      ? "bg-emerald-500 text-white"
+                      : item.level === "some"
+                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                        : "bg-foreground/[0.06] text-muted"
+                  }`}
                   aria-hidden
-                />
-                {item.requirement}
-                <span className="sr-only">
-                  {item.level === "strong" ? ": strong" : item.level === "some" ? ": some" : ": not on the resume"}
+                >
+                  {item.level === "none" ? <Minus className="size-3" /> : <Check className="size-3 stroke-[3]" />}
+                </span>
+                <span className={`min-w-0 flex-1 ${item.level === "none" ? "text-muted" : "text-foreground"}`}>
+                  {item.requirement}
+                </span>
+                <span className="shrink-0 text-xs text-muted">
+                  {item.level === "strong" ? "Clear" : item.level === "some" ? "Some" : "Not on resume"}
                 </span>
               </li>
             ))}
@@ -1476,7 +1476,7 @@ function ResumeTable({
             })}
           </div>
           {shown && (
-            <ul role="tabpanel" className="mt-3 divide-y divide-border rounded-xl border border-border">
+            <ul role="tabpanel" className="mt-3 divide-y divide-border border-t border-border">
               {shown.claims.map((claim) => {
                 const questions = [
                   ...new Set(
@@ -1486,7 +1486,7 @@ function ResumeTable({
                   ),
                 ];
                 return (
-                  <li key={claim.claim} className="px-4 py-3 text-sm">
+                  <li key={claim.claim} className="py-3 text-sm">
                     <p className="flex flex-wrap items-baseline gap-x-2 font-medium text-foreground">
                       {plain(claim.claim)}
                       {questions.map((q) => (
@@ -1569,21 +1569,18 @@ function OnCameraTile({ check }: { check: IntegrityCheck }) {
   const meta = LEVEL_META[check.level];
   const Icon = meta.icon;
   return (
-    <div className="group relative flex items-center gap-3.5 rounded-2xl border border-border p-4 transition hover:border-foreground/15 hover:shadow-md hover:shadow-black/[0.04]">
-      <a href="#recording" className="absolute inset-0 rounded-2xl" aria-label="Go to the recording analysis" />
-      <span className={`grid size-12 shrink-0 place-items-center rounded-full ${TONE_TILE[meta.tone]}`}>
-        <Icon className={`size-5 ${check.level === "pending" ? "animate-pulse" : ""}`} aria-hidden />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-sm font-semibold">
-          On camera
-          <span className="relative z-10 ml-1 inline-flex align-middle">
-            <InfoTip text="What the recording shows: where the eyes go, lips against the voice, the voice itself, and who is in the picture. Not part of the score yet." />
-          </span>
+    <div className="group relative -m-2 min-w-0 rounded-xl p-2 transition hover:bg-foreground/[0.03]">
+      <a href="#recording" className="absolute inset-0 rounded-xl" aria-label="Go to the recording analysis" />
+      <span className="flex items-center gap-1 text-sm text-muted">
+        On camera
+        <span className="relative z-10 inline-flex">
+          <InfoTip text="What the recording shows: where the eyes go, lips against the voice, the voice itself, and who is in the picture. Not part of the score yet." />
         </span>
-        <span className={`mt-0.5 block text-xs font-medium ${TONE_TEXT[meta.tone]}`}>{meta.label}</span>
       </span>
-      <ChevronRight className="ml-auto size-4 shrink-0 text-muted opacity-0 transition group-hover:opacity-100" aria-hidden />
+      <span className={`mt-1.5 flex items-center gap-2 ${TONE_TEXT[meta.tone]}`}>
+        <Icon className={`size-5 shrink-0 ${check.level === "pending" ? "animate-pulse" : ""}`} aria-hidden />
+        <span className="text-lg font-semibold leading-6">{meta.label}</span>
+      </span>
     </div>
   );
 }
@@ -1693,14 +1690,19 @@ function VideoSection({
       left: (answer.start / duration) * 100,
       strength: strengthByTurn.get(answer.turnSeq) as number,
       why: [
-        spotTurns.has(answer.turnSeq) ? "one spot" : null,
-        readingTurns.has(answer.turnSeq) ? "reading-like eyes" : null,
-        lipTurns.has(answer.turnSeq) ? "lips off the voice" : null,
-        voiceTurns.has(answer.turnSeq) ? "different voice" : null,
+        spotTurns.has(answer.turnSeq) ? "eyes kept going to one spot" : null,
+        readingTurns.has(answer.turnSeq) ? "eyes moved like reading" : null,
+        lipTurns.has(answer.turnSeq) ? "lips did not match the voice" : null,
+        voiceTurns.has(answer.turnSeq) ? "the voice changed" : null,
       ]
         .filter(Boolean)
-        .join(", "),
+        .join(" and "),
     }));
+  // The three strongest moments, in the order they happened.
+  const watchFirst = [...markers]
+    .sort((a, b) => b.strength - a.strength || a.start - b.start)
+    .slice(0, 3)
+    .sort((a, b) => a.start - b.start);
 
   return (
     <div id="video" className="mt-7 scroll-mt-32 border-t border-border pt-6" data-video-model={video.model ?? undefined}>
@@ -1764,32 +1766,26 @@ function VideoSection({
             ))}
           </ul>
 
-          {markers.length > 0 && (
+          {watchFirst.length > 0 && (
             <div className="mt-6">
-              <div className="flex items-baseline justify-between text-xs text-muted">
-                <span className="font-medium text-foreground/85">Answers worth watching</span>
-                <span>Click one to play it</span>
-              </div>
-              <div className="relative mt-2.5 h-9 rounded-lg bg-foreground/[0.05]" role="list">
-                {markers.map((marker) => (
-                  <button
-                    key={marker.turnSeq}
-                    type="button"
-                    role="listitem"
-                    onClick={() => onPlay(Math.max(0, marker.start - 2))}
-                    title={`${formatClock(marker.start)}: ${marker.why}`}
-                    aria-label={`Play the answer at ${formatClock(marker.start)}: ${marker.why}`}
-                    style={{ left: `${marker.left}%`, width: `${marker.width}%` }}
-                    className={`absolute inset-y-1.5 min-w-[6px] rounded transition hover:inset-y-0.5 focus-visible:outline-2 focus-visible:outline-accent ${
-                      marker.strength >= 3 ? "bg-rose-500/80 hover:bg-rose-500" : marker.strength === 2 ? "bg-amber-500/80 hover:bg-amber-500" : "bg-foreground/25 hover:bg-foreground/40"
-                    }`}
-                  />
+              <h4 className="text-sm font-medium text-foreground/85">Watch these first</h4>
+              <ul className="mt-2 grid gap-2">
+                {watchFirst.map((marker) => (
+                  <li key={marker.turnSeq}>
+                    <button
+                      type="button"
+                      onClick={() => onPlay(Math.max(0, marker.start - 2))}
+                      className="flex w-full items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-left text-sm transition hover:border-foreground/20 hover:bg-foreground/[0.03]"
+                    >
+                      <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-white">
+                        <Play className="size-3 fill-current" aria-hidden />
+                      </span>
+                      <span className="w-12 shrink-0 font-semibold tabular-nums text-accent">{formatClock(marker.start)}</span>
+                      <span className="min-w-0 flex-1 text-foreground/85">{marker.why.charAt(0).toUpperCase() + marker.why.slice(1)}</span>
+                    </button>
+                  </li>
                 ))}
-              </div>
-              <div className="mt-1.5 flex justify-between text-[11px] tabular-nums text-muted">
-                <span>0:00</span>
-                <span>{formatClock(duration)}</span>
-              </div>
+              </ul>
             </div>
           )}
 
@@ -2149,16 +2145,16 @@ function RecordingPanel({
           <div className="flex items-center justify-between gap-2 border-b border-border px-3.5 py-2.5 dark:border-border">
             <div className="flex min-w-0 items-center gap-2">
               <ScrollText className="size-3.5 shrink-0 text-muted" />
-              <span className="text-xs font-semibold text-foreground">Transcript</span>
+              <span className="text-sm font-semibold text-foreground">Transcript</span>
               {playing && active ? (
-                <span className="inline-flex min-w-0 items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="inline-flex min-w-0 items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                   <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" />
                   <span className="truncate">
                     Following · {formatClock(active.at)}
                   </span>
                 </span>
               ) : active ? (
-                <span className="text-[10px] font-medium tabular-nums text-muted">
+                <span className="text-[11px] font-medium tabular-nums text-muted">
                   {formatClock(active.at)}
                 </span>
               ) : null}
@@ -2170,7 +2166,7 @@ function RecordingPanel({
                   type="button"
                   onClick={() => setFilter(value)}
                   aria-pressed={filter === value}
-                  className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold capitalize transition ${
+                  className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold capitalize transition ${
                     filter === value
                       ? "bg-accent-soft text-accent"
                       : "text-muted hover:text-foreground"
@@ -2189,7 +2185,7 @@ function RecordingPanel({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search this conversation…"
-                className="w-full rounded-lg border border-border bg-background/50 py-1.5 pl-8 pr-3 text-xs outline-none transition placeholder:text-muted focus:border-accent focus:bg-surface"
+                className="w-full rounded-lg border border-border bg-background/50 py-2 pl-8 pr-3 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:bg-surface"
               />
             </div>
           </div>
@@ -2235,7 +2231,7 @@ function RecordingPanel({
                         <span className="flex items-center justify-between gap-2">
                           <span className="flex min-w-0 items-center gap-1.5">
                             <span
-                              className={`grid size-5 shrink-0 place-items-center rounded-full text-[9px] font-semibold uppercase ${
+                              className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold uppercase ${
                                 candidate
                                   ? "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300"
                                   : "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
@@ -2243,12 +2239,12 @@ function RecordingPanel({
                             >
                               {candidate ? initials(candidateName) : "I"}
                             </span>
-                            <span className="truncate text-[11px] font-semibold text-foreground">
+                            <span className="truncate text-xs font-semibold text-foreground">
                               {candidate ? candidateName : "Interviewer"}
                             </span>
                           </span>
                           <span
-                            className={`shrink-0 text-[10px] tabular-nums ${
+                            className={`shrink-0 text-[11px] tabular-nums ${
                               isActive
                                 ? "font-semibold text-blue-600 dark:text-accent"
                                 : "text-muted"
@@ -2258,7 +2254,7 @@ function RecordingPanel({
                           </span>
                         </span>
                         <span
-                          className={`mt-1 text-xs leading-relaxed ${
+                          className={`mt-1 text-[13px] leading-relaxed ${
                             isActive ? "block" : "line-clamp-4"
                           } ${
                             isActive
@@ -2276,7 +2272,7 @@ function RecordingPanel({
             </div>
           )}
 
-          <p className="border-t border-border px-3.5 py-2 text-[10px] text-muted dark:border-border">
+          <p className="border-t border-border px-3.5 py-2 text-[11px] text-muted dark:border-border">
             {!hasRecording
               ? "Transcript only. No recording is available for this interview."
               : videoFailed
@@ -2415,13 +2411,7 @@ function CommentsDecisionSection({
                 selected ? selectedClasses : "border-border text-foreground/80 hover:border-foreground/20 hover:bg-foreground/[0.03]"
               }`}
             >
-              <span
-                className={`grid size-4 place-items-center rounded-full border ${
-                  selected ? "border-current" : "border-foreground/25"
-                }`}
-              >
-                {selected && <Check className="size-2.5 stroke-[3]" />}
-              </span>
+              {selected && <Check className="size-4 stroke-[2.5]" aria-hidden />}
               <span>{option.label}</span>
             </button>
           );
