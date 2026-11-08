@@ -346,8 +346,16 @@ export function measuredAuthenticitySignals(answers: readonly TimedAnswer[]): Au
 
 // --- integrity ---------------------------------------------------------------
 
-/** How far (in the candidate's own gaze spreads) a spot must be from the screen centre. */
-const MIN_SPOT_DISTANCE = 4;
+/**
+ * How far a spot must be from where the candidate looks while listening:
+ * in their own gaze spreads, and in raw gaze units (about 5-6 degrees). Both,
+ * because a candidate who sits very still while listening has a tiny spread,
+ * which makes small, honest shifts look far in relative terms only.
+ */
+const MIN_SPOT_DISTANCE = 2;
+const MIN_SPOT_OFFSET = 0.15;
+/** Upper bound of the "on the screen" band used by the on-screen reading check. */
+const SCREEN_BAND = 4;
 
 /** Answers this long or shorter say too little to judge their delivery. */
 const MIN_DELIVERY_WORDS = 60;
@@ -388,17 +396,23 @@ export function measuredFindings(measures: VideoMeasures): IntegrityFinding[] {
   if (spot && judged.length >= MIN_ANSWERS_FOR_PATTERN) {
     const held = spot.heldAnswers.filter((seq) => byTurn.get(seq)?.atScreenShare !== null);
     const share = held.length / judged.length;
-    // A spot just past the edge of the screen is usually part of the screen
-    // (the question text, the candidate's own video tile). Only a spot well
-    // away from it is the look of a phone, notes or a second monitor.
-    if (held.length >= 2 && spot.listeningShare < 0.15 && spot.distance >= MIN_SPOT_DISTANCE) {
+    // What matters is not whether the spot is past the screen's edge (a
+    // copilot overlay sits ON the screen), but that it is a separate place the
+    // candidate goes to while answering and hardly uses while listening.
+    const base = measures.baseline;
+    const rawOffset =
+      spot.x !== undefined && spot.y !== undefined && base.x !== undefined && base.y !== undefined
+        ? Math.hypot(spot.x - base.x, spot.y - base.y)
+        : null;
+    const separate = spot.distance >= MIN_SPOT_DISTANCE && (rawOffset === null || rawOffset >= MIN_SPOT_OFFSET);
+    if (held.length >= 2 && spot.listeningShare < 0.15 && separate) {
       const strength: 1 | 2 | 3 = held.length >= 3 && share >= 0.5 ? 3 : held.length >= 3 && share >= 0.25 ? 2 : 1;
       findings.push({
         kind: "fixed_spot",
         source: "video",
         strength,
         title: `Eyes held on one spot ${spot.where} in ${held.length} of ${judged.length} answers`,
-        detail: `While answering, the candidate kept going back to the same place ${spot.where}, and hardly looked there while listening. That is how a phone, notes or a second screen looks on camera. Looking away to think is different: it wanders and changes from answer to answer.`,
+        detail: `While answering, the candidate kept going back to the same place ${spot.where}, and hardly looked there while listening (${Math.round(spot.listeningShare * 100)}% of listening time). That is how notes, a phone, a second screen or an on-screen AI tool looks on camera. Looking away to think is different: it wanders and changes from answer to answer.`,
         turnSeqs: held,
         atSeconds: startOf(held),
       });
@@ -448,7 +462,7 @@ export function measuredFindings(measures: VideoMeasures): IntegrityFinding[] {
       const offset = answer.medianOffset;
       if (!offset) return false;
       const distance = Math.hypot(offset[0], offset[1]);
-      return distance >= 1.2 && distance < MIN_SPOT_DISTANCE;
+      return distance >= 1.2 && distance < SCREEN_BAND;
     });
     const angles = placed.map((answer) => Math.atan2((answer.medianOffset as number[])[1], (answer.medianOffset as number[])[0]));
     const meanAngle = Math.atan2(

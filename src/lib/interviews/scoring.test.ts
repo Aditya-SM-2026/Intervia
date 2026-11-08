@@ -411,3 +411,29 @@ test("on-screen reading: one screen spot, quiet intro, plus pause-then-smooth de
   assert.ok(kinds.includes("stall_then_fluent"));
   assert.equal(integrityLevel(findings), "high_risk");
 });
+
+test("fixed spot: a still listener with a separate answering spot is caught (Gayathri, Oct 29)", () => {
+  // Measured: listening spread is tiny (0.068 x 0.10), the answering spot sits
+  // 2.66 spreads / 0.24 gaze units up and left, held in 14 of 21 answers, and
+  // used for only 10% of listening time.
+  const seqs = [2, 5, 7, 8, 11, 14, 17, 20, 22, 28, 32, 36, 42, 48, 13, 24, 34, 38, 44, 46, 49];
+  const answers = seqs.map((turnSeq) => measured({ turnSeq }));
+  const m = measures(answers, [
+    { id: 0, x: -0.0545, y: -0.2328, where: "above and to the left of the screen", distance: 2.66, heldAnswers: seqs.slice(0, 14), listeningShare: 0.103 },
+  ]);
+  m.baseline = { frames: 835, source: "listening", x: 0.0614, y: -0.0261, sx: 0.0676, sy: 0.1017 };
+  const findings = measuredFindings(m);
+  const spot = findings.find((f) => f.kind === "fixed_spot");
+  assert.ok(spot);
+  assert.equal(spot.strength, 3);
+  assert.equal(integrityLevel(findings), "review");
+});
+
+test("fixed spot: a tiny shift that is small in real terms is not flagged", () => {
+  const seqs = [1, 2, 3, 4, 5, 6];
+  const m = measures(seqs.map((turnSeq) => measured({ turnSeq })), [
+    { id: 0, x: 0.1, y: 0.05, where: "below the screen", distance: 2.5, heldAnswers: [1, 2, 3, 4], listeningShare: 0.05 },
+  ]);
+  m.baseline = { frames: 900, source: "listening", x: 0.05, y: 0.0, sx: 0.03, sy: 0.03 };
+  assert.equal(measuredFindings(m).filter((f) => f.kind === "fixed_spot").length, 0);
+});

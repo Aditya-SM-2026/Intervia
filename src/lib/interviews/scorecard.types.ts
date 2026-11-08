@@ -293,6 +293,9 @@ export interface PictureQuality {
 
 export interface GazeSpot {
   id: number;
+  /** Raw gaze position of the spot (same units as the baseline). */
+  x?: number;
+  y?: number;
   /** In plain words, relative to the candidate's own screen position. */
   where: string;
   /** Distance from the screen centre, in units of the candidate's own spread. */
@@ -354,7 +357,8 @@ export interface AnswerMeasures {
 
 export interface VideoMeasures {
   fps: number;
-  baseline: { frames: number; source: "listening" | "all" | "none" };
+  /** Where this person looks while listening (their screen), and how tightly. Raw gaze units. */
+  baseline: { frames: number; source: "listening" | "all" | "none"; x?: number; y?: number; sx?: number; sy?: number };
   spots: GazeSpot[];
   answers: AnswerMeasures[];
   absences: { atSeconds: number; durationSeconds: number }[];
