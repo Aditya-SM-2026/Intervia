@@ -33,7 +33,6 @@ import { CandidateAssistant } from "./CandidateAssistant";
 import {
   AlertCircle,
   AlertTriangle,
-  ArrowRight,
   Briefcase,
   Calendar,
   Check,
@@ -547,7 +546,7 @@ export function InterviewDetailView({
           {scorecard ? (
             <>
               <OverallAssessment scorecard={scorecard} insights={insights} peers={peers} roomId={roomId} />
-              <SummarySection scorecard={scorecard} insights={insights} />
+              <SummarySection scorecard={scorecard} />
               <AnswerQualityTable
                 scorecard={scorecard}
                 competencies={competencies}
@@ -1059,24 +1058,16 @@ function TakeawayItem({ text, mark, icon: Icon }: { text: string; mark: string; 
   );
 }
 
-function SummarySection({
-  scorecard,
-  insights,
-}: {
-  scorecard: Scorecard;
-  insights: ReportInsights | null;
-}) {
+function SummarySection({ scorecard }: { scorecard: Scorecard }) {
   const [showSummary, setShowSummary] = useState(false);
   const summary = plain(scorecard.summary);
   const lead = summary ? keyPhrase(firstSentence(summary), 160) : "";
-  const [question, setQuestion] = useState<number | null>(null);
   const groups = (
     [
       { id: "strengths", label: "Strengths", items: scorecard.strengths },
       { id: "concerns", label: "Concerns", items: scorecard.concerns },
     ] as const
   ).filter((group) => group.items.length > 0);
-  const nextSteps = (insights?.nextSteps ?? []).map(plain);
 
   return (
     <section id="summary" className={`${cardClasses} scroll-mt-32`}>
@@ -1127,35 +1118,6 @@ function SummarySection({
         </div>
       )}
 
-      {nextSteps.length > 0 && (
-        <div className="mt-5 border-t border-border pt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="mr-1 text-sm font-semibold">Ask next round</span>
-            {nextSteps.map((step, index) => {
-              const active = question === index;
-              return (
-                <button
-                  key={index}
-                  type="button"
-                  onClick={() => setQuestion(active ? null : index)}
-                  aria-expanded={active}
-                  className={`inline-flex h-8 min-w-0 max-w-[16rem] items-center gap-1.5 overflow-hidden rounded-full sm:max-w-none border px-3 text-sm transition ${
-                    active
-                      ? "border-accent bg-accent text-white"
-                      : "border-accent/25 bg-accent/[0.05] text-accent hover:border-accent/50"
-                  }`}
-                >
-                  <ArrowRight className="size-3.5 shrink-0" aria-hidden />
-                  <span className="min-w-0 truncate">{keyPhrase(step, 48)}</span>
-                </button>
-              );
-            })}
-          </div>
-          {question !== null && nextSteps[question] && (
-            <p className="mt-3 text-sm leading-6 text-foreground/80">{nextSteps[question]}</p>
-          )}
-        </div>
-      )}
     </section>
   );
 }
