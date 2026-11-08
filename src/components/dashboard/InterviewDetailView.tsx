@@ -2578,7 +2578,7 @@ function CommentsDecisionSection({
 }: {
   roomId: string;
   decision: HumanDecision | null;
-  onSaved: (decision: HumanDecision) => void;
+  onSaved: (decision: HumanDecision | null) => void;
 }) {
   const [outcome, setOutcome] = useState<HumanDecision["outcome"] | null>(decision?.outcome ?? null);
   const [note, setNote] = useState(decision?.note ?? "");
@@ -2610,6 +2610,24 @@ function CommentsDecisionSection({
 
   const unchanged = decision !== null && decision.outcome === outcome && decision.note === note;
 
+  /** Removes the saved decision, so the interview shows as undecided again. */
+  async function handleClear() {
+    setIsSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/dashboard/interviews/${roomId}/decision`, { method: "DELETE" });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error?.message ?? "Could not clear the decision.");
+      onSaved(null);
+      setOutcome(null);
+      setNote("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not clear the decision.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <section id="comments" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
@@ -2640,7 +2658,7 @@ function CommentsDecisionSection({
               key={option.value}
               type="button"
               aria-pressed={selected}
-              onClick={() => setOutcome(option.value)}
+              onClick={() => setOutcome(selected ? null : option.value)}
               className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-medium transition ${
                 selected ? selectedClasses : "border-border text-foreground/80 hover:border-foreground/20 hover:bg-foreground/[0.03]"
               }`}
@@ -2669,8 +2687,19 @@ function CommentsDecisionSection({
         </p>
       )}
 
-      <div className="mt-3 flex items-center justify-between">
+      <div className="mt-3 flex items-center justify-between gap-3">
         <span className="text-xs text-muted">{note.length > 0 ? `${note.length} / 2000` : ""}</span>
+        <div className="flex items-center gap-2">
+        {decision && (
+          <button
+            type="button"
+            onClick={handleClear}
+            disabled={isSaving}
+            className="h-9 rounded-lg px-3 text-sm font-medium text-muted transition hover:bg-foreground/[0.04] hover:text-foreground disabled:opacity-40"
+          >
+            Clear decision
+          </button>
+        )}
         <button
           type="button"
           onClick={handleSave}
@@ -2679,6 +2708,7 @@ function CommentsDecisionSection({
         >
           {isSaving ? "Saving…" : "Save decision"}
         </button>
+        </div>
       </div>
     </section>
   );

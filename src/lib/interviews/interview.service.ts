@@ -348,10 +348,10 @@ export async function recordSessionOutcome(
   return updated;
 }
 
-/** Stores the recruiter's hiring decision for an interview. */
+/** Stores the recruiter's hiring decision for an interview; null clears it. */
 export async function recordDecision(
   roomId: string,
-  decision: HumanDecision,
+  decision: HumanDecision | null,
 ): Promise<InterviewRoom | null> {
   const repository = getInterviewRepository();
   const room = await repository.get(roomId);

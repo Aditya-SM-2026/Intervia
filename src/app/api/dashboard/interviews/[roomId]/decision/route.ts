@@ -39,3 +39,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if (!room) return interviewErrorResponse("ROOM_NOT_FOUND", "This interview does not exist.");
   return NextResponse.json({ decision: room.decision });
 }
+
+/** Clears the recruiter's decision, so the interview is undecided again. */
+export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+  const denied = await requireRecruiter();
+  if (denied) return denied;
+
+  const { roomId } = await params;
+  if (!roomIdSchema.safeParse(roomId).success) {
+    return interviewErrorResponse("INVALID_INPUT", "This interview link is invalid.");
+  }
+  const room = await recordDecision(roomId, null);
+  if (!room) return interviewErrorResponse("ROOM_NOT_FOUND", "This interview does not exist.");
+  return NextResponse.json({ decision: null });
+}
