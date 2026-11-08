@@ -986,6 +986,79 @@ function OverallAssessment({
   );
 }
 
+/**
+ * The key phrase of a model-written point: the text up to its first clause
+ * break (colon, semicolon, sentence end or comma), so a point reads in one
+ * line and the full sentence opens on click.
+ */
+function keyPhrase(text: string, max = 64): string {
+  const clean = plain(text);
+  const breaks = [": ", "; ", ". ", ", "]
+    .map((mark) => clean.indexOf(mark, 12))
+    .filter((index) => index > 0);
+  let head = breaks.length > 0 ? clean.slice(0, Math.min(...breaks)) : clean;
+  head = head.replace(/[.!?]$/, "");
+  if (head.length > max) {
+    const cut = head.slice(0, max);
+    head = `${cut.slice(0, cut.lastIndexOf(" "))}…`;
+  }
+  return head;
+}
+
+const TAKEAWAY_STYLE: Record<
+  "strengths" | "concerns",
+  { panel: string; badge: string; mark: string; icon: LucideIcon }
+> = {
+  strengths: {
+    panel: "bg-emerald-500/[0.06] ring-emerald-500/15",
+    badge: "bg-emerald-500 text-white",
+    mark: "text-emerald-600 dark:text-emerald-400",
+    icon: Check,
+  },
+  concerns: {
+    panel: "bg-amber-500/[0.07] ring-amber-500/20",
+    badge: "bg-amber-500 text-white",
+    mark: "text-amber-600 dark:text-amber-400",
+    icon: AlertCircle,
+  },
+};
+
+/** One takeaway: its key phrase on a line, the full sentence on click. */
+function TakeawayItem({ text, mark, icon: Icon }: { text: string; mark: string; icon: LucideIcon }) {
+  const [open, setOpen] = useState(false);
+  const full = plain(text);
+  const head = keyPhrase(full);
+  const more = head.replace(/…$/, "") !== full.replace(/[.!?]$/, "");
+  const content = (
+    <>
+      <Icon className={`mt-[3px] size-4 shrink-0 ${mark}`} aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium text-foreground">{head}</span>
+        {open && <span className="mt-1 block font-normal leading-6 text-foreground/70">{full}</span>}
+      </span>
+      {more && (
+        <ChevronDown className={`mt-[3px] size-4 shrink-0 text-muted transition ${open ? "rotate-180" : ""}`} aria-hidden />
+      )}
+    </>
+  );
+  return (
+    <li>
+      {more ? (
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          aria-expanded={open}
+          className="-mx-2 flex w-[calc(100%+1rem)] items-start gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm leading-6 transition hover:bg-foreground/[0.04]"
+        >
+          {content}
+        </button>
+      ) : (
+        <div className="flex items-start gap-2.5 py-1.5 text-sm leading-6">{content}</div>
+      )}
+    </li>
+  );
+}
+
 function SummarySection({
   scorecard,
   insights,
@@ -994,17 +1067,16 @@ function SummarySection({
   insights: ReportInsights | null;
 }) {
   const [showSummary, setShowSummary] = useState(false);
-  const [showAll, setShowAll] = useState(false);
   const summary = plain(scorecard.summary);
-  const groups = [
-    { id: "strengths", label: "Strengths", items: scorecard.strengths.map(plain), icon: Check, tone: "good" as Tone },
-    { id: "concerns", label: "Concerns", items: scorecard.concerns.map(plain), icon: AlertCircle, tone: "warn" as Tone },
-    { id: "next", label: "Ask next round", items: (insights?.nextSteps ?? []).map(plain), icon: ArrowRight, tone: "muted" as Tone },
-  ].filter((group) => group.items.length > 0);
-  // Three points per column keep the block short; the rest open together.
-  const LIMIT = 3;
-  const hidden = groups.reduce((sum, group) => sum + Math.max(0, group.items.length - LIMIT), 0);
-  const columns = groups.length >= 3 ? "lg:grid-cols-3" : groups.length === 2 ? "md:grid-cols-2" : "";
+  const lead = summary ? keyPhrase(firstSentence(summary), 160) : "";
+  const [question, setQuestion] = useState<number | null>(null);
+  const groups = (
+    [
+      { id: "strengths", label: "Strengths", items: scorecard.strengths },
+      { id: "concerns", label: "Concerns", items: scorecard.concerns },
+    ] as const
+  ).filter((group) => group.items.length > 0);
+  const nextSteps = (insights?.nextSteps ?? []).map(plain);
 
   return (
     <section id="summary" className={`${cardClasses} scroll-mt-32`}>
@@ -1018,47 +1090,35 @@ function SummarySection({
               aria-expanded={showSummary}
               className="inline-flex items-center gap-1 text-sm font-medium text-muted transition hover:text-foreground"
             >
-              {showSummary ? "Hide summary" : "Read summary"}
+              {showSummary ? "Hide full summary" : "Full summary"}
               <ChevronDown className={`size-4 transition ${showSummary ? "rotate-180" : ""}`} aria-hidden />
             </button>
           ) : undefined
         }
       />
 
+      {lead && <p className="mt-3 text-base font-medium leading-7 text-foreground/90">{lead}.</p>}
       {showSummary && (
-        <p className="mt-4 rounded-xl bg-foreground/[0.035] px-5 py-4 text-[15px] leading-7 text-foreground/90">
+        <p className="mt-3 rounded-xl bg-foreground/[0.035] px-5 py-4 text-[15px] leading-7 text-foreground/85">
           {summary}
         </p>
       )}
 
       {groups.length > 0 && (
-        <div className={`mt-5 grid gap-x-10 gap-y-7 ${columns}`}>
+        <div className={`mt-5 grid gap-4 ${groups.length === 2 ? "md:grid-cols-2" : ""}`}>
           {groups.map((group) => {
-            const Icon = group.icon;
-            const items = showAll ? group.items : group.items.slice(0, LIMIT);
+            const style = TAKEAWAY_STYLE[group.id];
             return (
-              <div key={group.id} className="min-w-0">
+              <div key={group.id} className={`min-w-0 rounded-2xl px-5 py-4 ring-1 ring-inset ${style.panel}`}>
                 <h3 className="flex items-center gap-2 text-sm font-semibold">
-                  <span
-                    className={`grid size-5 place-items-center rounded-full ${
-                      group.tone === "good"
-                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                        : group.tone === "warn"
-                          ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                          : "bg-accent/10 text-accent"
-                    }`}
-                    aria-hidden
-                  >
-                    <Icon className="size-3 stroke-[2.5]" />
+                  <span className={`grid h-6 min-w-6 place-items-center rounded-full px-1.5 text-xs font-semibold tabular-nums ${style.badge}`}>
+                    {group.items.length}
                   </span>
                   {group.label}
-                  <span className="font-normal tabular-nums text-muted">{group.items.length}</span>
                 </h3>
-                <ul className="mt-3 grid gap-3 border-t border-border pt-3">
-                  {items.map((item, index) => (
-                    <li key={index} className="text-sm leading-6 text-foreground/85">
-                      {item}
-                    </li>
+                <ul className="mt-2 grid">
+                  {group.items.map((item, index) => (
+                    <TakeawayItem key={index} text={item} mark={style.mark} icon={style.icon} />
                   ))}
                 </ul>
               </div>
@@ -1067,16 +1127,34 @@ function SummarySection({
         </div>
       )}
 
-      {hidden > 0 && (
-        <button
-          type="button"
-          onClick={() => setShowAll((current) => !current)}
-          aria-expanded={showAll}
-          className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
-        >
-          {showAll ? "Show less" : `Show ${hidden} more`}
-          <ChevronDown className={`size-3.5 transition ${showAll ? "rotate-180" : ""}`} aria-hidden />
-        </button>
+      {nextSteps.length > 0 && (
+        <div className="mt-5 border-t border-border pt-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="mr-1 text-sm font-semibold">Ask next round</span>
+            {nextSteps.map((step, index) => {
+              const active = question === index;
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={() => setQuestion(active ? null : index)}
+                  aria-expanded={active}
+                  className={`inline-flex h-8 min-w-0 max-w-[16rem] items-center gap-1.5 overflow-hidden rounded-full sm:max-w-none border px-3 text-sm transition ${
+                    active
+                      ? "border-accent bg-accent text-white"
+                      : "border-accent/25 bg-accent/[0.05] text-accent hover:border-accent/50"
+                  }`}
+                >
+                  <ArrowRight className="size-3.5 shrink-0" aria-hidden />
+                  <span className="min-w-0 truncate">{keyPhrase(step, 48)}</span>
+                </button>
+              );
+            })}
+          </div>
+          {question !== null && nextSteps[question] && (
+            <p className="mt-3 text-sm leading-6 text-foreground/80">{nextSteps[question]}</p>
+          )}
+        </div>
       )}
     </section>
   );
@@ -2468,7 +2546,7 @@ function PeersSection({ peers, currentId }: { peers: PeerSummary[]; currentId: s
           const tone = scoreBand(score).tone;
           const row = (
             <div
-              className={`grid grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,12rem)_2.5rem_6rem] items-center gap-4 rounded-xl px-3 py-2.5 text-sm transition-colors ${
+              className={`grid grid-cols-[1.25rem_minmax(0,1fr)_2.5rem] items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors sm:grid-cols-[1.5rem_minmax(0,1fr)_minmax(0,12rem)_2.5rem_6rem] sm:gap-4 ${
                 isCurrent ? "bg-accent-soft" : "hover:bg-foreground/[0.03]"
               }`}
             >
@@ -2482,11 +2560,11 @@ function PeersSection({ peers, currentId }: { peers: PeerSummary[]; currentId: s
                   {isCurrent && <span className="ml-2 text-xs font-normal text-accent">This report</span>}
                 </span>
               </span>
-              <span className="h-1.5 overflow-hidden rounded-full bg-foreground/[0.07]">
+              <span className="hidden h-1.5 overflow-hidden rounded-full bg-foreground/[0.07] sm:block">
                 {score !== null && <span className={`block h-full rounded-full ${isCurrent ? "bg-accent" : "bg-foreground/60"}`} style={{ width: `${score}%` }} />}
               </span>
               <span className={`text-right font-semibold tabular-nums ${score !== null ? TONE_TEXT[tone] : ""}`}>{score ?? "—"}</span>
-              <span className="text-right text-xs text-muted">
+              <span className="hidden text-right text-xs text-muted sm:block">
                 {peer.decision ? DECISION_LABELS[peer.decision.outcome] : "No decision"}
               </span>
             </div>
