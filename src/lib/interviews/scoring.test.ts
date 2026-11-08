@@ -475,3 +475,12 @@ test("fixed spot: a tiny shift that is small in real terms is not flagged", () =
   m.baseline = { frames: 900, source: "listening", x: 0.05, y: 0.0, sx: 0.03, sy: 0.03 };
   assert.equal(measuredFindings(m).filter((f) => f.kind === "fixed_spot").length, 0);
 });
+
+test("real interviews under the Nov 8 rules land in sensible bands", () => {
+  // Pranjul: every topic Fair (60), resume 88 -> 59, borderline.
+  assert.equal(overallScore({ answers: 60, resume: 88, authenticity: null, video: null }).score, 59);
+  // Dharmateja: answers 50, resume 85 -> 49, no hire.
+  assert.equal(overallScore({ answers: 50, resume: 85, authenticity: null, video: null }).score, 49);
+  // A strong, honest candidate: answers 85, resume 90 -> 83, strong hire.
+  assert.equal(overallScore({ answers: 85, resume: 90, authenticity: null, video: null }).score, 83);
+});
