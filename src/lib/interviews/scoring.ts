@@ -411,10 +411,10 @@ export function measuredFindings(measures: VideoMeasures): IntegrityFinding[] {
   // only when it has far more of it than their usual.
   const rates = judged.map((answer) => answer.reading?.perMinute ?? 0);
   const usualRate = median(rates) ?? 0;
+  const reads = (answer: AnswerMeasures) =>
+    (answer.reading?.sweeps ?? 0) >= 4 && (answer.reading?.perMinute ?? 0) >= 6;
   const reading = judged.filter(
-    (answer) =>
-      (answer.reading?.sweeps ?? 0) >= 4 &&
-      (answer.reading?.perMinute ?? 0) >= Math.max(6, 2.5 * usualRate),
+    (answer) => reads(answer) && (answer.reading?.perMinute ?? 0) >= 2.5 * usualRate,
   );
   if (reading.length > 0) {
     const seqs = reading.map((answer) => answer.turnSeq);
@@ -424,10 +424,59 @@ export function measuredFindings(measures: VideoMeasures): IntegrityFinding[] {
       strength: reading.length >= 2 ? 2 : 1,
       title: `Eyes moved line by line, as in reading, in ${plural(reading.length, "answer")}`,
       detail:
-        "The eyes drifted slowly sideways and then jumped back, again and again, the way they move across lines of text. Watch these answers to see whether the candidate was reading.",
+        "The eyes drifted slowly sideways and then jumped back, again and again, the way they move across lines of text, far more than in the candidate's other answers. Watch these answers to see whether the candidate was reading.",
       turnSeqs: seqs,
       atSeconds: startOf(seqs),
     });
+  }
+
+  // 2b. Reading while looking AT the screen. On-screen AI tools (Parakeet,
+  // Cluely and similar) show the answer in an overlay that screen sharing
+  // cannot see, so the candidate never looks away: the tell is reading-like
+  // eye movement during most answers, at one steady place on the screen that
+  // differs from where they look while listening, and much less of it in
+  // their unscripted introduction. On its own this stays a soft signal: the
+  // call screen also shows the question text, which honest candidates re-read.
+  if (judged.length >= MIN_ANSWERS_FOR_PATTERN) {
+    const readers = judged.filter(reads);
+    const intro = judged[0];
+    const introRate = intro?.reading?.perMinute ?? null;
+    const readerRate = median(readers.map((answer) => answer.reading?.perMinute ?? 0)) ?? 0;
+    // A steady on-screen place: answers whose median gaze sits 1.2-4 spreads from
+    // the listening centre, all in the same direction.
+    const placed = readers.filter((answer) => {
+      const offset = answer.medianOffset;
+      if (!offset) return false;
+      const distance = Math.hypot(offset[0], offset[1]);
+      return distance >= 1.2 && distance < MIN_SPOT_DISTANCE;
+    });
+    const angles = placed.map((answer) => Math.atan2((answer.medianOffset as number[])[1], (answer.medianOffset as number[])[0]));
+    const meanAngle = Math.atan2(
+      angles.reduce((sum, a) => sum + Math.sin(a), 0),
+      angles.reduce((sum, a) => sum + Math.cos(a), 0),
+    );
+    const samePlace = placed.filter((_, i) => Math.abs(Math.atan2(Math.sin(angles[i] - meanAngle), Math.cos(angles[i] - meanAngle))) <= Math.PI / 4);
+    const most = readers.length >= Math.max(3, 0.5 * judged.length);
+    const introQuiet = introRate !== null && readerRate > 0 && introRate <= 0.5 * readerRate && !reads(intro);
+    const alreadyFlagged = new Set(reading.map((answer) => answer.turnSeq));
+    if (most && (samePlace.length >= Math.max(3, 0.4 * judged.length) || introQuiet)) {
+      const seqs = (samePlace.length >= 3 ? samePlace : readers)
+        .map((answer) => answer.turnSeq)
+        .filter((seq) => !alreadyFlagged.has(seq));
+      if (seqs.length > 0) {
+        findings.push({
+          kind: "screen_reading",
+          source: "video",
+          strength: samePlace.length >= 3 && introQuiet ? 2 : 1,
+          title: `Reading-like eye movement while looking at the screen in ${plural(readers.length, "answer")}`,
+          detail: `${
+            samePlace.length >= 3 ? "The eyes kept going to the same part of the screen and moved across it line by line" : "The eyes moved across the screen line by line"
+          }${introQuiet ? ", much more than in the candidate's own introduction" : ""}. That is how reading an answer from an on-screen AI tool looks, though it can also be the candidate re-reading the question shown on the call screen. Check whether the delivery sounds read.`,
+          turnSeqs: seqs,
+          atSeconds: startOf(seqs),
+        });
+      }
+    }
   }
 
   // 3. Lip-sync: mouth movement that does not follow the voice. Judged against
@@ -545,6 +594,29 @@ export function measuredFindings(measures: VideoMeasures): IntegrityFinding[] {
         strength: steady.length >= 2 ? 2 : 1,
         title: `${plural(smooth.length, "answer")} sounded read out`,
         detail: `This candidate usually hesitates or restarts about ${usualDisfluency.toFixed(1)} times per 100 words. ${smooth.length === 1 ? "This answer was" : "These answers were"} almost free of that${steady.length > 0 ? ", at an unusually even pace" : ""}, which is how reading aloud sounds.`,
+        turnSeqs: seqs,
+        atSeconds: startOf(seqs),
+      });
+    }
+  }
+
+  // 6b. The copilot timing: a stall (silence, or "so... umm...") while the tool
+  // writes, then delivery far smoother than the candidate's own usual.
+  if (usualDisfluency !== null && usualDisfluency >= 2 && spoken.length >= MIN_ANSWERS_FOR_PATTERN) {
+    const stalled = spoken.filter((answer) => {
+      const d = answer.delivery;
+      if (!d || d.restDisfluencyPer100 === null || d.restDisfluencyPer100 === undefined) return false;
+      return (d.firstContentDelay ?? 0) >= 2.5 && d.restDisfluencyPer100 <= 0.35 * usualDisfluency;
+    });
+    if (stalled.length >= 2) {
+      const seqs = stalled.map((answer) => answer.turnSeq);
+      findings.push({
+        kind: "stall_then_fluent",
+        source: "audio",
+        strength: stalled.length >= 3 ? 2 : 1,
+        title: `Waited, then answered unusually smoothly, in ${plural(stalled.length, "answer")}`,
+        detail:
+          "Each of these answers opened with a pause or filler words, and then ran far more smoothly than this candidate normally speaks. That is the rhythm of waiting for an AI tool to write an answer and then reading it.",
         turnSeqs: seqs,
         atSeconds: startOf(seqs),
       });

@@ -138,6 +138,21 @@ def delivery(words: list[dict[str, Any]] | None, window_start: float, window_end
     full = counts[:-1] if len(counts) > 2 else counts
     rate_cv = float(full.std() / full.mean()) if len(full) >= 3 and full.mean() > 0 else None
     per100 = 100.0 / max(1, len(tokens))
+    # The copilot shape: a wait (or "so... umm...") while the tool writes the
+    # answer, then smooth delivery once it appears. Measured as the time to the
+    # first content word, and how disfluent the answer is after its opening.
+    first_content = next(
+        (item["s"] for item, token in zip(words, tokens) if token and token not in FILLERS), first
+    )
+    rest_tokens = tokens[10:]
+    rest_content = [t for t in rest_tokens if t and t not in FILLERS]
+    rest_fillers = sum(1 for t in rest_tokens if t in FILLERS)
+    rest_repeats = sum(
+        1 for i in range(1, len(rest_content)) if rest_content[i] == rest_content[i - 1] and len(rest_content[i]) > 1
+    )
+    rest_rate = (
+        round(100.0 * (rest_fillers + rest_repeats) / len(rest_tokens), 2) if len(rest_tokens) >= 30 else None
+    )
     return {
         "words": len(tokens),
         "spokenSeconds": round(spoken, 1),
@@ -148,6 +163,8 @@ def delivery(words: list[dict[str, Any]] | None, window_start: float, window_end
         "pauseShare": round(pause_time / spoken, 3),
         "paceVariation": None if rate_cv is None else round(rate_cv, 3),
         "startDelay": round(max(0.0, first), 2),
+        "firstContentDelay": round(max(0.0, first_content), 2),
+        "restDisfluencyPer100": rest_rate,
     }
 
 

@@ -316,6 +316,10 @@ export interface AnswerDelivery {
   /** How uneven the pace was; low = very steady, as in reading. */
   paceVariation: number | null;
   startDelay: number;
+  /** Seconds to the first real (non-filler) word: a stall while a tool writes shows here. */
+  firstContentDelay?: number;
+  /** Hesitations per 100 words after the first ten words; null for short answers. */
+  restDisfluencyPer100?: number | null;
 }
 
 export interface AnswerMeasures {
@@ -335,6 +339,8 @@ export interface AnswerMeasures {
   /** Distinct off-screen directions used: many = wandering, as in thinking. */
   offScreenDirections?: number;
   reading?: { sweeps: number; perMinute: number; direction: number | null } | null;
+  /** Median gaze offset from the screen centre, in the candidate's own spreads [x, y]. */
+  medianOffset?: [number, number] | null;
   lipSync?: { correlation: number | null; lag: number | null; voicedFrames: number } | null;
   multiFaceSeconds: number;
   phoneSeconds: number | null;
@@ -365,6 +371,8 @@ export type IntegritySource = "video" | "audio" | "text" | "browser";
 export type IntegrityFindingKind =
   | "fixed_spot"
   | "reading_eyes"
+  | "screen_reading"
+  | "stall_then_fluent"
   | "lip_sync"
   | "voice_change"
   | "second_face"

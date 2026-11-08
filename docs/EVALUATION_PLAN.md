@@ -192,3 +192,24 @@ These timings are estimates from the research, not measured yet.
 - lip-sync correlation <0.05 when the candidate's usual is ≥0.2;
 - voice similarity 0.2–0.3 below their usual;
 - read-aloud at ≤25% of their usual hesitation rate.
+
+## 6. On-screen AI tools (Parakeet AI, Cluely and similar), Nov 8
+
+These tools show the answer in an overlay that screen sharing cannot see, so the candidate never looks away. Paid detectors run a program on the candidate's machine to find the process; a browser page cannot do that. What we can do from the recording:
+
+- **Reading while looking at the screen** (`screen_reading`):
+  - reading-like eye movement in most answers;
+  - at one steady place on the screen that differs from where the candidate looks while listening;
+  - and/or much more of it than in their own introduction.
+
+  On its own this is a soft note, because the call screen shows the question text and honest candidates re-read it.
+- **The copilot rhythm** (`stall_then_fluent`): a pause or filler words before the first real word (`firstContentDelay`), then delivery far smoother than the candidate's usual (`restDisfluencyPer100`).
+- **Fusion stays strict.** High risk needs the eyes and the delivery or wording to agree on the same answers.
+- **The model** now also sees the per-answer numbers (never the video) to say which answers to watch first. The level is still decided in code.
+
+**Proposed next, not built:**
+1. **Hide the full question text once the candidate starts answering.** Keep a short topic label and a "show question" tap. That removes the honest reason to read during an answer, so reading-while-answering becomes a much stronger signal.
+2. **Live countermeasures in the interviewer agent:**
+   - follow-ups on personal specifics;
+   - "explain that more simply";
+   - optionally one question with a made-up but plausible technology term. A copilot explains it confidently; an honest candidate says they don't know it.

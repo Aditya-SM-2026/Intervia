@@ -384,3 +384,30 @@ test("gaze pattern: the same off-screen spot across answers is what counts", () 
   const reading = gazePattern([1, 2, 3].map((seq) => gaze(seq, "centre", { reading: true })));
   assert.equal(videoBehaviourScore([], quiet, reading), 70);
 });
+
+test("on-screen reading: steady reading everywhere, intro included, stays a soft note", () => {
+  const answers = [1, 2, 3, 4, 5, 6].map((turnSeq) =>
+    measured({ turnSeq, reading: { sweeps: 10, perMinute: 12, direction: 1 }, medianOffset: [-1.5, -2] }),
+  );
+  const findings = measuredFindings(measures(answers));
+  assert.deepEqual(findings.map((f) => [f.kind, f.strength]), [["screen_reading", 1]]);
+  assert.equal(integrityLevel(findings), "clear");
+});
+
+test("on-screen reading: one screen spot, quiet intro, plus pause-then-smooth delivery is high risk", () => {
+  const smooth = {
+    words: 120, spokenSeconds: 40, wordsPerMinute: 170, fillersPer100: 3, repeatsPer100: 0,
+    longPauses: 0, pauseShare: 0.1, paceVariation: 0.3, startDelay: 0.2,
+    firstContentDelay: 3.5, restDisfluencyPer100: 0.5,
+  };
+  const answers = [1, 2, 3, 4, 5, 6].map((turnSeq) =>
+    turnSeq === 1
+      ? measured({ turnSeq, reading: { sweeps: 1, perMinute: 2, direction: 1 }, medianOffset: [0.2, 0.1] })
+      : measured({ turnSeq, reading: { sweeps: 10, perMinute: 12, direction: 1 }, medianOffset: [0.3, -2.2], delivery: smooth }),
+  );
+  const findings = measuredFindings(measures(answers));
+  const kinds = findings.map((f) => f.kind);
+  assert.ok(kinds.includes("screen_reading"));
+  assert.ok(kinds.includes("stall_then_fluent"));
+  assert.equal(integrityLevel(findings), "high_risk");
+});

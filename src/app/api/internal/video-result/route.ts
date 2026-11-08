@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
   // Integrity is rebuilt with the video and audio findings, then explained in
   // plain words by the model (the level itself is decided in code). The worker
   // waits for this reply, so the summary is written before answering.
-  const integrityCheck = await writeIntegritySummary(refreshIntegrity(updated));
+  const integrityCheck = await writeIntegritySummary(refreshIntegrity(updated), updated);
   await repository.saveScorecard({ ...updated, integrityCheck });
 
   return NextResponse.json({ ok: true, status: video.status });

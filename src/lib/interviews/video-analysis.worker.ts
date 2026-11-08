@@ -330,9 +330,18 @@ export function videoBehaviourFromMeasures(raw: VideoMeasures, durationSeconds: 
     processingSeconds: num(raw.processingSeconds) ?? 0,
   };
   const findings = measuredFindings(measures);
+  // The per-answer flags follow the same rules as the Integrity section.
+  const readingSeqs = new Set(
+    findings
+      .filter((finding) => finding.kind === "reading_eyes" || finding.kind === "screen_reading")
+      .flatMap((finding) => finding.turnSeqs),
+  );
+  const spotSeqs = new Set(
+    findings.filter((finding) => finding.kind === "fixed_spot").flatMap((finding) => finding.turnSeqs),
+  );
   const spot = measures.spots[0];
   const answers: AnswerGaze[] = measures.answers.map((answer) => {
-    const held = spot?.heldAnswers.includes(answer.turnSeq) ?? false;
+    const held = spotSeqs.has(answer.turnSeq);
     const readable = answer.atScreenShare !== null && answer.atScreenShare !== undefined;
     return {
       turnSeq: answer.turnSeq,
@@ -341,7 +350,7 @@ export function videoBehaviourFromMeasures(raw: VideoMeasures, durationSeconds: 
       whileListening: readable ? "centre" : "unclear",
       whileAnswering: readable ? directionFromOffset((answer as { medianOffset?: unknown }).medianOffset) : "unclear",
       steady: held,
-      reading: (answer.reading?.sweeps ?? 0) >= 3 && (answer.reading?.perMinute ?? 0) >= 4,
+      reading: readingSeqs.has(answer.turnSeq),
       note: readable
         ? `At the screen for ${Math.round((answer.atScreenShare as number) * 100)}% of the answer${held && spot ? `; held ${spot.where}` : ""}`
         : "",

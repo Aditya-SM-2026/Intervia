@@ -55,6 +55,11 @@ docker run -d --name "$NAME" --restart=always --memory="$MEMORY_LIMIT" \
   -e NODE_ENV=production \
   "$IMAGE"
 
+# Each release leaves the previous image behind untagged (about 1.6 GB). Seven
+# of them filled the 16 GB disk and broke the next pull, so remove untagged
+# images that no container uses. Tagged images (production :latest) are kept.
+docker image prune -f >/dev/null || true
+
 sleep 15
 echo "--- container state ---"
 docker ps --filter "name=$NAME" --format '{{.Names}} {{.Status}} {{.Image}}'
