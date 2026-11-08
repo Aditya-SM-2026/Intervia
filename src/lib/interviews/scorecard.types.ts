@@ -51,6 +51,11 @@ export interface CompetencyScore {
   dimensions?: AnswerDimensions | null;
   /** The answer only defined terms, with nothing the candidate did or decided. */
   definitionOnly?: boolean;
+  /**
+   * Whether the answers to this question sounded like the candidate's own
+   * words (the weakest reading among them). Part of answer quality.
+   */
+  originality?: "natural" | "polished" | "likely_read";
 }
 
 export interface AnswerDimensions {
@@ -124,6 +129,8 @@ export interface ResumeMatch {
   /** 0-100 over the claims that were actually discussed; null when too few were. */
   score: number | null;
   claims: ResumeClaim[];
+  /** How the resume lines up with the job description's main requirements. */
+  jobFit?: { requirement: string; level: "strong" | "some" | "none"; evidence: string }[];
   /** Why there is no score, when there is none. */
   reason: string | null;
 }

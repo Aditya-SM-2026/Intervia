@@ -40,9 +40,10 @@ import type {
  *   it has been validated on staged interviews (SCORE_WEIGHTS_V2).
  */
 export const DEFAULT_WEIGHTS: Record<FactorId, number> = {
-  answers: 70,
+  answers: 80,
   resume: 20,
-  authenticity: 10,
+  // Own words is part of answer quality now (ORIGINALITY_FACTOR), not a factor.
+  authenticity: 0,
   video: 0,
 };
 
@@ -150,11 +151,19 @@ export function answerQualityScore(
   for (const item of competencies) {
     if (item.status !== "scored" || item.score === null) continue;
     const share = planMinutes.get(item.competencyId) ?? 1;
-    total += item.score * share;
+    // An answer that sounded read out counts for less (see ORIGINALITY_FACTOR).
+    total += item.score * ORIGINALITY_FACTOR[item.originality ?? "natural"] * share;
     weight += share;
   }
   return weight === 0 ? null : clampScore((total / weight / 5) * 100);
 }
+
+/**
+ * How much of an answer's score stands, by whether it was in the candidate's
+ * own words. Originality is part of answer quality rather than a score of its
+ * own: a well-worded answer read from a tool is not a good answer.
+ */
+export const ORIGINALITY_FACTOR = { natural: 1, polished: 0.85, likely_read: 0.5 } as const;
 
 /**
  * Custom parameter total, 0-100: the weighted mean of the parameters that
@@ -320,7 +329,10 @@ export function overallScore(
   let weight = 0;
   for (const factor of factors) {
     if (factor.score === null || factor.weight <= 0) continue;
-    total += factor.score * factor.weight;
+    // Resume depth only counts in proportion to how well the questions were
+    // answered: a great resume behind half-answered questions counts half.
+    const score = factor.id === "resume" ? (factor.score * scores.answers) / 100 : factor.score;
+    total += score * factor.weight;
     weight += factor.weight;
   }
   if (weight === 0) return { score: null, factors };

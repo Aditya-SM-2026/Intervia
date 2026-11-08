@@ -47,7 +47,7 @@ import {
   Eye,
   FileSearch,
   FileText,
-  Fingerprint,
+  Info,
   Gauge,
   ListChecks,
   Maximize2,
@@ -59,7 +59,6 @@ import {
   MoreHorizontal,
   Pencil,
   Play,
-  Quote,
   RotateCcw,
   ScrollText,
   Search,
@@ -71,7 +70,6 @@ import {
   Trophy,
   User,
   X,
-  XCircle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -97,44 +95,6 @@ const END_REASONS: Record<string, string> = {
   time_up: "Ended at the time limit",
   candidate_left: "Candidate left early",
   session_closed: "Session closed unexpectedly",
-};
-
-const VERDICT_LABELS: Record<ResumeVerdict, string> = {
-  confirmed: "Supported",
-  partly_supported: "Partially supported",
-  not_supported: "Not supported",
-  not_discussed: "Not discussed",
-};
-
-
-const VERDICT_STYLES: Record<
-  ResumeVerdict,
-  { bg: string; text: string; border: string; icon: LucideIcon }
-> = {
-  confirmed: {
-    bg: "bg-emerald-50 dark:bg-emerald-950/30",
-    text: "text-emerald-700 dark:text-emerald-400",
-    border: "border-emerald-200/70 dark:border-emerald-800/50",
-    icon: Check,
-  },
-  partly_supported: {
-    bg: "bg-amber-50 dark:bg-amber-950/30",
-    text: "text-amber-700 dark:text-amber-400",
-    border: "border-amber-200/70 dark:border-amber-800/50",
-    icon: AlertCircle,
-  },
-  not_supported: {
-    bg: "bg-rose-50 dark:bg-rose-950/30",
-    text: "text-rose-700 dark:text-rose-400",
-    border: "border-rose-200/70 dark:border-rose-800/50",
-    icon: XCircle,
-  },
-  not_discussed: {
-    bg: "bg-slate-50 dark:bg-slate-900/40",
-    text: "text-muted",
-    border: "border-border dark:border-slate-800",
-    icon: Minus,
-  },
 };
 
 const TONE_TEXT: Record<Tone, string> = {
@@ -177,9 +137,7 @@ const REPORT_SECTIONS = [
   { id: "overview", label: "Overview" },
   { id: "answers", label: "Answers" },
   { id: "resume", label: "Resume" },
-  { id: "authenticity", label: "Own answers" },
   { id: "recording", label: "Recording" },
-  { id: "video", label: "On camera" },
   { id: "comments", label: "Decision" },
 ] as const;
 
@@ -258,8 +216,15 @@ async function fetchDetail(
   return data as InterviewDetailResponse;
 }
 
-export function InterviewDetailView({ roomId }: { roomId: string }) {
-  const [detail, setDetail] = useState<InterviewDetailResponse | null>(null);
+export function InterviewDetailView({
+  roomId,
+  initialDetail,
+}: {
+  roomId: string;
+  /** Sample data for the local design preview; skips loading from the API. */
+  initialDetail?: InterviewDetailResponse;
+}) {
+  const [detail, setDetail] = useState<InterviewDetailResponse | null>(initialDetail ?? null);
   const [error, setError] = useState<string | null>(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isVideoRequesting, setIsVideoRequesting] = useState(false);
@@ -279,6 +244,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
   }
 
   useEffect(() => {
+    if (initialDetail) return;
     let cancelled = false;
     fetchDetail(`/api/dashboard/interviews/${roomId}`, "GET")
       .then((result) => {
@@ -294,7 +260,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [roomId, router]);
+  }, [roomId, router, initialDetail]);
 
   // While the analyser is working, refresh the report until the result lands.
   const videoQueued = detail?.scorecard?.video?.status === "queued";
@@ -520,7 +486,17 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       videoRef={videoRef}
       moments={scorecard?.video?.moments ?? []}
       durationSeconds={session.outcome?.elapsedSeconds ?? null}
-    />
+    >
+      {scorecard?.video && (
+        <VideoSection
+          scorecard={scorecard}
+          hasRecording={hasRecording}
+          onPlay={playFrom}
+          onAnalyseVideo={handleAnalyseVideo}
+          isAnalysing={isVideoRequesting}
+        />
+      )}
+    </RecordingPanel>
   );
 
   return (
@@ -572,9 +548,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
                     "overview",
                     "answers",
                     ...(scorecard.resumeMatch ? ["resume"] : []),
-                    ...(scorecard.authenticity ? ["authenticity"] : []),
                     "recording",
-                    ...(scorecard.video ? ["video"] : []),
                     "comments",
                   ]
                 : ["overview", "recording", "comments"],
@@ -603,15 +577,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
                 onAnalyseResume={handleAnalyseResume}
                 isAnalysing={isResumeRequesting}
               />
-              <OwnAnswersSection scorecard={scorecard} />
               {recordingSection}
-              <VideoSection
-                scorecard={scorecard}
-                hasRecording={hasRecording}
-                onPlay={playFrom}
-                onAnalyseVideo={handleAnalyseVideo}
-                isAnalysing={isVideoRequesting}
-              />
             </>
           ) : (
             <>
@@ -677,13 +643,46 @@ function CardHeading({
             <Icon className="size-[18px]" aria-hidden />
           </span>
         )}
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
           <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
-          {subtitle && <p className="mt-0.5 max-w-prose text-sm text-muted">{subtitle}</p>}
+          {subtitle && <InfoTip text={subtitle} />}
         </div>
       </div>
       {right}
     </div>
+  );
+}
+
+/**
+ * An (i) button that explains a heading or number on hover, focus or tap,
+ * instead of a line of text under it that everyone has to read past.
+ */
+function InfoTip({ text, align = "left" }: { text: string; align?: "left" | "right" }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        aria-label="What this means"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className="grid size-5 place-items-center rounded-full text-muted transition hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent"
+      >
+        <Info className="size-3.5" aria-hidden />
+      </button>
+      {open && (
+        <span
+          role="tooltip"
+          className={`absolute top-full z-30 mt-1.5 w-64 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-normal leading-5 text-foreground/85 shadow-lg shadow-black/[0.08] ${
+            align === "right" ? "right-0" : "left-0"
+          }`}
+        >
+          {text}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -956,11 +955,11 @@ function OverallAssessment({
   };
 
   return (
-    <section id="overview" className={`${cardClasses} scroll-mt-32 overflow-hidden`}>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] lg:gap-8">
+    <section id="overview" className={`${cardClasses} scroll-mt-32`}>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] lg:gap-6">
         {/* verdict */}
-        <div className={`relative flex items-center gap-5 rounded-2xl p-5 lg:flex-col lg:items-start ${TONE_TILE[verdictTone]}`}>
-          <ScoreRing score={score} size={112} stroke={9} toneClass={TONE_STROKE[band.tone]} label="of 100" />
+        <div className={`relative flex items-center gap-5 rounded-2xl p-5 ${TONE_TILE[verdictTone]}`}>
+          <ScoreRing score={score} size={92} stroke={8} toneClass={TONE_STROKE[band.tone]} label="of 100" />
           <div className="min-w-0">
             <p className="text-sm font-medium opacity-75">Recommendation</p>
             <motion.p
@@ -977,61 +976,63 @@ function OverallAssessment({
           </div>
         </div>
 
-        {/* factors */}
-        <div className="grid gap-3 sm:grid-cols-2">
+        {/* factors, then the supporting numbers */}
+        <div className="grid min-w-0 content-start gap-3">
+        <div className="grid content-start gap-3 sm:grid-cols-3">
           {overall.factors.map((factor, index) => {
             const meta = FACTOR_META[factor.id];
             const chip = factorChip(factor.id, factor.score);
             return (
-              <a
+              <div
                 key={factor.id}
-                href={`#${factorLink(factor.id)}`}
-                title={meta.explains}
-                className="group flex items-center gap-3.5 rounded-2xl border border-border p-4 transition hover:-translate-y-px hover:border-foreground/15 hover:shadow-md hover:shadow-black/[0.04]"
+                className="group relative flex items-center gap-3.5 rounded-2xl border border-border p-4 transition hover:border-foreground/15 hover:shadow-md hover:shadow-black/[0.04]"
               >
+                <a href={`#${factorLink(factor.id)}`} className="absolute inset-0 rounded-2xl" aria-label={`Go to ${meta.name}`} />
                 <ScoreRing
                   score={factor.score}
-                  size={56}
-                  stroke={5}
+                  size={48}
+                  stroke={4.5}
                   toneClass={TONE_STROKE[chip.tone]}
                   delay={0.15 + index * 0.08}
                 />
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-semibold">{meta.name}</span>
-                  <span className={`mt-0.5 block text-xs font-medium ${TONE_TEXT[chip.tone]}`}>
-                    {factor.id === "authenticity" && scorecard.ownAnswers
-                      ? ownAnswersLine(scorecard.ownAnswers)
-                      : chip.label}
+                  <span className="block text-sm font-semibold">
+                    {meta.name}
+                    <span className="relative z-10 ml-1 inline-flex align-middle">
+                      <InfoTip text={`${meta.explains} Counts for ${factor.weight}% of the overall score.`} />
+                    </span>
                   </span>
-                  <span className="mt-0.5 block text-[11px] text-muted">{factor.weight}% of the score</span>
+                  <span className={`mt-0.5 block text-xs font-medium ${TONE_TEXT[chip.tone]}`}>{chip.label}</span>
                 </span>
                 <ChevronRight className="ml-auto size-4 shrink-0 text-muted opacity-0 transition group-hover:opacity-100" aria-hidden />
-              </a>
+              </div>
             );
           })}
           {scorecard.integrityCheck && <OnCameraTile check={scorecard.integrityCheck} />}
         </div>
+        <dl className="grid grid-cols-3 gap-2 sm:gap-3">
+          {outcomes.map((item) => {
+            const Icon = outcomeIcons[item.label] ?? Gauge;
+            return (
+              <a
+                key={item.label}
+                href={item.href}
+                title={item.note}
+                className={`flex min-w-0 items-center gap-3 rounded-2xl px-3 py-3 transition hover:brightness-[0.98] sm:px-4 sm:py-3.5 ${TONE_TILE[item.tone]}`}
+              >
+                <Icon className="hidden size-4 shrink-0 opacity-60 sm:block" aria-hidden />
+                <span className="min-w-0">
+                  <dd className="text-lg font-semibold leading-none tabular-nums tracking-[-0.02em]">{item.value}</dd>
+                  <dt className="mt-1 text-xs opacity-75">{item.label}</dt>
+                </span>
+              </a>
+            );
+          })}
+        </dl>
+        </div>
       </div>
 
-      <dl className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-3">
-        {outcomes.map((item) => {
-          const Icon = outcomeIcons[item.label] ?? Gauge;
-          return (
-            <a
-              key={item.label}
-              href={item.href}
-              className={`group min-w-0 rounded-2xl p-4 transition hover:brightness-[0.98] ${TONE_TILE[item.tone]}`}
-            >
-              <Icon className="size-4 opacity-70" aria-hidden />
-              <dd className="mt-3 text-xl font-semibold leading-none tabular-nums tracking-[-0.02em]">{item.value}</dd>
-              <dt className="mt-1.5 text-xs font-medium">{item.label}</dt>
-              <dd className="mt-0.5 truncate text-[11px] opacity-70" title={item.note}>
-                {item.note}
-              </dd>
-            </a>
-          );
-        })}
-      </dl>
+
 
       {scorecard.needsHumanReview && (
         <p className="mt-5 flex items-start gap-2 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
@@ -1043,74 +1044,6 @@ function OverallAssessment({
   );
 }
 
-/** Clamped text with a quiet "More" toggle, for long model-written notes. */
-function Clamp({ text, lines = 2, className }: { text: string; lines?: 1 | 2 | 3; className?: string }) {
-  const [open, setOpen] = useState(false);
-  const long = text.length > (lines === 1 ? 90 : lines === 2 ? 170 : 260);
-  const clamp = lines === 1 ? "line-clamp-1" : lines === 2 ? "line-clamp-2" : "line-clamp-3";
-  return (
-    <div className={className}>
-      <p className={!open && long ? clamp : undefined}>{text}</p>
-      {long && (
-        <button
-          type="button"
-          onClick={() => setOpen((current) => !current)}
-          className="mt-1 text-xs font-medium text-muted transition hover:text-foreground"
-        >
-          {open ? "Less" : "More"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-/** One coloured panel of short points. */
-function TakeawayList({
-  title,
-  icon,
-  items,
-  empty,
-  tint,
-}: {
-  title: string;
-  icon: ReactNode;
-  items: string[];
-  empty: string;
-  tint: string;
-}) {
-  const [all, setAll] = useState(false);
-  const shown = all ? items : items.slice(0, 3);
-  return (
-    <div className={`min-w-0 rounded-2xl p-4 sm:p-5 ${tint}`}>
-      <h3 className="flex items-center gap-2 text-sm font-semibold">
-        <span className="grid size-6 place-items-center rounded-full bg-surface/80 shadow-sm shadow-black/[0.04]">{icon}</span>
-        {title}
-        <span className="ml-auto rounded-full bg-surface/70 px-2 text-xs font-medium tabular-nums">{items.length}</span>
-      </h3>
-      {items.length === 0 ? (
-        <p className="mt-3 text-sm opacity-70">{empty}</p>
-      ) : (
-        <ul className="mt-3 space-y-2">
-          {shown.map((item, index) => (
-            <li key={index} className="rounded-xl bg-surface/75 px-3 py-2.5 text-[13px] leading-5 text-foreground/85">
-              <Clamp text={item} lines={2} />
-            </li>
-          ))}
-        </ul>
-      )}
-      {items.length > 3 && (
-        <button
-          type="button"
-          onClick={() => setAll((current) => !current)}
-          className="mt-2.5 text-xs font-semibold hover:underline"
-        >
-          {all ? "Show fewer" : `Show all ${items.length}`}
-        </button>
-      )}
-    </div>
-  );
-}
-
 function SummarySection({
   scorecard,
   insights,
@@ -1119,98 +1052,74 @@ function SummarySection({
   insights: ReportInsights | null;
 }) {
   const [full, setFull] = useState(false);
-  const integrity = scorecard.integrity;
+  const [open, setOpen] = useState<"strengths" | "concerns" | "next" | null>(null);
   const summary = plain(scorecard.summary);
   const lead = firstSentence(summary);
   const rest = summary.slice(lead.length).trim();
-  const nextSteps = insights?.nextSteps ?? [];
-  const behaviour: { label: string; value: string; warn: boolean }[] = [
-    {
-      label: "Left the tab",
-      value: integrity.tabHiddenCount === 0 ? "Never" : `${integrity.tabHiddenCount}×`,
-      warn: integrity.tabHiddenCount > 0,
-    },
-    { label: "Time away", value: `${Math.round(integrity.tabHiddenSeconds)}s`, warn: integrity.tabHiddenSeconds > 10 },
-    { label: "Switched windows", value: `${integrity.windowBlurCount}×`, warn: integrity.windowBlurCount > 2 },
-    { label: "Connection drops", value: String(integrity.candidateDisconnects), warn: integrity.candidateDisconnects > 0 },
-  ];
+  const groups = [
+    { id: "strengths" as const, label: "Strengths", items: scorecard.strengths.map(plain), icon: Check, tone: "good" as Tone },
+    { id: "concerns" as const, label: "Concerns", items: scorecard.concerns.map(plain), icon: AlertCircle, tone: "warn" as Tone },
+    { id: "next" as const, label: "Ask next round", items: (insights?.nextSteps ?? []).map(plain), icon: ArrowRight, tone: "muted" as Tone },
+  ].filter((group) => group.items.length > 0);
+  const shown = groups.find((group) => group.id === open) ?? null;
 
   return (
     <section id="summary" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading icon={ScrollText} iconColor="indigo" title="Takeaways" />
 
-      <div className="mt-5 flex gap-3 rounded-2xl border border-accent/15 bg-accent-soft/50 p-4 sm:p-5">
-        <Quote className="mt-0.5 size-5 shrink-0 text-accent" aria-hidden />
-        <div className="min-w-0">
-          <p className="text-[16px] font-medium leading-7 text-foreground">{lead}</p>
-          {rest && (
-            <>
-              {full && <p className="mt-2 text-sm leading-6 text-foreground/75">{rest}</p>}
-              <button
-                type="button"
-                onClick={() => setFull((current) => !current)}
-                aria-expanded={full}
-                className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
-              >
-                {full ? "Hide the full summary" : "Read the full summary"}
-                <ChevronDown className={`size-3.5 transition-transform ${full ? "rotate-180" : ""}`} aria-hidden />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className={`mt-4 grid items-start gap-3 ${nextSteps.length > 0 ? "lg:grid-cols-3" : "sm:grid-cols-2"}`}>
-        <TakeawayList
-          title="Strengths"
-          tint="bg-emerald-500/[0.07] text-emerald-900 dark:text-emerald-100"
-          icon={<Check className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />}
-          items={scorecard.strengths}
-          empty="Nothing stood out."
-        />
-        <TakeawayList
-          title="Concerns"
-          tint="bg-amber-500/[0.09] text-amber-900 dark:text-amber-100"
-          icon={<AlertCircle className="size-3.5 text-amber-600 dark:text-amber-400" aria-hidden />}
-          items={scorecard.concerns}
-          empty="No concerns were raised."
-        />
-        {nextSteps.length > 0 && (
-          <TakeawayList
-            title="Ask in the next round"
-            tint="bg-accent/[0.06] text-foreground"
-            icon={<ArrowRight className="size-3.5 text-accent" aria-hidden />}
-            items={nextSteps}
-            empty=""
-          />
-        )}
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {behaviour.map((item) => (
-          <div
-            key={item.label}
-            className={`flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm ${
-              item.warn ? "bg-amber-500/10 text-amber-800 dark:text-amber-300" : "bg-foreground/[0.035]"
-            }`}
+      <p className="mt-4 max-w-[75ch] text-[15px] leading-7 text-foreground/90">
+        {lead}
+        {rest && full && <span className="text-foreground/75"> {rest}</span>}
+        {rest && (
+          <button
+            type="button"
+            onClick={() => setFull((current) => !current)}
+            aria-expanded={full}
+            className="ml-1.5 text-sm font-medium text-accent hover:underline"
           >
-            <span className={item.warn ? "" : "text-muted"}>{item.label}</span>
-            <span className="font-semibold tabular-nums">{item.value}</span>
-          </div>
-        ))}
+            {full ? "Less" : "More"}
+          </button>
+        )}
+      </p>
+
+      <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Takeaways">
+        {groups.map((group) => {
+          const Icon = group.icon;
+          const active = open === group.id;
+          return (
+            <button
+              key={group.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setOpen(active ? null : group.id)}
+              className={`inline-flex h-9 items-center gap-2 rounded-full border px-3.5 text-sm font-medium transition ${
+                active
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-border bg-surface hover:border-foreground/25"
+              }`}
+            >
+              <Icon
+                className={`size-3.5 ${active ? "" : group.tone === "good" ? "text-emerald-600 dark:text-emerald-400" : group.tone === "warn" ? "text-amber-600 dark:text-amber-400" : "text-accent"}`}
+                aria-hidden
+              />
+              {group.label}
+              <span className={`tabular-nums ${active ? "opacity-70" : "text-muted"}`}>{group.items.length}</span>
+              <ChevronDown className={`size-3.5 transition ${active ? "rotate-180" : ""}`} aria-hidden />
+            </button>
+          );
+        })}
       </div>
-      {scorecard.notes.length > 0 && (
-        <details className="group mt-3">
-          <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-muted transition hover:text-foreground">
-            Scoring notes
-            <ChevronDown className="size-3.5 transition group-open:rotate-180" aria-hidden />
-          </summary>
-          <ul className="mt-2 space-y-1 text-sm text-muted">
-            {scorecard.notes.map((note) => (
-              <li key={note}>{note}</li>
-            ))}
-          </ul>
-        </details>
+
+      {shown && (
+        <ul role="tabpanel" className="mt-3 divide-y divide-border rounded-xl border border-border">
+          {shown.items.map((item, index) => (
+            <li key={index} className="flex gap-3 px-4 py-3 text-sm leading-6 text-foreground/85">
+              <span className="mt-2 size-1.5 shrink-0 rounded-full bg-foreground/30" aria-hidden />
+              {item}
+            </li>
+          ))}
+        </ul>
       )}
     </section>
   );
@@ -1242,8 +1151,15 @@ function AnswerQualityTable({
         icon={MessagesSquare}
         iconColor="purple"
         title="Answer quality"
-        subtitle="Each question, how it was scored and why."
-        right={<HeadingScore score={score} tone={chip.tone} label={chip.label} />}
+        subtitle="Each planned topic is one question plus the follow-ups on it, graded together. Answers that sounded read out count for less."
+        right={
+          <div className="flex items-center gap-3">
+            <span className="text-sm tabular-nums text-muted">
+              {scorecard.competencies.length} topics · {turns.filter((turn) => turn.speaker === "candidate").length} answers
+            </span>
+            <HeadingScore score={score} tone={chip.tone} label={chip.label} />
+          </div>
+        }
       />
 
       {scorecard.partScores && (
@@ -1280,6 +1196,9 @@ function AnswerQualityTable({
                 : null;
             const window = evidenceWindow(item.evidence, bySeq, offsetFor);
             const verdict = ANSWER_VERDICT[item.score ?? 0] ?? ANSWER_VERDICT[0];
+            const answerCount = turns.filter(
+              (turn) => turn.speaker === "candidate" && turn.competencyId === item.competencyId,
+            ).length;
             return (
               <li
                 key={item.competencyId}
@@ -1295,7 +1214,7 @@ function AnswerQualityTable({
                       </span>
                     )}
                   </p>
-                  <div className="mt-2 flex items-center gap-2.5">
+                  <div className="mt-2 flex flex-wrap items-center gap-2.5">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${TONE_TILE[verdict.tone]}`}>{verdict.label}</span>
                     <span className="flex gap-0.5" aria-hidden>
                       {[1, 2, 3, 4, 5].map((step) => (
@@ -1307,6 +1226,16 @@ function AnswerQualityTable({
                         />
                       ))}
                     </span>
+                    {answerCount > 0 && (
+                      <span className="text-xs tabular-nums text-muted">
+                        {answerCount} answer{answerCount === 1 ? "" : "s"}
+                      </span>
+                    )}
+                    {item.originality && item.originality !== "natural" && (
+                      <span className="rounded-full bg-amber-500/[0.12] px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-300">
+                        {item.originality === "likely_read" ? "Sounds read out" : "More polished than usual"}
+                      </span>
+                    )}
                   </div>
                   <p className="mt-2 max-w-[75ch] text-sm leading-6 text-foreground/85">{firstSentence(plain(item.rationale))}</p>
                 </div>
@@ -1461,47 +1390,6 @@ function CustomParametersSection({ scorecard }: { scorecard: Scorecard }) {
   );
 }
 
-/** Counts of each verdict as one bar and a tile per verdict. */
-function VerdictTally({ claims }: { claims: { verdict: ResumeVerdict }[] }) {
-  const reduce = useReducedMotion();
-  const order: { verdict: ResumeVerdict; bar: string; tile: string }[] = [
-    { verdict: "confirmed", bar: "bg-emerald-500", tile: TONE_TILE.good },
-    { verdict: "partly_supported", bar: "bg-amber-400", tile: TONE_TILE.warn },
-    { verdict: "not_supported", bar: "bg-rose-500", tile: TONE_TILE.bad },
-    { verdict: "not_discussed", bar: "bg-foreground/15", tile: TONE_TILE.muted },
-  ];
-  const total = claims.length;
-  return (
-    <div className="mt-6">
-      <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-full bg-foreground/[0.05]">
-        {order.map(({ verdict, bar }, index) => {
-          const count = claims.filter((claim) => claim.verdict === verdict).length;
-          return count > 0 ? (
-            <motion.span
-              key={verdict}
-              className={bar}
-              initial={reduce ? false : { width: 0 }}
-              animate={{ width: `${(count / total) * 100}%` }}
-              transition={{ duration: 0.7, delay: 0.1 + index * 0.06, ease: EASE_OUT }}
-            />
-          ) : null;
-        })}
-      </div>
-      <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {order.map(({ verdict, tile }) => {
-          const count = claims.filter((claim) => claim.verdict === verdict).length;
-          return (
-            <div key={verdict} className={`rounded-xl px-3.5 py-2.5 ${count > 0 ? tile : "bg-foreground/[0.03] text-muted"}`}>
-              <dd className="text-xl font-semibold leading-none tabular-nums">{count}</dd>
-              <dt className="mt-1 text-xs font-medium opacity-80">{VERDICT_LABELS[verdict]}</dt>
-            </div>
-          );
-        })}
-      </dl>
-    </div>
-  );
-}
-
 /** 4. Resume Match Section: Table showing claims, verdict badges, interview evidence, and notes */
 function ResumeTable({
   scorecard,
@@ -1516,6 +1404,7 @@ function ResumeTable({
   onAnalyseResume: () => void;
   isAnalysing: boolean;
 }) {
+  const [open, setOpen] = useState<ResumeVerdict | null>(null);
   const resume = scorecard.resumeMatch;
   if (!resume) return null;
 
@@ -1528,241 +1417,138 @@ function ResumeTable({
     }
   }
   const chip = factorChip("resume", resume.score);
+  const fit = resume.jobFit ?? [];
+  const fitCovered = fit.filter((item) => item.level !== "none").length;
+  const groups = (
+    [
+      { id: "confirmed", label: "Backed up", bar: "bg-emerald-500" },
+      { id: "partly_supported", label: "Partly", bar: "bg-amber-500" },
+      { id: "not_supported", label: "Not backed up", bar: "bg-rose-500" },
+      { id: "not_discussed", label: "Not discussed", bar: "bg-foreground/20" },
+    ] as const
+  )
+    .map((group) => ({ ...group, claims: resume.claims.filter((claim) => claim.verdict === group.id) }))
+    .filter((group) => group.claims.length > 0);
+  const total = resume.claims.length;
+  const shown = groups.find((group) => group.id === open) ?? null;
 
   return (
     <section id="resume" className={`${cardClasses} scroll-mt-32`}>
       <CardHeading
         icon={FileSearch}
         iconColor="violet"
-        title="Resume depth"
-        subtitle="Claims from the resume, checked against what the candidate said."
+        title="Resume"
+        subtitle="How the resume fits this job, and whether the candidate could back up its claims in the interview with real depth: how it works, their part, a problem they solved. Naming a project is only partly backed up."
         right={<HeadingScore score={resume.score} tone={chip.tone} label={chip.label} />}
       />
 
-      {resume.claims.length > 0 && <VerdictTally claims={resume.claims} />}
+      {fit.length > 0 && (
+        <div className="mt-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="text-sm font-semibold">Fit with this job</h3>
+            <span className="text-xs tabular-nums text-muted">
+              {fitCovered} of {fit.length} requirements on the resume
+            </span>
+          </div>
+          <ul className="mt-2.5 flex flex-wrap gap-2">
+            {fit.map((item) => (
+              <li
+                key={item.requirement}
+                title={item.evidence ? plain(item.evidence) : "Nothing on the resume for this"}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm ${
+                  item.level === "strong"
+                    ? "border-emerald-500/30 bg-emerald-500/[0.07]"
+                    : item.level === "some"
+                      ? "border-amber-500/30 bg-amber-500/[0.07]"
+                      : "border-border text-muted"
+                }`}
+              >
+                <span
+                  className={`size-2 rounded-full ${item.level === "strong" ? "bg-emerald-500" : item.level === "some" ? "bg-amber-500" : "bg-foreground/20"}`}
+                  aria-hidden
+                />
+                {item.requirement}
+                <span className="sr-only">
+                  {item.level === "strong" ? ": strong" : item.level === "some" ? ": some" : ": not on the resume"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-      {resume.claims.length === 0 ? (
-        <p className="mt-4 text-sm text-muted">
-          {resume.reason ?? "No resume claims were evaluated for this interview."}
-        </p>
+      {total === 0 ? (
+        <p className="mt-5 text-sm text-muted">{resume.reason ?? "No resume claims were checked for this interview."}</p>
       ) : (
-        <>
-          {!resume.claims.some((claim) => claim.verdict === "partly_supported" || claim.verdict === "not_supported") && (
-            <p className="mt-5 flex items-center gap-2 text-[15px] text-foreground/85">
-              <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
-              Every resume claim that came up was explained in depth.
-            </p>
-          )}
-          <ul className="mt-5 grid gap-2.5 md:grid-cols-2 empty:hidden">
-            {resume.claims
-              .filter((claim) => claim.verdict === "partly_supported" || claim.verdict === "not_supported")
-              .map((claim) => {
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold">Backed up in the interview</h3>
+          <div className="mt-2.5 flex h-2 gap-0.5 overflow-hidden rounded-full" aria-hidden>
+            {groups.map((group) => (
+              <span key={group.id} className={group.bar} style={{ width: `${(group.claims.length / total) * 100}%` }} />
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Resume claims">
+            {groups.map((group) => {
+              const active = open === group.id;
+              return (
+                <button
+                  key={group.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setOpen(active ? null : group.id)}
+                  className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm transition ${
+                    active ? "border-foreground bg-foreground text-background" : "border-border hover:border-foreground/25"
+                  }`}
+                >
+                  <span className={`size-2 rounded-full ${group.bar}`} aria-hidden />
+                  {group.label}
+                  <span className={`tabular-nums ${active ? "opacity-70" : "text-muted"}`}>{group.claims.length}</span>
+                </button>
+              );
+            })}
+          </div>
+          {shown && (
+            <ul role="tabpanel" className="mt-3 divide-y divide-border rounded-xl border border-border">
+              {shown.claims.map((claim) => {
                 const questions = [
                   ...new Set(
                     claim.turnSeqs
                       .map((seq) => turnToQuestion.get(seq))
-                      .filter((val): val is number => typeof val === "number"),
+                      .filter((value): value is number => typeof value === "number"),
                   ),
                 ];
-                const style = VERDICT_STYLES[claim.verdict];
-                const Icon = style.icon;
                 return (
-                  <li key={claim.claim} className={`flex gap-3 rounded-xl border p-3.5 ${style.border} ${style.bg}`}>
-                    <span className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-surface ${style.text}`}>
-                      <Icon className="size-3.5" aria-hidden />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium leading-5 text-foreground">{claim.claim}</p>
-                      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                        <span className={`font-semibold ${style.text}`}>{VERDICT_LABELS[claim.verdict]}</span>
-                        {questions.map((q) => (
-                          <span key={q} className="rounded-md bg-surface px-1.5 py-0.5 font-medium text-muted">
-                            Q{q}
-                          </span>
-                        ))}
-                      </p>
-                      {claim.note && <Clamp text={claim.note} lines={1} className="mt-1.5 text-xs leading-5 text-muted" />}
-                    </div>
+                  <li key={claim.claim} className="px-4 py-3 text-sm">
+                    <p className="flex flex-wrap items-baseline gap-x-2 font-medium text-foreground">
+                      {plain(claim.claim)}
+                      {questions.map((q) => (
+                        <span key={q} className="text-xs font-normal tabular-nums text-muted">
+                          Q{q}
+                        </span>
+                      ))}
+                    </p>
+                    {claim.note && <p className="mt-0.5 leading-6 text-muted">{plain(claim.note)}</p>}
                   </li>
                 );
               })}
-          </ul>
-          {resume.claims.some((claim) => claim.verdict === "confirmed") && (
-            <details className="group mt-3 rounded-xl border border-border">
-              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium transition hover:text-foreground">
-                <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
-                Backed up in depth
-                <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs tabular-nums text-muted">
-                  {resume.claims.filter((claim) => claim.verdict === "confirmed").length}
-                </span>
-                <ChevronDown className="ml-auto size-4 text-muted transition group-open:rotate-180" aria-hidden />
-              </summary>
-              <ul className="grid gap-1.5 px-4 pb-4">
-                {resume.claims
-                  .filter((claim) => claim.verdict === "confirmed")
-                  .map((claim) => (
-                    <li key={claim.claim} className="text-sm leading-6 text-foreground/85">
-                      {claim.claim}
-                      {claim.note && <span className="text-muted"> {claim.note}</span>}
-                    </li>
-                  ))}
-              </ul>
-            </details>
+            </ul>
           )}
-          {resume.claims.some((claim) => claim.verdict === "not_discussed") && (
-            <details className="group mt-3 rounded-xl border border-dashed border-border">
-              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium text-muted transition hover:text-foreground">
-                <Minus className="size-3.5" aria-hidden />
-                Not discussed in the interview
-                <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs tabular-nums">
-                  {resume.claims.filter((claim) => claim.verdict === "not_discussed").length}
-                </span>
-                <ChevronDown className="ml-auto size-4 transition group-open:rotate-180" aria-hidden />
-              </summary>
-              <ul className="flex flex-wrap gap-2 px-4 pb-4">
-                {resume.claims
-                  .filter((claim) => claim.verdict === "not_discussed")
-                  .map((claim) => (
-                    <li
-                      key={claim.claim}
-                      title={claim.note ?? undefined}
-                      className="rounded-lg bg-foreground/[0.04] px-2.5 py-1.5 text-xs leading-5 text-foreground/75"
-                    >
-                      {claim.claim}
-                    </li>
-                  ))}
-              </ul>
-            </details>
-          )}
-        </>
+        </div>
       )}
 
-      {resume.score === null && resume.reason && resume.claims.length > 0 && (
-        <p className="mt-4 text-sm text-muted">
-          {resume.reason}
-        </p>
-      )}
-
-      <div className="mt-4 flex flex-wrap items-center gap-3">
+      <div className="mt-5 flex items-center gap-1.5">
         <button
           type="button"
           onClick={onAnalyseResume}
           disabled={isAnalysing}
-          className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-8 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium transition hover:border-foreground/20 hover:bg-foreground/[0.03] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RotateCcw className={`size-3.5 ${isAnalysing ? "animate-spin" : ""}`} />
-          {isAnalysing
-            ? "Analysing resume"
-            : resume.score === null
-              ? "Analyse resume"
-              : "Re-check resume"}
+          {isAnalysing ? "Checking resume" : resume.score === null ? "Check resume" : "Re-check resume"}
         </button>
-        <span className="text-[11px] text-muted">
-          Checks the resume against what the candidate actually said. Takes a few seconds.
-        </span>
+        <InfoTip text="Checks the resume against the job description and against what the candidate actually said. Takes a few seconds." />
       </div>
-    </section>
-  );
-}
-
-/** 5. Own Answers (Originality) Section: Originality assessment, indicators, expandable signal descriptions */
-const OWN_VERDICT: Record<"natural" | "polished" | "likely_read", { label: string; tone: Tone }> = {
-  natural: { label: "Own words", tone: "good" },
-  polished: { label: "More polished than usual", tone: "warn" },
-  likely_read: { label: "Sounds read out", tone: "bad" },
-};
-
-function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
-  const authenticity = scorecard.authenticity;
-  if (!authenticity) return null;
-  const notChecked = authenticity.status === "not_checked";
-  const signals = authenticity.signals ?? [];
-  const readings = authenticity.answers ?? [];
-  const flaggedReadings = readings.filter((item) => item.verdict !== "natural");
-  const readOut = readings.filter((item) => item.verdict === "likely_read").length;
-  const chip: { label: string; tone: Tone } = notChecked
-    ? { label: "Not checked", tone: "muted" }
-    : readOut > 0 || signals.some((signal) => signal.severity >= 2)
-      ? { label: "Worth a look", tone: "warn" }
-      : flaggedReadings.length > 0 || signals.length > 0
-        ? { label: "Mostly own words", tone: "good" }
-        : { label: "Own words", tone: "good" };
-  const isNew = authenticity.status !== undefined;
-
-  return (
-    <section id="authenticity" className={`${cardClasses} scroll-mt-32`}>
-      <CardHeading
-        icon={Fingerprint}
-        iconColor="emerald"
-        title="Own answers"
-        subtitle="Whether each good answer was in the candidate's own words, or read out."
-        right={
-          isNew ? (
-            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_TILE[chip.tone]}`}>{chip.label}</span>
-          ) : (
-            <HeadingScore score={authenticity.score} tone={factorChip("authenticity", authenticity.score).tone} label={factorChip("authenticity", authenticity.score).label} />
-          )
-        }
-      />
-
-      {!notChecked && scorecard.ownAnswers && (
-        <p className="mt-5 text-[17px] font-semibold tracking-[-0.01em]">
-          {ownAnswersLine(scorecard.ownAnswers)}
-          <span className="ml-2 text-sm font-normal text-muted">
-            Only answers rated Fair or better are checked.
-          </span>
-        </p>
-      )}
-
-      {notChecked ? (
-        <p className="mt-5 flex items-center gap-2 text-[15px] text-muted">
-          <ShieldQuestion className="size-4 shrink-0" aria-hidden />
-          {authenticity.reason ?? "This check did not run for this interview."}
-        </p>
-      ) : signals.length === 0 && flaggedReadings.length === 0 ? (
-        <p className="mt-5 flex items-center gap-2 text-[15px] text-foreground/85">
-          <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
-          {readings.length > 0
-            ? `All ${readings.length} answers sound like the candidate's own way of speaking.`
-            : "Nothing suggests the answers were read out or prepared by someone else."}
-        </p>
-      ) : (
-        <ul className="mt-5 divide-y divide-border border-y border-border">
-          {flaggedReadings.map((item) => {
-            const verdict = OWN_VERDICT[item.verdict];
-            return (
-              <li key={`r-${item.turnSeq}`} className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_11rem] sm:gap-6">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">Answer {item.turnSeq}</p>
-                  {item.reasons.length > 0 && (
-                    <p className="mt-1 max-w-prose text-sm leading-6 text-muted">{item.reasons.join(" ")}</p>
-                  )}
-                </div>
-                <p className={`text-sm font-medium sm:text-right ${TONE_TEXT[verdict.tone]}`}>{verdict.label}</p>
-              </li>
-            );
-          })}
-          {signals.map((signal, idx) => {
-            const serious = signal.severity >= 2;
-            return (
-              <li key={idx} className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_11rem] sm:gap-6">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{signal.title}</p>
-                  <p className="mt-1 max-w-prose text-sm leading-6 text-muted">{signal.detail}</p>
-                </div>
-                <div className="text-sm sm:text-right">
-                  <p className={`font-medium ${serious ? TONE_TEXT.bad : TONE_TEXT.warn}`}>
-                    {serious ? "Notable" : "Worth a look"}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    {signal.source === "measured" ? "Measured from timings" : "Read from the transcript"}
-                  </p>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
     </section>
   );
 }
@@ -1816,21 +1602,22 @@ function OnCameraTile({ check }: { check: IntegrityCheck }) {
   const meta = LEVEL_META[check.level];
   const Icon = meta.icon;
   return (
-    <a
-      href="#video"
-      title={check.summary}
-      className="group flex items-center gap-3.5 rounded-2xl border border-border p-4 transition hover:-translate-y-px hover:border-foreground/15 hover:shadow-md hover:shadow-black/[0.04]"
-    >
-      <span className={`grid size-14 shrink-0 place-items-center rounded-full ${TONE_TILE[meta.tone]}`}>
-        <Icon className={`size-6 ${check.level === "pending" ? "animate-pulse" : ""}`} aria-hidden />
+    <div className="group relative flex items-center gap-3.5 rounded-2xl border border-border p-4 transition hover:border-foreground/15 hover:shadow-md hover:shadow-black/[0.04]">
+      <a href="#recording" className="absolute inset-0 rounded-2xl" aria-label="Go to the recording analysis" />
+      <span className={`grid size-12 shrink-0 place-items-center rounded-full ${TONE_TILE[meta.tone]}`}>
+        <Icon className={`size-5 ${check.level === "pending" ? "animate-pulse" : ""}`} aria-hidden />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold">On-camera behaviour</span>
+        <span className="block text-sm font-semibold">
+          On camera
+          <span className="relative z-10 ml-1 inline-flex align-middle">
+            <InfoTip text="What the recording shows: where the eyes go, lips against the voice, the voice itself, and who is in the picture. Not part of the score yet." />
+          </span>
+        </span>
         <span className={`mt-0.5 block text-xs font-medium ${TONE_TEXT[meta.tone]}`}>{meta.label}</span>
-        <span className="mt-0.5 block text-[11px] text-muted">Not in the score yet</span>
       </span>
       <ChevronRight className="ml-auto size-4 shrink-0 text-muted opacity-0 transition group-hover:opacity-100" aria-hidden />
-    </a>
+    </div>
   );
 }
 
@@ -1881,14 +1668,8 @@ function VideoSection({
   // What was checked, one line each: the at-a-glance view of the section.
   const has = (kinds: string[]) => findings.filter((finding) => kinds.includes(finding.kind));
   const answersOf = (kinds: string[]) => new Set(has(kinds).flatMap((finding) => finding.turnSeqs)).size;
-  const attention = video.attentionPercent;
   const checklist: { label: string; value: string; state: "ok" | "warn" | "na" }[] = measures
     ? [
-        {
-          label: "Looked at their screen",
-          value: attention === null ? "Could not tell" : `${attention}% of answer time`,
-          state: attention === null ? "na" : attention >= 60 ? "ok" : "warn",
-        },
         {
           label: "Kept looking at one spot",
           value: spotTurns.size > 0 ? `${spotTurns.size} of ${judged} answers` : "No",
@@ -1953,17 +1734,17 @@ function VideoSection({
         .filter(Boolean)
         .join(", "),
     }));
-  const firstToWatch = [...markers].sort((a, b) => b.strength - a.strength || a.start - b.start)[0] ?? null;
 
   return (
-    <section id="video" className={`${cardClasses} scroll-mt-32`} data-video-model={video.model ?? undefined}>
-      <CardHeading
-        icon={Eye}
-        iconColor="amber"
-        title="On-camera behaviour"
-        subtitle="What the recording shows: eyes, lips, voice and who is in the picture. Not part of the score yet."
-        right={<span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_TILE[chip.tone]}`}>{chip.label}</span>}
-      />
+    <div id="video" className="mt-7 scroll-mt-32 border-t border-border pt-6" data-video-model={video.model ?? undefined}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5">
+          <Eye className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />
+          <h3 className="text-[15px] font-semibold">What the recording shows</h3>
+          <InfoTip text="Measured from the video and audio with our own tools: where the eyes go while answering, whether the lips match the voice, whether the voice stays the same, and who is in the picture. Not part of the score yet." />
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_TILE[chip.tone]}`}>{chip.label}</span>
+      </div>
 
       {running ? (
         <div className="mt-5 rounded-xl bg-accent/[0.07] px-4 py-3.5 text-sm">
@@ -1989,19 +1770,7 @@ function VideoSection({
         </div>
       ) : (
         <>
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[17px] font-semibold tracking-[-0.01em]">{headline}</p>
-            {firstToWatch && (
-              <button
-                type="button"
-                onClick={() => onPlay(Math.max(0, firstToWatch.start - 2))}
-                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-accent px-3.5 text-sm font-semibold text-white transition hover:bg-accent/90"
-              >
-                <Play className="size-3.5 fill-current" aria-hidden />
-                Watch the clearest moment · {formatClock(firstToWatch.start)}
-              </button>
-            )}
-          </div>
+          <p className="mt-4 text-[15px] font-medium">{headline}</p>
 
           <ul className="mt-4 grid gap-x-8 sm:grid-cols-2">
             {checklist.map((item) => (
@@ -2063,20 +1832,26 @@ function VideoSection({
                 Reviewer&apos;s note
                 <ChevronDown className="ml-auto size-4 text-muted transition group-open:rotate-180" aria-hidden />
               </summary>
-              <div className="grid gap-3 border-t border-border px-4 py-3.5 text-sm leading-6 text-foreground/85">
-                {check?.summary && <p className="max-w-prose">{check.summary}</p>}
+              <div className="border-t border-border px-4 py-4 text-sm leading-6 text-foreground/85">
+                {check?.summary && <p>{plain(check.summary)}</p>}
                 {findings.length > 0 && (
-                  <ul className="grid gap-2">
+                  <ul className="mt-3 divide-y divide-border rounded-lg border border-border">
                     {findings.map((finding, index) => (
-                      <li key={`${finding.kind}-${index}`} className="max-w-prose">
-                        <span className="font-medium">{finding.title}.</span>{" "}
-                        <span className="text-muted">{finding.detail}</span>
+                      <li key={`${finding.kind}-${index}`} className="flex items-start gap-3 px-3.5 py-3">
+                        <AlertTriangle
+                          className={`mt-1 size-3.5 shrink-0 ${finding.strength >= 2 ? "text-amber-600 dark:text-amber-400" : "text-muted"}`}
+                          aria-hidden
+                        />
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground">{plain(finding.title)}</p>
+                          <p className="text-muted">{plain(finding.detail)}</p>
+                        </div>
                       </li>
                     ))}
                   </ul>
                 )}
                 {check && check.limits.length > 0 && (
-                  <ul className="grid gap-1 text-xs text-muted">
+                  <ul className="mt-3 grid gap-1 text-xs text-muted">
                     {check.limits.map((limit) => (
                       <li key={limit} className="flex items-start gap-1.5">
                         <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
@@ -2094,7 +1869,7 @@ function VideoSection({
               <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium">
                 Every answer
                 <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs tabular-nums text-muted">{rows.length}</span>
-                <span className="text-xs font-normal text-muted">{judged} could be measured</span>
+
                 <ChevronDown className="ml-auto size-4 text-muted transition group-open:rotate-180" aria-hidden />
               </summary>
               <div className="relative overflow-x-auto border-t border-border">
@@ -2102,8 +1877,7 @@ function VideoSection({
                   <thead>
                     <tr className="border-b border-border text-xs font-medium text-muted">
                       <th className="px-4 py-2.5">Answer at</th>
-                      <th className="px-3 py-2.5">At the screen</th>
-                      <th className="px-3 py-2.5">Worth a look</th>
+                      <th className="px-3 py-2.5">What stood out</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -2126,10 +1900,7 @@ function VideoSection({
                             </button>
                             <span className="ml-1.5 text-[11px] text-muted">{Math.round(answer.end - answer.start)}s</span>
                           </td>
-                          <td className="px-3 py-2 tabular-nums">
-                            {answer.atScreenShare === null ? "—" : `${Math.round(answer.atScreenShare * 100)}%`}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-muted">{answer.reason ?? (notes.join(", ") || "—")}</td>
+                          <td className="px-3 py-2 text-xs text-muted">{answer.reason ?? (notes.join(", ") || "Nothing")}</td>
                         </tr>
                       );
                     })}
@@ -2152,10 +1923,10 @@ function VideoSection({
             <RotateCcw className={`size-3.5 ${running ? "animate-spin" : ""}`} />
             {running ? "Analysing recording" : video.status === "analysed" ? "Re-check video" : video.status === "failed" ? "Try video analysis again" : "Analyse this video"}
           </button>
-          <span className="text-xs text-muted">An automated reading. Watch the moments before relying on it.</span>
+          <InfoTip text="An automated reading from the recording. Watch the moments before relying on it. Re-checking takes about 10 to 15 minutes for a 30-minute interview." />
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -2169,7 +1940,9 @@ function RecordingPanel({
   videoRef,
   moments,
   durationSeconds,
+  children,
 }: {
+  children?: ReactNode;
   roomId: string;
   hasRecording: boolean;
   turns: InterviewTurn[];
@@ -2271,8 +2044,8 @@ function RecordingPanel({
       <CardHeading
         icon={Play}
         iconColor="indigo"
-        title="Recording & transcript"
-        subtitle="Watch the interview and follow every answer in step."
+        title="Recording"
+        subtitle="Watch the interview with the transcript in step. Below it: what the recording shows about eyes, lips, voice and who is in the picture."
         right={
           <div className="flex items-center gap-2">
             <span className="hidden text-[11px] font-medium tabular-nums text-muted sm:inline">
@@ -2545,6 +2318,7 @@ function RecordingPanel({
           </p>
         </div>
       </div>
+      {children}
     </section>
   );
 }
@@ -2968,6 +2742,10 @@ function plain(text: string): string {
   return text
     .replace(/\[([^\]]+)\]\((?:[^)]+)\)/g, "$1")
     .replace(/\*\*|__/g, "")
+    // Model text should read as written by a person: no dash punctuation.
+    .replace(/\s*[\u2014\u2013]\s*/g, ", ")
+    .replace(/\s-{1,2}\s/g, ", ")
+    .replace(/,\s*([.,;:])/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -3016,13 +2794,6 @@ const TONE_BAR: Record<Tone, string> = {
   bad: "bg-rose-500",
   muted: "bg-foreground/30",
 };
-
-/** The Own answers tile: judged only on the good answers. */
-function ownAnswersLine(own: { good: number; goodOwn: number }): string {
-  if (own.good === 0) return "No good answers to check";
-  if (own.goodOwn >= own.good) return own.good === 1 ? "The good answer was their own" : `All ${own.good} good answers their own`;
-  return `${own.good} good answers, some read out`;
-}
 
 function scoreBand(score: number | null): { label: string; tone: Tone } {
   if (score === null) return { label: "Not scored", tone: "muted" };

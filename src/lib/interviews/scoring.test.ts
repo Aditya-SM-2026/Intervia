@@ -146,17 +146,28 @@ test("custom parameters: weighted by the recruiter's emphasis", () => {
   assert.equal(customScore([]), null);
 });
 
-test("overall: answers 70, resume 20, own answers 10; video measured but weighted 0", () => {
-  const all = overallScore({ answers: 80, resume: 60, authenticity: 50, video: 40 });
-  // (80*70 + 60*20 + 50*10) / 100 = 73; video is left out at weight 0.
-  assert.equal(all.score, 73);
-  assert.deepEqual(all.factors.map((factor) => factor.id), ["answers", "resume", "authenticity"]);
+test("overall: answers 80, resume 20 scaled by the answers; own words and video not separate", () => {
+  const all = overallScore({ answers: 80, resume: 50, authenticity: 60, video: 40 });
+  // resume counts 50 x 0.8 = 40; (80*80 + 40*20) / 100 = 72.
+  assert.equal(all.score, 72);
+  assert.deepEqual(all.factors.map((factor) => factor.id), ["answers", "resume"]);
 });
 
-test("overall: resume and own answers can hold the score down, never lift it above the answers", () => {
-  // Gayathri: answers 49, resume depth 81, own answers 100 -> 49, not 61.
-  assert.equal(overallScore({ answers: 49, resume: 81, authenticity: 100, video: null }).score, 49);
+test("overall: a strong resume behind weak answers counts in proportion, and never lifts the total", () => {
+  // Gayathri: answers 49, resume 81 -> resume counts 81 x 0.49 = 40; (49*80 + 40*20)/100 = 47.
+  assert.equal(overallScore({ answers: 49, resume: 81, authenticity: 100, video: null }).score, 47);
+  // The owner's example: answers 50, resume 90 -> resume counts 45.
+  assert.equal(overallScore({ answers: 50, resume: 90, authenticity: null, video: null }).score, 49);
   assert.equal(overallScore({ answers: 80, resume: 100, authenticity: 100, video: null }).score, 80);
+});
+
+test("answer quality: an answer read out counts for less", () => {
+  const comp = (id: string, score: number, originality?: "natural" | "polished" | "likely_read") =>
+    ({ competencyId: id, name: id, status: "scored", score, rationale: "", evidence: [], gaps: [], secondScore: null, judgesAgree: null, originality }) as CompetencyScore;
+  const minutes = new Map<string, number>();
+  assert.equal(answerQualityScore([comp("a", 4), comp("b", 4)], minutes), 80);
+  assert.equal(answerQualityScore([comp("a", 4, "likely_read"), comp("b", 4)], minutes), 60);
+  assert.equal(answerQualityScore([comp("a", 4, "polished"), comp("b", 4)], minutes), 74);
 });
 
 test("own answers: judged per question, only on the good answers", () => {
