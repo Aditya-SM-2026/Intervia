@@ -1,3 +1,4 @@
+import { groundProfile } from "./resume-profile";
 import "server-only";
 import { z } from "zod";
 import { generateStructured, isStructuredLlmAvailable } from "@/lib/ai/structured";
@@ -1046,11 +1047,13 @@ function buildResumeMatch(
       : { ...claim, verdict: "not_discussed" as const, turnSeqs: [], note: "Not discussed in the interview." };
   });
   const score = resumeMatchScore(checked);
+  // Only facts the resume itself supports reach the recruiter.
+  const groundedProfile = profile ? groundProfile(profile, session.resume.text) : null;
   return {
     score,
     claims: checked,
     jobFit,
-    ...(profile ? { profile } : {}),
+    ...(groundedProfile ? { profile: groundedProfile } : {}),
     reason:
       score === null
         ? `Fewer than ${MIN_CLAIMS_FOR_SCORE} resume claims came up in the interview, which is too few to score.`
@@ -1506,7 +1509,7 @@ const RESUME_CHECK_PROMPT = [
   "",
   "Then jobFit: the five to eight most important requirements of the job description (a technology, a kind of work, a level of experience), each with level strong (the resume shows real work in it), some (related or partial) or none (nothing on the resume), and evidence: a few words naming the resume item that shows it, or empty for none. Judge from the resume alone.",
   "",
-  "Then profile, from the resume alone: experienceYears (total years of professional work, rounded to the nearest half year; internships and study do not count; null if the resume does not make it clear), experienceNote (a two or three word label only when years do not fit, such as Fresher or 2 internships, else empty), currentRole (most recent role and employer, under ten words), education (highest qualification and institution, under ten words), topSkills (up to six skills the resume shows real work in, strongest first, one to three words each), standouts (up to three short phrases, under fifteen words each, on what makes this resume stand out: a measured result, a notable project, a certification. Concrete, never generic praise).",
+  "Then profile, from the resume alone: experienceYears (total years of professional work, rounded to the nearest half year; internships and study do not count; null if the resume does not make it clear), experienceNote (a two or three word label only when years do not fit, such as Fresher or 2 internships, else empty), currentRole (most recent role and employer, under ten words), education (highest qualification and institution, under ten words), topSkills (up to six skills the resume shows real work in, strongest first, one to three words each), standouts (up to three short phrases, under fifteen words each, on what makes this resume stand out: a measured result, a notable project, a certification. Concrete, never generic praise). Copy employer, institution, project and skill names exactly as the resume writes them, never from the transcript or from what is typical for the role. If the resume states total years of experience, use that number. Leave a field empty rather than guess.",
   "",
   "Rules:",
   "- Mentioning a project is not confirming it. Most claims that only came up in passing are partly_supported.",
