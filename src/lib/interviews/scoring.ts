@@ -346,6 +346,9 @@ export function measuredAuthenticitySignals(answers: readonly TimedAnswer[]): Au
 
 // --- integrity ---------------------------------------------------------------
 
+/** How far (in the candidate's own gaze spreads) a spot must be from the screen centre. */
+const MIN_SPOT_DISTANCE = 4;
+
 /** Answers this long or shorter say too little to judge their delivery. */
 const MIN_DELIVERY_WORDS = 60;
 
@@ -385,7 +388,10 @@ export function measuredFindings(measures: VideoMeasures): IntegrityFinding[] {
   if (spot && judged.length >= MIN_ANSWERS_FOR_PATTERN) {
     const held = spot.heldAnswers.filter((seq) => byTurn.get(seq)?.atScreenShare !== null);
     const share = held.length / judged.length;
-    if (held.length >= 2 && spot.listeningShare < 0.15) {
+    // A spot just past the edge of the screen is usually part of the screen
+    // (the question text, the candidate's own video tile). Only a spot well
+    // away from it is the look of a phone, notes or a second monitor.
+    if (held.length >= 2 && spot.listeningShare < 0.15 && spot.distance >= MIN_SPOT_DISTANCE) {
       const strength: 1 | 2 | 3 = held.length >= 3 && share >= 0.5 ? 3 : held.length >= 3 && share >= 0.25 ? 2 : 1;
       findings.push({
         kind: "fixed_spot",
@@ -399,9 +405,16 @@ export function measuredFindings(measures: VideoMeasures): IntegrityFinding[] {
     }
   }
 
-  // 2. Line-by-line reading in the eye track.
+  // 2. Line-by-line reading in the eye track. Judged against the candidate's
+  // own rate across answers: some people's eyes move like this whenever they
+  // talk, or they glance back at the question on screen. An answer stands out
+  // only when it has far more of it than their usual.
+  const rates = judged.map((answer) => answer.reading?.perMinute ?? 0);
+  const usualRate = median(rates) ?? 0;
   const reading = judged.filter(
-    (answer) => (answer.reading?.sweeps ?? 0) >= 3 && (answer.reading?.perMinute ?? 0) >= 4,
+    (answer) =>
+      (answer.reading?.sweeps ?? 0) >= 4 &&
+      (answer.reading?.perMinute ?? 0) >= Math.max(6, 2.5 * usualRate),
   );
   if (reading.length > 0) {
     const seqs = reading.map((answer) => answer.turnSeq);

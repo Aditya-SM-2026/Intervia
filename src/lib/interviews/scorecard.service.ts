@@ -225,7 +225,9 @@ async function planVideo(
   }
   if (!deeperAnalysis) return skippedVideoBehaviour(`${skipReason} - video analysis skipped`);
   if (videoAnalysisMode() === "worker") {
-    const built = await buildVideoJob(roomId, events, turns, tab);
+    // A recording kept only on this server is copied to the recordings bucket
+    // first, so the worker can read it (predev keeps recordings on disk).
+    const built = await buildVideoJob(roomId, events, turns, tab, { uploadLocal: true });
     if ("job" in built) {
       pendingVideoJobs.set(roomId, built.job);
       return queuedVideo();
@@ -480,6 +482,19 @@ export async function getInterviewDetail(
         video: result("failed", "The video analysis did not come back. Run it again."),
       };
       scorecard = { ...scorecard, integrityCheck: refreshIntegrity(scorecard) };
+      await repository.saveScorecard(scorecard);
+    }
+  }
+
+  // The integrity rules run in code over stored measurements, so when the
+  // rules change an existing report is brought up to date on open, without
+  // re-running the video analysis. The note is rewritten only if it changed.
+  if (scorecard?.integrityCheck && scorecard.video?.version === 2 && scorecard.video.measures) {
+    const fresh = refreshIntegrity(scorecard);
+    const key = (check: IntegrityCheck) =>
+      JSON.stringify([check.level, check.findings.map((finding) => [finding.kind, finding.strength, finding.turnSeqs])]);
+    if (key(fresh) !== key(scorecard.integrityCheck)) {
+      scorecard = { ...scorecard, integrityCheck: await writeIntegritySummary(fresh) };
       await repository.saveScorecard(scorecard);
     }
   }
