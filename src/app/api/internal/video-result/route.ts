@@ -1,7 +1,11 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getInterviewRepository } from "@/server/repositories";
-import { recomputeOverallWithVideo } from "@/lib/interviews/scorecard.service";
+import {
+  recomputeOverallWithVideo,
+  refreshIntegrity,
+  writeIntegritySummary,
+} from "@/lib/interviews/scorecard.service";
 import {
   videoBehaviourFromWorker,
   type VideoJob,
@@ -63,15 +67,18 @@ export async function POST(request: NextRequest) {
     ...video,
     durationSeconds: video.durationSeconds ?? scorecard.video?.durationSeconds ?? null,
   };
-  await repository.saveScorecard({
+  const updated = {
     ...scorecard,
     video: storedVideo,
-    // The video score arrives after the scorecard was saved, so the weighted
-    // total (and the average shown at the top of the report) has to be
-    // recomputed now. Without this the video column stays empty even though
-    // the analysis finished.
+    // The total only carries ability factors, so this leaves it unchanged for
+    // new reports; older four-factor reports still get their video column.
     overall: recomputeOverallWithVideo(scorecard, storedVideo.score),
-  });
+  };
+  // Integrity is rebuilt with the video and audio findings, then explained in
+  // plain words by the model (the level itself is decided in code). The worker
+  // waits for this reply, so the summary is written before answering.
+  const integrityCheck = await writeIntegritySummary(refreshIntegrity(updated));
+  await repository.saveScorecard({ ...updated, integrityCheck });
 
   return NextResponse.json({ ok: true, status: video.status });
 }

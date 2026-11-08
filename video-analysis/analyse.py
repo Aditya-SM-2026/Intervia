@@ -134,6 +134,13 @@ def head_angles(shape, size) -> tuple[float, float]:
     rot, _ = cv2.Rodrigues(rvec)
     yaw = math.degrees(math.atan2(-rot[0][2], math.hypot(rot[1][2], rot[2][2])))
     pitch = -math.degrees(math.atan2(rot[1][2], rot[2][2]))
+    # solvePnP can return the face model flipped, putting a level head at
+    # about +/-180 degrees; folded back it reads as about 0. Unfolded, every
+    # frontal face read as "looking down".
+    if pitch > 90:
+        pitch -= 180
+    elif pitch < -90:
+        pitch += 180
     return yaw, pitch
 
 

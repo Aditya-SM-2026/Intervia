@@ -573,13 +573,49 @@ export async function renderScorecardPdf(
     }
   }
 
-  if (scorecard.authenticity) {
-    sectionTitle(ctx, "Answer authenticity");
-    paragraph(ctx, `Score ${scorecard.authenticity.score}/100 for answers consistent with the candidate's own words.`, {
+  const integrityCheck = scorecard.integrityCheck;
+  if (integrityCheck) {
+    const level = {
+      clear: "Clear",
+      review: "Worth a look",
+      high_risk: "High risk",
+      pending: "Video still being checked",
+      not_checked: "Not checked",
+    }[integrityCheck.level];
+    sectionTitle(ctx, `Integrity: ${level}`);
+    paragraph(ctx, `${integrityCheck.summary} Integrity is not part of the score.`, {
       size: 9.5,
       color: MUTED,
       gap: 4,
     });
+    if (integrityCheck.findings.length > 0) {
+      table(
+        ctx,
+        [
+          { header: "Finding", width: 170 },
+          { header: "Strength", width: 70 },
+          { header: "Detail", width: CONTENT_WIDTH - 240 },
+        ],
+        integrityCheck.findings.map((finding) => [
+          finding.title,
+          finding.strength === 3 ? "Strong" : finding.strength === 2 ? "Notable" : "Worth a glance",
+          finding.detail,
+        ]),
+      );
+    }
+  } else if (scorecard.authenticity) {
+    sectionTitle(ctx, "Answer authenticity");
+    paragraph(
+      ctx,
+      scorecard.authenticity.score === null
+        ? "Not checked for this interview."
+        : `Score ${scorecard.authenticity.score}/100 for answers consistent with the candidate's own words.`,
+      {
+        size: 9.5,
+        color: MUTED,
+        gap: 4,
+      },
+    );
     if (scorecard.authenticity.signals.length > 0) {
       table(
         ctx,

@@ -166,6 +166,7 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
             suggestion: scorecard.suggestion,
             needsHumanReview: scorecard.needsHumanReview,
             overall: scorecard.overall ?? null,
+            integrityLevel: scorecard.integrityCheck?.level ?? null,
           });
         }
       }

@@ -18,7 +18,10 @@ import type {
 import type { PlanCompetency } from "@/lib/interviews/plan.types";
 import type {
   AnswerGaze,
+  CheckState,
   FactorId,
+  IntegrityCheck,
+  IntegrityLevel,
   GazeDirection,
   InterviewDetailResponse,
   PeerSummary,
@@ -65,6 +68,9 @@ import {
   RotateCcw,
   ScrollText,
   Search,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldQuestion,
   SlidersHorizontal,
   Sparkles,
   Trophy,
@@ -176,6 +182,7 @@ const REPORT_SECTIONS = [
   { id: "overview", label: "Overview" },
   { id: "answers", label: "Answers" },
   { id: "resume", label: "Resume" },
+  { id: "integrity", label: "Integrity" },
   { id: "authenticity", label: "Originality" },
   { id: "recording", label: "Recording" },
   { id: "video", label: "On camera" },
@@ -381,7 +388,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
       }
       showToast(
         typeof body?.score === "number"
-          ? `Resume match updated: ${body.score}/100`
+          ? `Resume depth updated: ${body.score}/100`
           : "Resume analysis finished. There was too little to score.",
       );
       const result = await fetchDetail(`/api/dashboard/interviews/${roomId}`, "GET");
@@ -571,6 +578,7 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
                     "overview",
                     "answers",
                     ...(scorecard.resumeMatch ? ["resume"] : []),
+                    ...(scorecard.integrityCheck ? ["integrity"] : []),
                     ...(scorecard.authenticity ? ["authenticity"] : []),
                     "recording",
                     ...(scorecard.video ? ["video"] : []),
@@ -601,6 +609,9 @@ export function InterviewDetailView({ roomId }: { roomId: string }) {
                 onAnalyseResume={handleAnalyseResume}
                 isAnalysing={isResumeRequesting}
               />
+              {scorecard.integrityCheck && (
+                <IntegritySection check={scorecard.integrityCheck} turns={turns} offsetFor={recordingOffset} onPlay={playFrom} />
+              )}
               <OwnAnswersSection scorecard={scorecard} />
               {recordingSection}
               <VideoSection
@@ -995,7 +1006,9 @@ function OverallAssessment({
             >
               {verdict}
             </motion.p>
-            <p className="mt-1 text-sm opacity-75">Overall {band.label.toLowerCase()}</p>
+            <p className="mt-1 text-sm opacity-75">
+              {scorecard.integrityCheck ? "Answer score" : `Overall ${band.label.toLowerCase()}`}
+            </p>
           </div>
         </div>
 
@@ -1027,6 +1040,7 @@ function OverallAssessment({
               </a>
             );
           })}
+          {scorecard.integrityCheck && <IntegrityTile check={scorecard.integrityCheck} />}
         </div>
       </div>
 
@@ -1286,6 +1300,7 @@ function AnswerQualityTable({
                     <span className="font-semibold text-foreground">{item.name}</span>
                   </p>
                   {plan?.question && <p className="mt-0.5 line-clamp-1 text-xs text-muted">{plan.question}</p>}
+                  {item.dimensions && <DimensionChips dimensions={item.dimensions} definitionOnly={item.definitionOnly === true} />}
                   <Clamp text={plain(item.rationale)} lines={2} className="mt-2 max-w-[75ch] text-sm leading-6 text-foreground/80" />
                 </div>
                 <div className="col-span-2 flex items-start sm:col-span-1">
@@ -1485,7 +1500,7 @@ function ResumeTable({
       <CardHeading
         icon={FileSearch}
         iconColor="violet"
-        title="Resume match"
+        title="Resume depth"
         subtitle="Claims from the resume, checked against what the candidate said."
         right={<HeadingScore score={resume.score} tone={chip.tone} label={chip.label} />}
       />
@@ -1589,11 +1604,28 @@ function ResumeTable({
 }
 
 /** 5. Own Answers (Originality) Section: Originality assessment, indicators, expandable signal descriptions */
+const OWN_VERDICT: Record<"natural" | "polished" | "likely_read", { label: string; tone: Tone }> = {
+  natural: { label: "Own words", tone: "good" },
+  polished: { label: "More polished than usual", tone: "warn" },
+  likely_read: { label: "Sounds read out", tone: "bad" },
+};
+
 function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
   const authenticity = scorecard.authenticity;
   if (!authenticity) return null;
-  const chip = factorChip("authenticity", authenticity.score);
+  const notChecked = authenticity.status === "not_checked";
   const signals = authenticity.signals ?? [];
+  const readings = authenticity.answers ?? [];
+  const flaggedReadings = readings.filter((item) => item.verdict !== "natural");
+  const readOut = readings.filter((item) => item.verdict === "likely_read").length;
+  const chip: { label: string; tone: Tone } = notChecked
+    ? { label: "Not checked", tone: "muted" }
+    : readOut > 0 || signals.some((signal) => signal.severity >= 2)
+      ? { label: "Worth a look", tone: "warn" }
+      : flaggedReadings.length > 0 || signals.length > 0
+        ? { label: "Mostly own words", tone: "good" }
+        : { label: "Own words", tone: "good" };
+  const isNew = authenticity.status !== undefined;
 
   return (
     <section id="authenticity" className={`${cardClasses} scroll-mt-32`}>
@@ -1601,28 +1633,55 @@ function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
         icon={Fingerprint}
         iconColor="emerald"
         title="Originality"
-        subtitle="Whether the answers read as the candidate's own."
-        right={<HeadingScore score={authenticity.score} tone={chip.tone} label={chip.label} />}
+        subtitle="Whether the answers sound like the candidate's own words, or read out."
+        right={
+          isNew ? (
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_TILE[chip.tone]}`}>{chip.label}</span>
+          ) : (
+            <HeadingScore score={authenticity.score} tone={factorChip("authenticity", authenticity.score).tone} label={factorChip("authenticity", authenticity.score).label} />
+          )
+        }
       />
 
-      {signals.length === 0 ? (
+      {notChecked ? (
+        <p className="mt-5 flex items-center gap-2 text-[15px] text-muted">
+          <ShieldQuestion className="size-4 shrink-0" aria-hidden />
+          {authenticity.reason ?? "This check did not run for this interview."}
+        </p>
+      ) : signals.length === 0 && flaggedReadings.length === 0 ? (
         <p className="mt-5 flex items-center gap-2 text-[15px] text-foreground/85">
           <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
-          Nothing suggests the answers were read out or prepared by someone else.
+          {readings.length > 0
+            ? `All ${readings.length} answers sound like the candidate's own way of speaking.`
+            : "Nothing suggests the answers were read out or prepared by someone else."}
         </p>
       ) : (
         <ul className="mt-5 divide-y divide-border border-y border-border">
+          {flaggedReadings.map((item) => {
+            const verdict = OWN_VERDICT[item.verdict];
+            return (
+              <li key={`r-${item.turnSeq}`} className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_11rem] sm:gap-6">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Answer {item.turnSeq}</p>
+                  {item.reasons.length > 0 && (
+                    <p className="mt-1 max-w-prose text-sm leading-6 text-muted">{item.reasons.join(" ")}</p>
+                  )}
+                </div>
+                <p className={`text-sm font-medium sm:text-right ${TONE_TEXT[verdict.tone]}`}>{verdict.label}</p>
+              </li>
+            );
+          })}
           {signals.map((signal, idx) => {
             const serious = signal.severity >= 2;
             return (
-              <li key={idx} className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_9rem] sm:gap-6">
+              <li key={idx} className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_11rem] sm:gap-6">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{signal.title}</p>
                   <p className="mt-1 max-w-prose text-sm leading-6 text-muted">{signal.detail}</p>
                 </div>
                 <div className="text-sm sm:text-right">
                   <p className={`font-medium ${serious ? TONE_TEXT.bad : TONE_TEXT.warn}`}>
-                    {serious ? "Serious" : "Worth a look"}
+                    {serious ? "Notable" : "Worth a look"}
                   </p>
                   <p className="mt-0.5 text-xs text-muted">
                     {signal.source === "measured" ? "Measured from timings" : "Read from the transcript"}
@@ -1634,6 +1693,194 @@ function OwnAnswersSection({ scorecard }: { scorecard: Scorecard }) {
         </ul>
       )}
     </section>
+  );
+}
+
+const INTEGRITY_META: Record<IntegrityLevel, { label: string; tone: Tone; icon: LucideIcon }> = {
+  clear: { label: "Clear", tone: "good", icon: ShieldCheck },
+  review: { label: "Worth a look", tone: "warn", icon: ShieldAlert },
+  high_risk: { label: "High risk", tone: "bad", icon: ShieldAlert },
+  pending: { label: "Checking video", tone: "muted", icon: ShieldQuestion },
+  not_checked: { label: "Not checked", tone: "muted", icon: ShieldQuestion },
+};
+
+/** The integrity badge in the overview, next to the score it does not touch. */
+function IntegrityTile({ check }: { check: IntegrityCheck }) {
+  const meta = INTEGRITY_META[check.level];
+  const Icon = meta.icon;
+  return (
+    <a
+      href="#integrity"
+      className={`group flex items-center gap-3.5 rounded-2xl p-4 transition hover:brightness-[0.98] sm:col-span-2 ${TONE_TILE[meta.tone]}`}
+    >
+      <span className="grid size-14 shrink-0 place-items-center rounded-full bg-surface/70">
+        <Icon className={`size-6 ${check.level === "pending" ? "animate-pulse" : ""}`} aria-hidden />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold">Integrity: {meta.label}</span>
+        <span className="mt-0.5 line-clamp-2 block text-xs opacity-80">{check.summary}</span>
+        <span className="mt-0.5 block text-[11px] opacity-60">Not part of the score</span>
+      </span>
+      <ChevronRight className="ml-auto size-4 shrink-0 opacity-0 transition group-hover:opacity-100" aria-hidden />
+    </a>
+  );
+}
+
+const CHECK_LABELS: { id: keyof IntegrityCheck["checks"]; label: string }[] = [
+  { id: "ownAnswers", label: "Own words" },
+  { id: "camera", label: "Eyes on camera" },
+  { id: "lipSync", label: "Lip-sync" },
+  { id: "voice", label: "Same voice" },
+  { id: "browser", label: "Tab switches" },
+];
+
+const CHECK_STATE: Record<CheckState, { text: string; className: string }> = {
+  done: { text: "Checked", className: "text-emerald-700 dark:text-emerald-400" },
+  running: { text: "Running", className: "text-accent" },
+  not_run: { text: "Not run", className: "text-muted" },
+  unavailable: { text: "Unavailable", className: "text-muted" },
+};
+
+/**
+ * Integrity: whether the answers were the candidate's own, from the
+ * transcript, the eyes, lips and voice on the recording, and the browser.
+ * Every finding links to the moment to watch.
+ */
+function IntegritySection({
+  check,
+  turns,
+  offsetFor,
+  onPlay,
+}: {
+  check: IntegrityCheck;
+  turns: InterviewTurn[];
+  offsetFor: (turn: InterviewTurn) => number | null;
+  onPlay: (seconds: number) => void;
+}) {
+  const meta = INTEGRITY_META[check.level];
+  const bySeq = new Map(turns.map((turn) => [turn.seq, turn]));
+  const startFor = (seqs: number[], fallback: number | null): number | null => {
+    if (fallback !== null) return fallback;
+    const offsets = seqs
+      .map((seq) => bySeq.get(seq))
+      .map((turn) => (turn ? offsetFor(turn) : null))
+      .filter((value): value is number => value !== null);
+    return offsets.length ? Math.min(...offsets) : null;
+  };
+  const findings = [...check.findings].sort((a, b) => b.strength - a.strength);
+  const running = check.checks.camera === "running";
+
+  return (
+    <section id="integrity" className={`${cardClasses} scroll-mt-32`}>
+      <CardHeading
+        icon={meta.icon}
+        iconColor={meta.tone === "bad" ? "rose" : meta.tone === "warn" ? "amber" : meta.tone === "good" ? "emerald" : undefined}
+        title="Integrity"
+        subtitle="Were the answers the candidate's own? Kept apart from the score."
+        right={<span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_TILE[meta.tone]}`}>{meta.label}</span>}
+      />
+
+      <p className="mt-5 max-w-prose text-[15px] leading-7 text-foreground/85">{check.summary}</p>
+
+      {running && (
+        <p className="mt-4 flex items-start gap-2.5 rounded-xl bg-accent/[0.07] px-4 py-3 text-sm text-accent">
+          <span className="mt-1.5 size-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
+          <span>
+            We&apos;re going through the video and audio frame by frame. For a 30-minute interview this takes a few
+            minutes. The rest of the report is ready, and this part updates by itself.
+          </span>
+        </p>
+      )}
+
+      {findings.length > 0 && (
+        <ul className="mt-5 grid gap-2">
+          {findings.map((finding, index) => {
+            const tone: Tone = finding.strength >= 3 ? "bad" : finding.strength === 2 ? "warn" : "muted";
+            const at = startFor(finding.turnSeqs, finding.atSeconds);
+            return (
+              <li key={`${finding.kind}-${index}`} className={`flex items-start gap-3 rounded-xl px-3.5 py-3 ${TONE_TILE[tone]}`}>
+                {at !== null ? (
+                  <button
+                    type="button"
+                    onClick={() => onPlay(Math.max(0, at - 2))}
+                    className="mt-0.5 inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-surface px-2.5 text-xs font-semibold tabular-nums text-accent shadow-sm shadow-black/[0.04] transition hover:bg-accent hover:text-white"
+                  >
+                    <Play className="size-3 fill-current" aria-hidden />
+                    {formatClock(at)}
+                  </button>
+                ) : (
+                  <span className="mt-0.5 inline-flex h-7 shrink-0 items-center rounded-full bg-surface/70 px-2.5 text-xs font-medium">
+                    {finding.source === "text" ? "Transcript" : finding.source === "browser" ? "Browser" : "Recording"}
+                  </span>
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{finding.title}</p>
+                  <p className="mt-0.5 text-sm leading-6 opacity-80">{finding.detail}</p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <dl className="mt-5 flex flex-wrap gap-x-5 gap-y-2 border-t border-border pt-4 text-xs">
+        {CHECK_LABELS.map((item) => {
+          const state = CHECK_STATE[check.checks[item.id]];
+          return (
+            <div key={item.id} className="flex items-center gap-1.5">
+              <dt className="text-muted">{item.label}</dt>
+              <dd className={`font-medium ${state.className}`}>{state.text}</dd>
+            </div>
+          );
+        })}
+      </dl>
+      {check.limits.length > 0 && (
+        <ul className="mt-3 grid gap-1 text-xs text-muted">
+          {check.limits.map((limit) => (
+            <li key={limit} className="flex items-start gap-1.5">
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+              {limit}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+const DIMENSION_LABELS: { id: "relevance" | "ownership" | "correctness" | "depth"; label: string }[] = [
+  { id: "relevance", label: "On the question" },
+  { id: "ownership", label: "Own detail" },
+  { id: "correctness", label: "Correct" },
+  { id: "depth", label: "Depth" },
+];
+
+/** The four things an answer is judged on, as small labelled marks. */
+function DimensionChips({
+  dimensions,
+  definitionOnly,
+}: {
+  dimensions: NonNullable<Scorecard["competencies"][number]["dimensions"]>;
+  definitionOnly: boolean;
+}) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {DIMENSION_LABELS.map((item) => {
+        const value = dimensions[item.id];
+        if (value === null || value === undefined) return null;
+        const tone: Tone = value >= 4 ? "good" : value >= 3 ? "muted" : value >= 2 ? "warn" : "bad";
+        return (
+          <span key={item.id} className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${TONE_TILE[tone]}`}>
+            {item.label} {value}/5
+          </span>
+        );
+      })}
+      {definitionOnly && (
+        <span className="rounded-md bg-amber-500/[0.1] px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300">
+          Definitions only
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -1656,9 +1903,19 @@ function VideoSection({
   const integrity = scorecard.integrity;
   const answers = video.answers ?? [];
   const pattern = video.pattern ?? null;
-  const chip = factorChip("video", video.score ?? null);
+  const measures = video.version === 2 ? (video.measures ?? null) : null;
+  const videoFindings = (scorecard.integrityCheck?.findings ?? []).filter((finding) => finding.source !== "text" && finding.source !== "browser");
+  const chip: { label: string; tone: Tone } = measures
+    ? videoFindings.some((finding) => finding.strength >= 2)
+      ? { label: "Worth a look", tone: "warn" }
+      : video.score === null
+        ? { label: "Too little to judge", tone: "muted" }
+        : { label: "Nothing stood out", tone: "good" }
+    : factorChip("video", video.score ?? null);
+  const spotTurns = new Set(measures?.spots[0]?.heldAnswers ?? []);
 
   const onSpot = (answer: AnswerGaze) =>
+    measures ? spotTurns.has(answer.turnSeq) && (videoFindings.some((finding) => finding.kind === "fixed_spot")) :
     pattern !== null &&
     pattern.direction !== null &&
     pattern.sameSpotAnswers >= 2 &&
@@ -1687,9 +1944,20 @@ function VideoSection({
   const answeringSeconds = [...answeringTotals.values()].reduce((sum, value) => sum + value, 0);
   const atScreen = answeringSeconds > 0 ? Math.round(((answeringTotals.get("centre") ?? 0) / answeringSeconds) * 100) : null;
   // Same source as the grid below, so the figure and the picture agree.
-  const attention = atScreen;
-  const sameSpot = pattern && pattern.sameSpotAnswers >= 2 ? pattern.sameSpotAnswers : 0;
+  // The calibrated analysis measures "at the screen" against where this person
+  // looked while listening, not against the camera.
+  const attention = measures ? video.attentionPercent : atScreen;
+  const judgedCount = measures ? measures.answers.filter((answer) => answer.atScreenShare !== null).length : pattern?.answersObserved ?? 0;
+  const sameSpot = measures
+    ? videoFindings.some((finding) => finding.kind === "fixed_spot")
+      ? spotTurns.size
+      : 0
+    : pattern && pattern.sameSpotAnswers >= 2
+      ? pattern.sameSpotAnswers
+      : 0;
   const readingCount = pattern?.readingAnswers ?? measured.filter((answer) => answer.reading).length;
+  const lipFinding = videoFindings.find((finding) => finding.kind === "lip_sync");
+  const voiceFinding = videoFindings.find((finding) => finding.kind === "voice_change");
 
   // Only what deserves a second look: answers held on the same off-screen
   // spot, reading-like eye movement, and the moments the analysis pointed to.
@@ -1716,15 +1984,25 @@ function VideoSection({
     { label: "At the screen while answering", value: attention === null ? "—" : `${attention}%`, tone: attention !== null && attention < 50 ? "warn" : "muted" },
     {
       label: "Same off-screen spot",
-      value: pattern && pattern.answersObserved > 0 ? `${sameSpot} of ${pattern.answersObserved}` : "—",
+      value: judgedCount > 0 ? `${sameSpot} of ${judgedCount}` : "—",
       tone: sameSpot >= 2 ? "bad" : "muted",
     },
     { label: "Reading-like answers", value: String(readingCount), tone: readingCount > 0 ? "warn" : "muted" },
-    {
-      label: "Left the tab",
-      value: integrity.tabHiddenCount === 0 ? "Never" : `${integrity.tabHiddenCount}×`,
-      tone: integrity.tabHiddenCount > 0 ? "warn" : "muted",
-    },
+    measures
+      ? {
+          label: "Lips and voice",
+          value: !measures.checks.audio
+            ? "No sound"
+            : lipFinding || voiceFinding
+              ? `${new Set([...(lipFinding?.turnSeqs ?? []), ...(voiceFinding?.turnSeqs ?? [])]).size} to check`
+              : "Match",
+          tone: lipFinding || voiceFinding ? "warn" : "muted",
+        }
+      : {
+          label: "Left the tab",
+          value: integrity.tabHiddenCount === 0 ? "Never" : `${integrity.tabHiddenCount}×`,
+          tone: integrity.tabHiddenCount > 0 ? "warn" : "muted",
+        },
   ];
 
   return (
@@ -1734,17 +2012,30 @@ function VideoSection({
         iconColor="amber"
         title="On-camera behaviour"
         subtitle="Where the candidate looked, read from the recording."
-        right={<HeadingScore score={video.score} tone={chip.tone} label={chip.label} />}
+        right={
+          measures ? (
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${TONE_TILE[chip.tone]}`}>{chip.label}</span>
+          ) : (
+            <HeadingScore score={video.score} tone={chip.tone} label={chip.label} />
+          )
+        }
       />
 
       {video.status !== "analysed" ? (
         <div className="mt-5 rounded-xl bg-foreground/[0.035] px-4 py-3.5 text-sm">
-          <p className="text-muted">{video.reason ?? "The recording has not been analysed."}</p>
-          {video.status === "queued" && (
-            <p className="mt-1.5 flex items-center gap-2 font-medium text-accent">
-              <span className="size-1.5 animate-pulse rounded-full bg-accent" />
-              Analysing the recording. This updates by itself.
-            </p>
+          {video.status === "queued" ? (
+            <>
+              <p className="flex items-center gap-2 font-medium text-accent">
+                <span className="size-1.5 animate-pulse rounded-full bg-accent" />
+                Processing the video and audio
+              </p>
+              <p className="mt-1.5 text-muted">
+                We check every frame of every answer, the lips against the voice, and the voice itself. A 30-minute
+                interview takes a few minutes. You can read the rest of the report meanwhile; this updates by itself.
+              </p>
+            </>
+          ) : (
+            <p className="text-muted">{video.reason ?? "The recording has not been analysed."}</p>
           )}
         </div>
       ) : (
@@ -1766,7 +2057,9 @@ function VideoSection({
                 <GazeHeatmap title="While listening" totals={listeningTotals} small />
               </div>
               <p className="mt-3 max-w-[16rem] text-[11px] leading-4 text-muted">
-                The centre square is the screen. Darker squares got more of the time.
+                {measures
+                  ? "The centre square is where this candidate looked while listening: their screen. Darker squares got more of the time."
+                  : "The centre square is the screen. Darker squares got more of the time."}
               </p>
             </div>
 

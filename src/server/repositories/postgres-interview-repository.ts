@@ -564,12 +564,14 @@ role_id = EXCLUDED.role_id,
         suggestion: string | null;
         review: boolean | null;
         factors: ScorecardSummary["overall"];
+        integrity: string | null;
       }>(
         `SELECT room_id,
                 (scorecard ->> 'overallScore')::float AS overall,
                 scorecard ->> 'suggestion' AS suggestion,
                 (scorecard ->> 'needsHumanReview')::boolean AS review,
-                scorecard -> 'overall' AS factors
+                scorecard -> 'overall' AS factors,
+                scorecard -> 'integrityCheck' ->> 'level' AS integrity
          FROM scorecards
          WHERE room_id = ANY($1)`,
         [[...roomIds]],
@@ -581,6 +583,7 @@ role_id = EXCLUDED.role_id,
           suggestion: (row.suggestion ?? "insufficient") as ScorecardSummary["suggestion"],
           needsHumanReview: row.review ?? false,
           overall: row.factors ?? null,
+          integrityLevel: (row.integrity ?? null) as ScorecardSummary["integrityLevel"],
         });
       }
       return result;

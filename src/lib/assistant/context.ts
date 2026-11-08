@@ -170,6 +170,22 @@ export function renderScorecard(scorecard: Scorecard, maxChars = 14_000): string
           })),
         }
       : null,
+    integrityCheck: scorecard.integrityCheck
+      ? {
+          note: "Integrity is kept apart from the score: it never adds or removes points.",
+          level: scorecard.integrityCheck.level,
+          summary: scorecard.integrityCheck.summary,
+          findings: scorecard.integrityCheck.findings.map((finding) => ({
+            title: finding.title,
+            detail: finding.detail,
+            strength: finding.strength,
+            source: finding.source,
+            turnSeqs: finding.turnSeqs,
+            atSeconds: finding.atSeconds,
+          })),
+          limits: scorecard.integrityCheck.limits,
+        }
+      : null,
     integrity: {
       tabHiddenCount: scorecard.integrity.tabHiddenCount,
       tabHiddenSeconds: scorecard.integrity.tabHiddenSeconds,

@@ -4,6 +4,10 @@ import { test } from "node:test";
 import {
   DEFAULT_WEIGHTS,
   answerQualityScore,
+  buildIntegrityCheck,
+  cappedAnswerScore,
+  integrityLevel,
+  measuredFindings,
   authenticityScore,
   customScore,
   measuredAuthenticitySignals,
@@ -15,6 +19,8 @@ import {
 } from "./scoring.ts";
 import type {
   AnswerGaze,
+  AnswerMeasures,
+  VideoMeasures,
   CompetencyScore,
   CustomParameterScore,
   GazeDirection,
@@ -137,33 +143,150 @@ test("custom parameters: weighted by the recruiter's emphasis", () => {
   assert.equal(customScore([]), null);
 });
 
-test("overall: weighted average of the factors that have a score", () => {
+test("overall: ability only - answers and resume depth, never integrity", () => {
   const all = overallScore({ answers: 80, resume: 100, authenticity: 60, video: 40 });
-  // (80*45 + 100*20 + 60*20 + 40*15) / 100 = 74
-  assert.equal(all.score, 74);
+  // (80*80 + 100*20) / 100 = 84; own answers and video do not move it.
+  assert.equal(all.score, 84);
   assert.deepEqual(
-    all.factors.map((factor) => factor.weight),
-    [45, 20, 20, 15],
+    all.factors.map((factor) => factor.id),
+    ["answers", "resume"],
   );
+  const honestButWeak = overallScore({ answers: 44, resume: 50, authenticity: 100, video: 100 });
+  assert.equal(honestButWeak.score, 45);
 });
 
 test("overall: a missing factor is left out, not counted as zero", () => {
-  const noVideo = overallScore({ answers: 80, resume: 100, authenticity: 60, video: null });
-  // (80*45 + 100*20 + 60*20) / 85 = 80
-  assert.equal(noVideo.score, 80);
-  assert.equal(noVideo.factors.find((factor) => factor.id === "video")?.score, null);
+  const noResume = overallScore({ answers: 70, resume: null, authenticity: 60, video: null });
+  assert.equal(noResume.score, 70);
+  assert.equal(noResume.factors.find((factor) => factor.id === "resume")?.score, null);
 });
 
 test("overall: no scored answers means no overall score", () => {
   assert.equal(overallScore({ answers: null, resume: 90, authenticity: 90, video: 90 }).score, null);
 });
 
-test("weights setting: valid values are used, anything else falls back", () => {
-  assert.deepEqual(parseWeights("50,20,20,10"), { answers: 50, resume: 20, authenticity: 20, video: 10 });
+test("weights setting: answers and resume only; an old four-part setting keeps its first two", () => {
+  assert.deepEqual(parseWeights("70,30"), { answers: 70, resume: 30, authenticity: 0, video: 0 });
+  assert.deepEqual(parseWeights("45,20,20,15"), { answers: 45, resume: 20, authenticity: 0, video: 0 });
   assert.deepEqual(parseWeights("1,2,3"), DEFAULT_WEIGHTS);
-  assert.deepEqual(parseWeights("a,b,c,d"), DEFAULT_WEIGHTS);
+  assert.deepEqual(parseWeights("a,b"), DEFAULT_WEIGHTS);
   assert.deepEqual(parseWeights(undefined), DEFAULT_WEIGHTS);
-  assert.deepEqual(parseWeights("0,0,0,0"), DEFAULT_WEIGHTS);
+  assert.deepEqual(parseWeights("0,0"), DEFAULT_WEIGHTS);
+});
+
+test("answer caps: off the question or definitions only cannot score high", () => {
+  const dims = { relevance: 5, ownership: 4, correctness: 4, depth: 4 };
+  assert.equal(cappedAnswerScore(4, dims, false), 4);
+  assert.equal(cappedAnswerScore(4, dims, true), 2);
+  assert.equal(cappedAnswerScore(4, { ...dims, relevance: 1 }, false), 1);
+  assert.equal(cappedAnswerScore(3.6, null, false), 4);
+});
+
+function measured(overrides: Partial<AnswerMeasures> & { turnSeq: number }): AnswerMeasures {
+  return {
+    start: overrides.turnSeq * 60,
+    end: overrides.turnSeq * 60 + 45,
+    measuredFrames: 500,
+    totalFrames: 600,
+    quality: { brightness: 120, facePx: 140, sharpness: 80, measurable: 0.9, enhanced: 0 },
+    atScreenShare: 0.85,
+    multiFaceSeconds: 0,
+    phoneSeconds: 0,
+    extraPersonSeconds: 0,
+    sampledSeconds: 45,
+    lipSync: { correlation: 0.4, lag: 0, voicedFrames: 400 },
+    voiceSimilarity: 0.75,
+    delivery: {
+      words: 110, spokenSeconds: 45, wordsPerMinute: 140, fillersPer100: 4, repeatsPer100: 3,
+      longPauses: 3, pauseShare: 0.2, paceVariation: 0.5, startDelay: 1,
+    },
+    reading: { sweeps: 0, perMinute: 0, direction: null },
+    ...overrides,
+  };
+}
+
+function measures(answers: AnswerMeasures[], spots: VideoMeasures["spots"] = []): VideoMeasures {
+  return {
+    fps: 15,
+    baseline: { frames: 900, source: "listening" },
+    spots,
+    answers,
+    absences: [],
+    quality: { brightness: 120, facePx: 140, sharpness: 80, measurable: 0.9, enhanced: 0 },
+    faceSeen: true,
+    checks: { audio: true, transcriber: true, voice: true, phone: true },
+    partial: false,
+    processingSeconds: 200,
+  };
+}
+
+test("integrity: an ordinary honest interview is clear", () => {
+  const findings = measuredFindings(measures([1, 2, 3, 4, 5, 6].map((turnSeq) => measured({ turnSeq }))));
+  assert.deepEqual(findings, []);
+  assert.equal(integrityLevel(findings), "clear");
+});
+
+test("integrity: one kind of evidence alone is at most review", () => {
+  const answers = [1, 2, 3, 4, 5, 6].map((turnSeq) => measured({ turnSeq }));
+  const spot = { id: 0, where: "below the screen", distance: 6, heldAnswers: [2, 3, 4, 5], listeningShare: 0.02 };
+  const findings = measuredFindings(measures(answers, [spot]));
+  assert.equal(findings[0].kind, "fixed_spot");
+  assert.equal(integrityLevel(findings), "review");
+});
+
+test("integrity: a fixed spot plus read-aloud delivery on the same answers is high risk", () => {
+  const smooth = {
+    words: 120, spokenSeconds: 40, wordsPerMinute: 180, fillersPer100: 0, repeatsPer100: 0,
+    longPauses: 0, pauseShare: 0.05, paceVariation: 0.2, startDelay: 0.3,
+  };
+  const answers = [1, 2, 3, 4, 5, 6].map((turnSeq) =>
+    measured({ turnSeq, ...(turnSeq >= 3 ? { delivery: smooth } : {}) }),
+  );
+  const spot = { id: 0, where: "below the screen", distance: 6, heldAnswers: [3, 4, 5, 6], listeningShare: 0.02 };
+  const findings = measuredFindings(measures(answers, [spot]));
+  assert.ok(findings.some((finding) => finding.kind === "read_aloud"));
+  assert.equal(integrityLevel(findings), "high_risk");
+});
+
+test("integrity: lip-sync is judged against the candidate's own other answers", () => {
+  // A recording whose sound is out of step everywhere flags nothing.
+  const allOff = [1, 2, 3, 4].map((turnSeq) => measured({ turnSeq, lipSync: { correlation: 0.01, lag: 0, voicedFrames: 400 } }));
+  assert.equal(measuredFindings(measures(allOff)).length, 0);
+  // One answer out of step, when the rest follow the voice, is worth a look.
+  const oneOff = [1, 2, 3, 4].map((turnSeq) =>
+    measured({ turnSeq, ...(turnSeq === 3 ? { lipSync: { correlation: 0.0, lag: 0, voicedFrames: 400 } } : {}) }),
+  );
+  const findings = measuredFindings(measures(oneOff));
+  assert.deepEqual(findings.map((finding) => finding.kind), ["lip_sync"]);
+  assert.deepEqual(findings[0].turnSeqs, [3]);
+});
+
+test("integrity: a different voice in two answers plus another face is high risk", () => {
+  const answers = [1, 2, 3, 4, 5].map((turnSeq) =>
+    measured({ turnSeq, ...(turnSeq >= 4 ? { voiceSimilarity: 0.1, multiFaceSeconds: 12 } : {}) }),
+  );
+  const findings = measuredFindings(measures(answers));
+  assert.ok(findings.some((finding) => finding.kind === "voice_change" && finding.strength === 3));
+  assert.equal(integrityLevel(findings), "high_risk");
+});
+
+test("integrity: a check that never ran is not shown as clean", () => {
+  const check = buildIntegrityCheck({
+    authenticity: { score: null, signals: [], status: "not_checked", reason: "thin", answers: [] },
+    video: undefined,
+    tab: { hiddenCount: 0, hiddenSeconds: 0 },
+  });
+  assert.equal(check.level, "not_checked");
+});
+
+test("integrity: while the video runs, a clean transcript reads as pending", () => {
+  const check = buildIntegrityCheck({
+    authenticity: { score: 100, signals: [], status: "checked", reason: null, answers: [] },
+    video: { status: "queued", score: null, attentionPercent: null, moments: [], summary: "", model: null, reason: null },
+    tab: { hiddenCount: 0, hiddenSeconds: 0 },
+  });
+  assert.equal(check.level, "pending");
+  assert.equal(check.checks.camera, "running");
 });
 
 test("measured signal: a long answer that starts instantly, against a usual pause", () => {

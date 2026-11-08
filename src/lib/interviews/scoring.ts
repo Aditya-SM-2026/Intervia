@@ -1,12 +1,22 @@
 import type {
+  AnswerDimensions,
   AnswerGaze,
+  AnswerMeasures,
+  Authenticity,
   AuthenticitySignal,
+  CheckState,
+  IntegrityCheck,
+  IntegrityFinding,
+  IntegrityLevel,
+  IntegritySource,
   CompetencyScore,
   CustomParameterScore,
   FactorId,
   GazePattern,
   OverallScore,
   ResumeClaim,
+  VideoBehaviour,
+  VideoMeasures,
   VideoMoment,
 } from "./scorecard.types.ts";
 
@@ -19,24 +29,55 @@ import type {
  * No imports with side effects: this file is also run directly by the tests.
  */
 
-/** Percent of the overall score each factor carries when all four are present. */
+/**
+ * Percent of the score each factor carries. The score measures ability only:
+ * how well the questions were answered, and whether the candidate could back
+ * up their own resume in depth. Own answers and on-camera behaviour are
+ * integrity checks (see buildIntegrityCheck): they never add points, because
+ * an honest candidate who cannot do the job is still not a hire.
+ */
 export const DEFAULT_WEIGHTS: Record<FactorId, number> = {
-  answers: 45,
+  answers: 80,
   resume: 20,
-  authenticity: 20,
-  video: 15,
+  authenticity: 0,
+  video: 0,
 };
 
-export const FACTOR_ORDER: FactorId[] = ["answers", "resume", "authenticity", "video"];
+/** The factors that make up the score. */
+export const FACTOR_ORDER: FactorId[] = ["answers", "resume"];
 
-/** Weights from a "45,20,20,15" setting; falls back to the defaults. */
+/**
+ * Weights from an "80,20" (answers, resume) setting; falls back to the
+ * defaults. An older four-part "45,20,20,15" setting keeps its first two
+ * parts: integrity is never weighted into the score.
+ */
 export function parseWeights(setting: string | undefined): Record<FactorId, number> {
   const parts = (setting ?? "").split(",").map((part) => Number(part.trim()));
-  if (parts.length !== 4 || parts.some((value) => !Number.isFinite(value) || value < 0)) {
+  if (
+    (parts.length !== 2 && parts.length !== 4) ||
+    parts.some((value) => !Number.isFinite(value) || value < 0)
+  ) {
     return DEFAULT_WEIGHTS;
   }
-  if (parts.reduce((sum, value) => sum + value, 0) <= 0) return DEFAULT_WEIGHTS;
-  return { answers: parts[0], resume: parts[1], authenticity: parts[2], video: parts[3] };
+  if (parts[0] + parts[1] <= 0) return DEFAULT_WEIGHTS;
+  return { answers: parts[0], resume: parts[1], authenticity: 0, video: 0 };
+}
+
+/**
+ * The answer score after the rules a grader cannot argue its way around:
+ * an answer that misses the question scores no higher than its relevance, and
+ * one that only recites definitions scores at most 2.
+ */
+export function cappedAnswerScore(
+  score: number,
+  dimensions: AnswerDimensions | null | undefined,
+  definitionOnly: boolean,
+): number {
+  let capped = Math.max(1, Math.min(5, Math.round(score)));
+  const relevance = dimensions?.relevance ?? null;
+  if (relevance !== null && relevance <= 2) capped = Math.min(capped, Math.round(relevance));
+  if (definitionOnly) capped = Math.min(capped, 2);
+  return capped;
 }
 
 function clampScore(value: number): number {
@@ -109,7 +150,8 @@ const SIGNAL_PENALTY = { 1: 6, 2: 14, 3: 26 } as const;
 
 /**
  * Own answers, 0-100: starts at 100 and loses points for each signal that an
- * answer was read out or prompted. No signals means 100, not "proven honest".
+ * answer was read out or prompted. No signals means 100, not "proven honest";
+ * a check that did not run has no score at all (see buildAuthenticity).
  */
 export function authenticityScore(signals: readonly AuthenticitySignal[]): number {
   const lost = signals.reduce(
@@ -213,6 +255,7 @@ export function overallScore(
   weights: Record<FactorId, number> = DEFAULT_WEIGHTS,
 ): OverallScore {
   const factors = FACTOR_ORDER.map((id) => ({ id, score: scores[id], weight: weights[id] }));
+  // Integrity factors are never part of the total, whatever weights are passed.
   // Without scored answers there is nothing to anchor a total on.
   if (scores.answers === null) return { score: null, factors };
 
@@ -299,4 +342,412 @@ export function measuredAuthenticitySignals(answers: readonly TimedAnswer[]): Au
   }
 
   return signals;
+}
+
+// --- integrity ---------------------------------------------------------------
+
+/** Answers this long or shorter say too little to judge their delivery. */
+const MIN_DELIVERY_WORDS = 60;
+
+function seconds(value: number): number {
+  return Math.max(0, Math.round(value));
+}
+
+function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * Findings from the calibrated video and audio measurements. Each rule is
+ * relative to the candidate where it can be: their own screen position, their
+ * own usual hesitations, their own voice in the other answers. That keeps a
+ * nervous or fast-talking candidate from being flagged for being themselves.
+ */
+export function measuredFindings(measures: VideoMeasures): IntegrityFinding[] {
+  const findings: IntegrityFinding[] = [];
+  const answers = measures.answers;
+  const judged = answers.filter((answer) => answer.atScreenShare !== null);
+  const byTurn = new Map(answers.map((answer) => [answer.turnSeq, answer]));
+  const startOf = (seqs: number[]) => {
+    const first = seqs.map((seq) => byTurn.get(seq)?.start).filter((v): v is number => v !== undefined);
+    return first.length ? seconds(Math.min(...first)) : null;
+  };
+
+  // 1. The same spot off the screen, answer after answer, and not while listening.
+  const spot = measures.spots[0];
+  if (spot && judged.length >= MIN_ANSWERS_FOR_PATTERN) {
+    const held = spot.heldAnswers.filter((seq) => byTurn.get(seq)?.atScreenShare !== null);
+    const share = held.length / judged.length;
+    if (held.length >= 2 && spot.listeningShare < 0.15) {
+      const strength: 1 | 2 | 3 = held.length >= 3 && share >= 0.5 ? 3 : held.length >= 3 && share >= 0.25 ? 2 : 1;
+      findings.push({
+        kind: "fixed_spot",
+        source: "video",
+        strength,
+        title: `Eyes held on one spot ${spot.where} in ${held.length} of ${judged.length} answers`,
+        detail: `While answering, the candidate kept going back to the same place ${spot.where}, and hardly looked there while listening. That is how a phone, notes or a second screen looks on camera. Looking away to think is different: it wanders and changes from answer to answer.`,
+        turnSeqs: held,
+        atSeconds: startOf(held),
+      });
+    }
+  }
+
+  // 2. Line-by-line reading in the eye track.
+  const reading = judged.filter(
+    (answer) => (answer.reading?.sweeps ?? 0) >= 3 && (answer.reading?.perMinute ?? 0) >= 4,
+  );
+  if (reading.length > 0) {
+    const seqs = reading.map((answer) => answer.turnSeq);
+    findings.push({
+      kind: "reading_eyes",
+      source: "video",
+      strength: reading.length >= 2 ? 2 : 1,
+      title: `Eyes moved line by line, as in reading, in ${plural(reading.length, "answer")}`,
+      detail:
+        "The eyes drifted slowly sideways and then jumped back, again and again, the way they move across lines of text. Watch these answers to see whether the candidate was reading.",
+      turnSeqs: seqs,
+      atSeconds: startOf(seqs),
+    });
+  }
+
+  // 3. Lip-sync: mouth movement that does not follow the voice. Judged against
+  // the candidate's own other answers, so a recording whose sound is slightly
+  // out of step with its picture does not flag everything.
+  const synced = answers.filter(
+    (answer) =>
+      answer.lipSync?.correlation !== null &&
+      answer.lipSync?.correlation !== undefined &&
+      (answer.lipSync?.voicedFrames ?? 0) >= 150 &&
+      (answer.quality.facePx ?? 0) >= 90 &&
+      answer.quality.measurable >= 0.6,
+  );
+  const usual = median(synced.map((answer) => answer.lipSync?.correlation as number));
+  if (usual !== null && usual >= 0.2 && synced.length >= MIN_ANSWERS_FOR_PATTERN) {
+    const off = synced.filter((answer) => (answer.lipSync?.correlation as number) < 0.05);
+    if (off.length > 0) {
+      const seqs = off.map((answer) => answer.turnSeq);
+      findings.push({
+        kind: "lip_sync",
+        source: "video",
+        strength: off.length >= 2 ? 2 : 1,
+        title: `Mouth did not move with the voice in ${plural(off.length, "answer")}`,
+        detail: `In the rest of the interview the candidate's lips follow their voice closely; here they do not. Someone else may have been speaking, or the candidate may have been mouthing along. Watch with sound on.`,
+        turnSeqs: seqs,
+        atSeconds: startOf(seqs),
+      });
+    }
+  }
+
+  // 4. A different voice from the candidate's usual one.
+  const voiced = answers.filter(
+    (answer) => answer.voiceSimilarity !== null && answer.voiceSimilarity !== undefined && (answer.delivery?.words ?? 0) >= 25,
+  );
+  const usualVoice = median(voiced.map((answer) => answer.voiceSimilarity as number));
+  if (usualVoice !== null && voiced.length >= MIN_ANSWERS_FOR_PATTERN) {
+    const strongCut = Math.min(0.35, usualVoice - 0.3);
+    const weakCut = Math.min(0.5, usualVoice - 0.2);
+    const changed = voiced.filter((answer) => (answer.voiceSimilarity as number) < weakCut);
+    if (changed.length > 0) {
+      const seqs = changed.map((answer) => answer.turnSeq);
+      const strong = changed.some((answer) => (answer.voiceSimilarity as number) < strongCut);
+      findings.push({
+        kind: "voice_change",
+        source: "audio",
+        strength: strong ? 3 : 2,
+        title: `A different-sounding voice in ${plural(changed.length, "answer")}`,
+        detail:
+          "The voice in these answers does not match the candidate's voice in the rest of the interview. Listen for a second person answering.",
+        turnSeqs: seqs,
+        atSeconds: startOf(seqs),
+      });
+    }
+  }
+
+  // 5. Another face, another person, a phone in the picture.
+  const faces = answers.filter((answer) => answer.multiFaceSeconds >= 3 || (answer.extraPersonSeconds ?? 0) >= 3);
+  if (faces.length > 0) {
+    const total = faces.reduce((sum, answer) => sum + Math.max(answer.multiFaceSeconds, answer.extraPersonSeconds ?? 0), 0);
+    const seqs = faces.map((answer) => answer.turnSeq);
+    findings.push({
+      kind: "second_face",
+      source: "video",
+      strength: total >= 10 ? 3 : 2,
+      title: `Another person in the picture during ${plural(faces.length, "answer")}`,
+      detail: `A second face or person was visible for about ${total} seconds while the candidate was answering.`,
+      turnSeqs: seqs,
+      atSeconds: startOf(seqs),
+    });
+  }
+  const phones = answers.filter((answer) => (answer.phoneSeconds ?? 0) >= 2);
+  if (phones.length > 0) {
+    const total = phones.reduce((sum, answer) => sum + (answer.phoneSeconds ?? 0), 0);
+    const seqs = phones.map((answer) => answer.turnSeq);
+    findings.push({
+      kind: "phone",
+      source: "video",
+      strength: total >= 6 ? 3 : 2,
+      title: `A phone was visible during ${plural(phones.length, "answer")}`,
+      detail: `A phone showed in the picture for about ${total} seconds while the candidate was answering.`,
+      turnSeqs: seqs,
+      atSeconds: startOf(seqs),
+    });
+  }
+
+  // 6. Read-aloud delivery: an answer much smoother than this candidate's own
+  // way of speaking (no hesitations, no restarts, an even pace).
+  const spoken = answers.filter((answer) => (answer.delivery?.words ?? 0) >= 40);
+  // The candidate's natural way of speaking: their introduction (the first
+  // answer, never scripted) or their more hesitant answers, whichever shows
+  // more. A median would sink to zero if most answers were read out.
+  const disfluencies = spoken.map(
+    (answer) => (answer.delivery?.fillersPer100 ?? 0) + (answer.delivery?.repeatsPer100 ?? 0),
+  );
+  const sortedDisfluency = [...disfluencies].sort((a, b) => a - b);
+  const upperQuartile = sortedDisfluency.length
+    ? sortedDisfluency[Math.floor(0.75 * (sortedDisfluency.length - 1))]
+    : null;
+  const intro = spoken[0] ? disfluencies[0] : null;
+  const usualDisfluency =
+    upperQuartile === null ? null : Math.max(upperQuartile, intro ?? 0);
+  if (usualDisfluency !== null && usualDisfluency >= 2 && spoken.length >= MIN_ANSWERS_FOR_PATTERN) {
+    const smooth = spoken.filter((answer) => {
+      const d = answer.delivery;
+      if (!d || d.words < MIN_DELIVERY_WORDS) return false;
+      const disfluency = d.fillersPer100 + d.repeatsPer100;
+      return disfluency <= 0.25 * usualDisfluency && d.longPauses <= 1;
+    });
+    if (smooth.length > 0) {
+      const steady = smooth.filter((answer) => (answer.delivery?.paceVariation ?? 1) <= 0.35);
+      const seqs = smooth.map((answer) => answer.turnSeq);
+      findings.push({
+        kind: "read_aloud",
+        source: "audio",
+        strength: steady.length >= 2 ? 2 : 1,
+        title: `${plural(smooth.length, "answer")} sounded read out`,
+        detail: `This candidate usually hesitates or restarts about ${usualDisfluency.toFixed(1)} times per 100 words. ${smooth.length === 1 ? "This answer was" : "These answers were"} almost free of that${steady.length > 0 ? ", at an unusually even pace" : ""}, which is how reading aloud sounds.`,
+        turnSeqs: seqs,
+        atSeconds: startOf(seqs),
+      });
+    }
+  }
+
+  // 7. Out of the picture for a while.
+  const away = measures.absences.filter((item) => item.durationSeconds >= 10);
+  if (away.length > 0) {
+    const total = away.reduce((sum, item) => sum + item.durationSeconds, 0);
+    findings.push({
+      kind: "left_frame",
+      source: "video",
+      strength: total >= 60 ? 2 : 1,
+      title: `Out of the picture ${away.length === 1 ? "once" : `${away.length} times`}`,
+      detail: `No face could be seen for about ${seconds(total)} seconds in total.`,
+      turnSeqs: [],
+      atSeconds: seconds(away[0].atSeconds),
+    });
+  }
+  return findings;
+}
+
+/** Findings from the transcript check and the measured live timings. */
+export function textFindings(authenticity: Authenticity | undefined): IntegrityFinding[] {
+  if (!authenticity || authenticity.status === "not_checked") return [];
+  const findings: IntegrityFinding[] = [];
+  const read = (authenticity.answers ?? []).filter((item) => item.verdict === "likely_read");
+  const polished = (authenticity.answers ?? []).filter((item) => item.verdict === "polished");
+  if (read.length > 0) {
+    findings.push({
+      kind: "scripted_text",
+      source: "text",
+      strength: read.length >= 2 ? 2 : 1,
+      title: `${plural(read.length, "answer")} read like a textbook or AI answer`,
+      detail: read.flatMap((item) => item.reasons).slice(0, 2).join(" ") ||
+        "The wording is far more polished and generic than how the candidate speaks elsewhere.",
+      turnSeqs: read.map((item) => item.turnSeq),
+      atSeconds: null,
+    });
+  } else if (polished.length >= 2) {
+    findings.push({
+      kind: "scripted_text",
+      source: "text",
+      strength: 1,
+      title: `${plural(polished.length, "answer")} more polished than the candidate's usual way of speaking`,
+      detail: polished.flatMap((item) => item.reasons).slice(0, 2).join(" "),
+      turnSeqs: polished.map((item) => item.turnSeq),
+      atSeconds: null,
+    });
+  }
+  for (const signal of authenticity.signals) {
+    if (signal.title.startsWith("Left the interview tab")) continue;
+    findings.push({
+      kind: signal.source === "measured" ? "read_aloud" : "scripted_text",
+      source: signal.source === "measured" ? "audio" : "text",
+      strength: Math.min(signal.severity, 2) as 1 | 2,
+      title: signal.title,
+      detail: signal.detail,
+      turnSeqs: signal.turnSeqs,
+      atSeconds: null,
+    });
+  }
+  return findings;
+}
+
+export function browserFindings(tab: { hiddenCount: number; hiddenSeconds: number }): IntegrityFinding[] {
+  if (tab.hiddenCount <= 0) return [];
+  return [
+    {
+      kind: "left_tab",
+      source: "browser",
+      strength: tab.hiddenCount >= 4 || tab.hiddenSeconds >= 60 ? 2 : 1,
+      title: `Left the interview tab ${tab.hiddenCount === 1 ? "once" : `${tab.hiddenCount} times`}`,
+      detail: `The interview page was in the background for ${tab.hiddenSeconds} seconds in total.`,
+      turnSeqs: [],
+      atSeconds: null,
+    },
+  ];
+}
+
+/**
+ * The integrity level, from all findings. One kind of evidence on its own is
+ * at most "review": people look away, speak smoothly, or sit in dim rooms for
+ * honest reasons. "High risk" needs two different sources (eyes and voice,
+ * say) agreeing on the same answers, or a hard sign such as another person.
+ */
+export function integrityLevel(findings: readonly IntegrityFinding[]): Exclude<IntegrityLevel, "pending" | "not_checked"> {
+  const sourcesByTurn = new Map<number, Set<IntegritySource>>();
+  for (const finding of findings) {
+    if (finding.strength < 2) continue;
+    for (const seq of finding.turnSeqs) {
+      const set = sourcesByTurn.get(seq) ?? new Set<IntegritySource>();
+      set.add(finding.source);
+      sourcesByTurn.set(seq, set);
+    }
+  }
+  const agreed = [...sourcesByTurn.values()].filter((set) => set.size >= 2).length;
+  const hard = findings.filter(
+    (finding) =>
+      finding.strength === 3 && (finding.kind === "voice_change" || finding.kind === "second_face" || finding.kind === "phone"),
+  );
+  const hardKinds = new Set(hard.map((finding) => finding.kind)).size;
+  if (agreed >= 2 || (agreed >= 1 && hard.length > 0) || hardKinds >= 2) return "high_risk";
+  const notable = findings.filter((finding) => finding.strength >= 2);
+  const glanceKinds = new Set(findings.map((finding) => finding.kind)).size;
+  if (notable.length > 0 || glanceKinds >= 2) return "review";
+  return "clear";
+}
+
+/** What limited the checks, in plain words. */
+export function checkLimits(measures: VideoMeasures | null | undefined): string[] {
+  if (!measures) return [];
+  const limits: string[] = [];
+  const answers = measures.answers;
+  const unreadable = answers.filter((answer) => answer.atScreenShare === null && answer.end - answer.start >= 4);
+  if (unreadable.length > 0 && answers.length > 0) {
+    const dark = measures.quality.brightness !== null && measures.quality.brightness < 70;
+    limits.push(
+      `${unreadable.length} of ${answers.length} answers could not be read on camera${dark ? ", mostly because the room was dark" : ""}.`,
+    );
+  }
+  if (measures.quality.enhanced >= 0.3) {
+    limits.push("The picture was dim, so frames were brightened and cleaned up before measuring. Eye readings are less precise.");
+  }
+  if (measures.quality.facePx !== null && measures.quality.facePx < 90) {
+    limits.push("The face was small in the picture, which limits how precisely the eyes and lips can be read.");
+  }
+  if (!measures.checks.audio) limits.push("The recording has no usable sound, so voice and lip-sync checks did not run.");
+  else if (!measures.checks.transcriber) limits.push("The speech check was unavailable, so read-aloud delivery was not measured.");
+  if (measures.checks.audio && !measures.checks.voice) limits.push("The voice check was unavailable on the analysis server.");
+  if (measures.partial) limits.push("Part of the recording could not be analysed; the result covers the rest.");
+  return limits;
+}
+
+const LEVEL_WORDS: Record<IntegrityLevel, string> = {
+  clear: "Nothing stood out",
+  review: "Worth a look before deciding",
+  high_risk: "High risk: watch before deciding",
+  pending: "Still checking the video and audio",
+  not_checked: "Not checked",
+};
+
+/** A plain summary written in code, used when the model is unavailable. */
+export function integritySummary(check: Omit<IntegrityCheck, "summary" | "summaryBy">): string {
+  if (check.level === "not_checked") {
+    return "The integrity checks could not run for this interview, so there is no reading either way.";
+  }
+  const top = [...check.findings].sort((a, b) => b.strength - a.strength).slice(0, 2);
+  const parts: string[] = [];
+  if (top.length === 0) {
+    parts.push(
+      check.level === "pending"
+        ? "The transcript check found nothing unusual. The video and audio checks are still running."
+        : "The answers sound like the candidate's own, and nothing in the video or audio stood out.",
+    );
+  } else {
+    parts.push(`${LEVEL_WORDS[check.level]}. ${top.map((finding) => finding.title).join("; ")}.`);
+    if (check.level === "pending") parts.push("The video and audio checks are still running.");
+  }
+  if (check.limits.length > 0) parts.push(check.limits[0]);
+  return parts.join(" ");
+}
+
+/** Combines every source into the integrity section of the report. */
+export function buildIntegrityCheck(input: {
+  authenticity: Authenticity | undefined;
+  video: VideoBehaviour | undefined;
+  tab: { hiddenCount: number; hiddenSeconds: number };
+}): Omit<IntegrityCheck, "summary" | "summaryBy"> {
+  const { authenticity, video, tab } = input;
+  const measures = video?.version === 2 ? (video.measures ?? null) : null;
+  const findings = [
+    ...textFindings(authenticity),
+    ...(measures ? measuredFindings(measures) : []),
+    ...browserFindings(tab),
+  ];
+  const videoState: CheckState =
+    video?.status === "queued"
+      ? "running"
+      : video?.status === "analysed" && measures
+        ? "done"
+        : video?.status === "no_recording" || video?.status === "not_configured"
+          ? "unavailable"
+          : "not_run";
+  const checks: IntegrityCheck["checks"] = {
+    ownAnswers: authenticity && authenticity.status !== "not_checked" ? "done" : "not_run",
+    camera: videoState,
+    voice:
+      videoState === "done"
+        ? measures?.checks.voice && measures.checks.audio
+          ? "done"
+          : "unavailable"
+        : videoState,
+    lipSync: videoState === "done" ? (measures?.checks.audio ? "done" : "unavailable") : videoState,
+    browser: "done",
+  };
+  const anyRan = checks.ownAnswers === "done" || checks.camera === "done";
+  let level: IntegrityLevel = integrityLevel(findings);
+  if (level !== "high_risk") {
+    if (checks.camera === "running" && level === "clear") level = "pending";
+    else if (!anyRan && checks.camera !== "running" && findings.length === 0) level = "not_checked";
+  }
+  return { level, findings, checks, limits: checkLimits(measures) };
+}
+
+/** On-camera numbers for the v2 analysis, shown in the On camera card. */
+export function measuredVideoScore(findings: readonly IntegrityFinding[]): number {
+  const lost = findings
+    .filter((finding) => finding.source === "video")
+    .reduce((sum, finding) => sum + finding.strength * 12, 0);
+  return clampScore(100 - lost);
+}
+
+export function medianAtScreen(answers: readonly AnswerMeasures[]): number | null {
+  const shares = answers.map((answer) => answer.atScreenShare).filter((v): v is number => v !== null && v !== undefined);
+  const value = median(shares);
+  return value === null ? null : Math.round(value * 100);
 }

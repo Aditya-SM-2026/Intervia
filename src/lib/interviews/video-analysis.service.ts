@@ -264,18 +264,22 @@ export interface TimedAnswer {
   start: number;
   end: number;
   questionStart: number;
+  /** When the interviewer stopped speaking, so the thinking pause can be told apart. */
+  questionEnd: number | null;
 }
 
 /** Candidate answers placed on the recording's clock. */
 export function timedAnswers(turns: readonly InterviewTurn[], recordingStartMs: number): TimedAnswer[] {
   const answers: TimedAnswer[] = [];
   let questionStartMs: number | null = null;
+  let questionEndMs: number | null = null;
   for (const turn of turns) {
     const started = turn.startedAt ? Date.parse(turn.startedAt) : Number.NaN;
     const ended = turn.endedAt ? Date.parse(turn.endedAt) : Number.NaN;
     if (!Number.isFinite(started)) continue;
     if (turn.speaker === "interviewer") {
       questionStartMs = started;
+      questionEndMs = Number.isFinite(ended) ? ended : null;
       continue;
     }
     const start = (started - recordingStartMs) / 1000;
@@ -289,8 +293,11 @@ export function timedAnswers(turns: readonly InterviewTurn[], recordingStartMs: 
         questionStartMs === null
           ? Math.max(0, start - 8)
           : Math.max(0, (questionStartMs - recordingStartMs) / 1000),
+      questionEnd:
+        questionEndMs === null ? null : Math.max(0, (questionEndMs - recordingStartMs) / 1000),
     });
     questionStartMs = null;
+    questionEndMs = null;
   }
   return answers;
 }

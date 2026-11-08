@@ -37,6 +37,10 @@ export async function enqueueHttpTask(options: EnqueueOptions): Promise<boolean>
           body: JSON.stringify({
             task: {
               name: undefined,
+              // The default deadline is 10 minutes, after which Cloud Tasks
+              // retries the job while the first run is still working. A full
+              // video analysis can take longer; 30 minutes is the maximum.
+              dispatchDeadline: "1800s",
               httpRequest: {
                 httpMethod: "POST",
                 url: options.url,

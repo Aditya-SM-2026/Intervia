@@ -11,7 +11,16 @@ import {
 import { enqueueHttpTask } from "@/lib/queue/cloud-tasks";
 import { recordingsBucket, uploadRecordingToGcs } from "@/lib/recordings/gcs-upload";
 import type { InterviewEvent, InterviewTurn } from "./interview.types";
-import type { GazeDirection, VideoBehaviour, VideoMomentKind } from "./scorecard.types";
+import type {
+  AnswerGaze,
+  AnswerMeasures,
+  GazeDirection,
+  VideoBehaviour,
+  VideoMeasures,
+  VideoMoment,
+  VideoMomentKind,
+} from "./scorecard.types";
+import { measuredFindings, measuredVideoScore, medianAtScreen } from "./scoring";
 
 /**
  * Sends the on-camera analysis off the web request.
@@ -24,10 +33,15 @@ import type { GazeDirection, VideoBehaviour, VideoMomentKind } from "./scorecard
 
 export type VideoAnalysisMode = "inline" | "worker";
 
+/**
+ * Worker mode is the default whenever a worker is configured: the calibrated
+ * (v2) analysis with audio checks only runs there. VIDEO_ANALYSIS_MODE=inline
+ * forces the older in-process analyser.
+ */
 export function videoAnalysisMode(): VideoAnalysisMode {
-  return (process.env.VIDEO_ANALYSIS_MODE ?? "inline").trim().toLowerCase() === "worker"
-    ? "worker"
-    : "inline";
+  const explicit = (process.env.VIDEO_ANALYSIS_MODE ?? "").trim().toLowerCase();
+  if (explicit === "worker" || explicit === "inline") return explicit;
+  return process.env.VIDEO_WORKER_URL?.trim() ? "worker" : "inline";
 }
 
 export interface VideoJobAnswer {
@@ -36,6 +50,7 @@ export interface VideoJobAnswer {
   start: number;
   end: number;
   questionStart: number;
+  questionEnd: number | null;
 }
 
 export interface VideoJob {
@@ -126,6 +141,7 @@ export async function buildVideoJob(
         start: answer.start,
         end: answer.end,
         questionStart: answer.questionStart,
+        questionEnd: answer.questionEnd,
       })),
       hiddenCount: tab.hiddenCount,
       hiddenSeconds: tab.hiddenSeconds,
@@ -212,6 +228,8 @@ export interface WorkerResult {
   durationSeconds?: number | null;
   totalSegments?: number;
   segments?: WorkerSegment[];
+  /** The calibrated v2 measurements (worker from 2026-11). */
+  analysis?: unknown;
 }
 
 function direction(value: string): GazeDirection {
@@ -228,6 +246,14 @@ export function videoBehaviourFromWorker(
   job: VideoJob,
   payload: WorkerResult,
 ): VideoBehaviour {
+  if (payload.status === "analysed" && payload.analysis && typeof payload.analysis === "object") {
+    return videoBehaviourFromMeasures(
+      payload.analysis as VideoMeasures,
+      payload.durationSeconds === null || payload.durationSeconds === undefined
+        ? null
+        : Number(payload.durationSeconds),
+    );
+  }
   if (payload.status !== "analysed" || !payload.segments?.length) {
     return result(
       "failed",
@@ -265,4 +291,106 @@ export function videoBehaviourFromWorker(
         ? null
         : Number(payload.durationSeconds),
   });
+}
+
+function num(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** Old-style direction words for an answer, so the gaze grid keeps working. */
+function directionFromOffset(offset: unknown): GazeDirection {
+  if (!Array.isArray(offset) || offset.length < 2) return "unclear";
+  const [x, y] = [Number(offset[0]), Number(offset[1])];
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return "unclear";
+  const h = Math.abs(x) < 3 ? "" : x < 0 ? "left" : "right";
+  const v = Math.abs(y) < 3 ? "" : y > 0 ? "down" : "up";
+  if (!h && !v) return "centre";
+  if (!h) return v as GazeDirection;
+  if (!v) return h as GazeDirection;
+  return `${v}_${h}` as GazeDirection;
+}
+
+/** Stores the calibrated analysis, with the older per-answer shape filled in. */
+export function videoBehaviourFromMeasures(raw: VideoMeasures, durationSeconds: number | null): VideoBehaviour {
+  const measures: VideoMeasures = {
+    fps: num(raw.fps) ?? 15,
+    baseline: raw.baseline ?? { frames: 0, source: "none" },
+    spots: Array.isArray(raw.spots) ? raw.spots.slice(0, 3) : [],
+    answers: (Array.isArray(raw.answers) ? raw.answers : []).map((answer: AnswerMeasures) => ({
+      ...answer,
+      turnSeq: Number(answer.turnSeq),
+      start: Number(answer.start) || 0,
+      end: Number(answer.end) || 0,
+    })),
+    absences: Array.isArray(raw.absences) ? raw.absences : [],
+    quality: raw.quality ?? { brightness: null, facePx: null, sharpness: null, measurable: 0, enhanced: 0 },
+    faceSeen: raw.faceSeen !== false,
+    checks: raw.checks ?? { audio: false, transcriber: false, voice: false, phone: false },
+    partial: raw.partial === true,
+    processingSeconds: num(raw.processingSeconds) ?? 0,
+  };
+  const findings = measuredFindings(measures);
+  const spot = measures.spots[0];
+  const answers: AnswerGaze[] = measures.answers.map((answer) => {
+    const held = spot?.heldAnswers.includes(answer.turnSeq) ?? false;
+    const readable = answer.atScreenShare !== null && answer.atScreenShare !== undefined;
+    return {
+      turnSeq: answer.turnSeq,
+      atSeconds: Math.round(answer.start),
+      durationSeconds: Math.round(answer.end - answer.start),
+      whileListening: readable ? "centre" : "unclear",
+      whileAnswering: readable ? directionFromOffset((answer as { medianOffset?: unknown }).medianOffset) : "unclear",
+      steady: held,
+      reading: (answer.reading?.sweeps ?? 0) >= 3 && (answer.reading?.perMinute ?? 0) >= 4,
+      note: readable
+        ? `At the screen for ${Math.round((answer.atScreenShare as number) * 100)}% of the answer${held && spot ? `; held ${spot.where}` : ""}`
+        : "",
+      reason: answer.reason ?? null,
+      measuredFrames: answer.measuredFrames,
+    };
+  });
+  const moments: VideoMoment[] = findings
+    .filter((finding) => finding.atSeconds !== null)
+    .map((finding) => ({
+      atSeconds: finding.atSeconds as number,
+      durationSeconds: 0,
+      kind:
+        finding.kind === "reading_eyes"
+          ? "reading"
+          : finding.kind === "second_face"
+            ? "other_person"
+            : finding.kind === "phone"
+              ? "second_device"
+              : finding.kind === "left_frame"
+                ? "left_frame"
+                : finding.kind === "fixed_spot"
+                  ? "looking_away"
+                  : "other",
+      description: finding.title,
+    }));
+  const judged = measures.answers.filter((answer) => answer.atScreenShare !== null && answer.atScreenShare !== undefined);
+  const enough = measures.faceSeen && judged.length >= 3;
+  const videoFindings = findings.filter((finding) => finding.source === "video");
+  return {
+    status: "analysed",
+    version: 2,
+    measures,
+    score: enough ? measuredVideoScore(findings) : null,
+    attentionPercent: medianAtScreen(measures.answers),
+    moments,
+    summary: !measures.faceSeen
+      ? "No face could be seen in the recording."
+      : videoFindings.length === 0
+        ? `Across ${judged.length} answers measured on camera, nothing stood out: the candidate mostly looked at their screen, and where they looked away it wandered, as people do when thinking.`
+        : videoFindings.map((finding) => finding.title).join(". ") + ".",
+    model: "local-cv v2 (mediapipe, faster-whisper, wespeaker, yolox)",
+    reason: !measures.faceSeen
+      ? "No face could be seen in the recording."
+      : !enough
+        ? `${judged.length} of ${measures.answers.length} answers could be measured on camera, too few to judge a pattern.`
+        : null,
+    answers,
+    pattern: null,
+    durationSeconds: durationSeconds === null ? null : Math.round(durationSeconds),
+  };
 }

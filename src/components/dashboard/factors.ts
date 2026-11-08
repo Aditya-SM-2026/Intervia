@@ -8,13 +8,15 @@ export const FACTOR_META: Record<
   answers: {
     name: "Answer quality",
     short: "Answers",
-    explains: "How well each planned question was answered, against the rating scale for the role.",
+    explains:
+      "Whether each question was answered: on the question asked, with the candidate's own concrete detail, correct, and with depth. Definitions alone score low.",
     bar: "bg-accent",
   },
   resume: {
-    name: "Resume match",
+    name: "Resume depth",
     short: "Resume",
-    explains: "Whether what the candidate said agrees with the projects and claims on their resume.",
+    explains:
+      "Whether the candidate could explain the projects and skills on their resume in depth: how it works, their part, a problem they solved. Naming a project is not enough.",
     bar: "bg-accent",
   },
   authenticity: {

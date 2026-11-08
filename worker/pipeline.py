@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -16,10 +17,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+import audio
+import features
+
 SEGMENT_SECONDS = 150
-MAX_PARALLEL = 3
-ANALYSER_TIMEOUT = 600
-CALLBACK_TIMEOUT = 60
+MAX_PARALLEL = int(os.environ.get("VIDEO_PARALLEL", "2"))
+ANALYSER_TIMEOUT = 1200
+# The web app writes the integrity summary while this request waits.
+CALLBACK_TIMEOUT = 180
+PHONE_MODEL = os.environ.get("PHONE_MODEL", "/models/yolox_nano.onnx")
 
 # Binaries can be overridden for local runs (the container has them on PATH).
 FFMPEG = os.environ.get("FFMPEG_BIN", "ffmpeg")
@@ -120,16 +126,17 @@ def cut_clips(source: Path, workdir: Path, duration: float | None) -> list[dict[
                 "-i",
                 str(source),
                 "-an",
-                # Three frames a second at a higher resolution: enough samples
-                # for a steady reading, and a face large enough for eye landmarks.
+                # Native frame rate (reading sweeps and lip movement need every
+                # frame) with a light temporal denoise, which cleans up the
+                # grain of dim webcam footage before landmarking.
                 "-vf",
-                "fps=3,scale=1280:-2",
+                "hqdn3d=1.5:1.5:4:4",
                 "-c:v",
                 "libx264",
                 "-preset",
-                "veryfast",
+                "ultrafast",
                 "-crf",
-                "30",
+                "20",
                 "-pix_fmt",
                 "yuv420p",
                 str(target),
@@ -141,130 +148,50 @@ def cut_clips(source: Path, workdir: Path, duration: float | None) -> list[dict[
     return clips
 
 
-def schedule_for(clip: dict[str, Any], answers: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Answers whose middle falls in this clip, numbered from 1 like the prompt."""
-    start = clip["offset"]
-    end = start + SEGMENT_SECONDS
-    schedule: list[dict[str, Any]] = []
-    for answer in answers:
-        middle = (float(answer["start"]) + float(answer["end"])) / 2
-        if middle < start or middle >= end:
-            continue
-        schedule.append(
-            {
-                "id": len(schedule) + 1,
-                "turnSeq": answer.get("turnSeq"),
-                "absoluteStart": float(answer["start"]),
-                "absoluteEnd": float(answer["end"]),
-                "questionStart": max(start, float(answer.get("questionStart", answer["start"]))) - start,
-                "start": max(start, float(answer["start"])) - start,
-                "end": min(end, float(answer["end"])) - start,
-            }
-        )
-    return schedule
-
-
-def parse_clock(value: str) -> float | None:
-    try:
-        parts = [float(part) for part in str(value).strip().split(":")]
-    except ValueError:
-        return None
-    if len(parts) not in (2, 3):
-        return None
-    total = 0.0
-    for part in parts:
-        total = total * 60 + part
-    return total
-
-
-def measure(clip: dict[str, Any], schedule: list[dict[str, Any]], workdir: Path) -> dict[str, Any] | None:
-    answers_file = workdir / f"answers-{clip['index']:03d}.json"
-    # analyse.py only needs the clip-local schedule.
-    answers_file.write_text(
+def measure_clip(clip: dict[str, Any], answers: list[dict[str, Any]], workdir: Path) -> dict[str, Any] | None:
+    """Per-frame measurements of one clip (measure_video.py), on the recording clock."""
+    windows_file = workdir / f"windows-{clip['index']:03d}.json"
+    windows_file.write_text(
         json.dumps(
             [
                 {
-                    "id": item["id"],
-                    "questionStart": item["questionStart"],
-                    "start": item["start"],
-                    "end": item["end"],
+                    "turnSeq": item.get("turnSeq"),
+                    "questionStart": float(item.get("questionStart", item["start"])),
+                    "questionEnd": None if item.get("questionEnd") is None else float(item["questionEnd"]),
+                    "start": float(item["start"]),
+                    "end": float(item["end"]),
                 }
-                for item in schedule
+                for item in answers
             ]
         ),
         encoding="utf-8",
     )
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("measure_video.py")),
+        "--video",
+        clip["file"],
+        "--windows-file",
+        str(windows_file),
+        "--offset",
+        str(clip["offset"]),
+    ]
+    if os.path.exists(PHONE_MODEL):
+        command += ["--phone-model", PHONE_MODEL]
     try:
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(Path(__file__).with_name("analyse.py")),
-                "--video",
-                clip["file"],
-                "--answers-file",
-                str(answers_file),
-                "--fps",
-                os.environ.get("VIDEO_ANALYSIS_FPS", "3"),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=ANALYSER_TIMEOUT,
-        )
+        result = subprocess.run(command, capture_output=True, text=True, timeout=ANALYSER_TIMEOUT)
     except subprocess.TimeoutExpired:
-        log(f"clip {clip['index']}: analyser timed out")
+        log(f"clip {clip['index']}: measurement timed out")
         return None
-
     stdout = (result.stdout or "").strip()
     if result.returncode != 0 or not stdout.startswith("{"):
-        log(f"clip {clip['index']}: analyser exited {result.returncode}: {(result.stderr or '')[-400:]}")
+        log(f"clip {clip['index']}: measurement exited {result.returncode}: {(result.stderr or '')[-400:]}")
         return None
     try:
-        report = json.loads(stdout)
+        return json.loads(stdout)
     except json.JSONDecodeError:
-        log(f"clip {clip['index']}: analyser printed invalid JSON")
+        log(f"clip {clip['index']}: invalid JSON")
         return None
-
-    by_id = {item["id"]: item for item in schedule}
-    answers = []
-    for item in report.get("answers", []):
-        scheduled = by_id.get(item.get("id"))
-        if not scheduled:
-            continue
-        answers.append(
-            {
-                "turnSeq": scheduled.get("turnSeq"),
-                "start": scheduled["absoluteStart"],
-                "end": scheduled["absoluteEnd"],
-                "whileListening": item.get("whileListening", "unclear"),
-                "whileAnswering": item.get("whileAnswering", "unclear"),
-                "steady": bool(item.get("steady")),
-                "reading": bool(item.get("reading")),
-                "note": str(item.get("note") or "")[:300],
-                "reason": str(item["reason"])[:240] if item.get("reason") else None,
-                "measuredFrames": int(item.get("measuredFrames") or 0),
-                "totalFrames": int(item.get("totalFrames") or 0),
-            }
-        )
-    moments = []
-    for item in report.get("moments", []):
-        at = parse_clock(str(item.get("at", "")))
-        if at is None:
-            continue
-        moments.append(
-            {
-                "atSeconds": clip["offset"] + at,
-                "durationSeconds": float(item.get("durationSeconds") or 0),
-                "kind": item.get("kind") or "other",
-                "description": str(item.get("description") or "")[:400],
-            }
-        )
-    return {
-        "offset": clip["offset"],
-        "faceVisible": bool(report.get("faceVisible", True)),
-        "model": "local-cv (opencv + mediapipe)",
-        "answers": answers,
-        "moments": moments,
-    }
 
 
 def callback(payload: dict[str, Any]) -> None:
@@ -300,7 +227,11 @@ def run_job(payload: dict[str, Any]) -> None:
     room_id = str(payload.get("roomId") or "")
     recording = payload.get("recording") or {}
     answers = payload.get("answers") or []
-    log(f"job for room {room_id}")
+    log(f"job for room {room_id}: {len(answers)} answers")
+    started = time.time()
+
+    def fail(reason: str) -> None:
+        callback({"roomId": room_id, "status": "failed", "reason": reason, "job": payload})
 
     with tempfile.TemporaryDirectory(prefix="intervia-worker-") as tmp:
         workdir = Path(tmp)
@@ -308,45 +239,58 @@ def run_job(payload: dict[str, Any]) -> None:
         try:
             download(str(recording.get("bucket")), str(recording.get("path")), source)
         except Exception as error:
-            callback(
-                {
-                    "roomId": room_id,
-                    "status": "failed",
-                    "reason": f"The worker could not read the recording: {error}",
-                    "job": payload,
-                }
-            )
+            fail(f"The worker could not read the recording: {error}")
             return
 
         duration = ffprobe_duration(source)
         try:
             clips = cut_clips(source, workdir, duration)
         except Exception as error:
-            callback(
-                {
-                    "roomId": room_id,
-                    "status": "failed",
-                    "reason": f"The recording could not be prepared for analysis: {error}",
-                    "job": payload,
-                }
-            )
+            fail(f"The recording could not be prepared for analysis: {error}")
             return
+        log(f"cut {len(clips)} clips in {time.time() - started:.0f}s")
 
-        schedules = [schedule_for(clip, answers) for clip in clips]
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as pool:
-            results = list(pool.map(lambda pair: measure(pair[0], pair[1], workdir), zip(clips, schedules)))
-
-        segments = [item for item in results if item]
-        if not segments:
-            callback(
-                {
-                    "roomId": room_id,
-                    "status": "failed",
-                    "reason": "The video analysis did not complete. Regenerate to try again.",
-                    "job": payload,
-                }
-            )
+            measured = list(pool.map(lambda clip: measure_clip(clip, answers, workdir), clips))
+        done = [item for item in measured if item]
+        log(f"measured {len(done)}/{len(clips)} clips in {time.time() - started:.0f}s")
+        if not done:
+            fail("The video analysis did not complete. Regenerate to try again.")
             return
+
+        frames: list[list] = []
+        samples: list[list] = []
+        for item in done:
+            frames.extend(item.get("frames") or [])
+            samples.extend(item.get("samples") or [])
+        fps = float(done[0].get("fps") or 15.0)
+
+        audio_result: dict[str, Any] = {"answers": {}, "transcriber": False, "voice": False}
+        env = None
+        hop = 1 / 30
+        wav = audio.load_wav(str(source))
+        if wav is not None:
+            env, hop = audio.envelope(wav)
+            try:
+                audio_result = audio.analyse_answers(wav, answers)
+            except Exception as error:  # audio is a bonus; never lose the video result
+                log(f"audio analysis failed: {error}")
+        log(f"audio done in {time.time() - started:.0f}s")
+
+        analysis = features.build(answers, frames, samples, fps, env, hop)
+        for item in analysis["answers"]:
+            extra = audio_result["answers"].get(int(item["turnSeq"])) or {}
+            item["delivery"] = extra.get("delivery")
+            item["voiceSimilarity"] = extra.get("voiceSimilarity")
+        analysis["checks"] = {
+            "audio": wav is not None,
+            "transcriber": bool(audio_result.get("transcriber")),
+            "voice": bool(audio_result.get("voice")),
+            "phone": os.path.exists(PHONE_MODEL),
+        }
+        analysis["partial"] = len(done) < len(clips)
+        analysis["processingSeconds"] = round(time.time() - started)
+        log(f"job for room {room_id} finished in {analysis['processingSeconds']}s")
 
         callback(
             {
@@ -354,7 +298,8 @@ def run_job(payload: dict[str, Any]) -> None:
                 "status": "analysed",
                 "durationSeconds": duration,
                 "totalSegments": len(clips),
-                "segments": segments,
+                "segments": [],
+                "analysis": analysis,
                 "job": {
                     "hiddenCount": payload.get("hiddenCount", 0),
                     "hiddenSeconds": payload.get("hiddenSeconds", 0),

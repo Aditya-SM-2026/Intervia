@@ -124,6 +124,7 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --image ${{ env.AR_REPO }}/worker:predev \
             --region ${{ env.REGION }} \
+            --cpu 2 --memory 4Gi --concurrency 1 --timeout 1800 \
             --update-env-vars INTERVIA_WEB_URL=https://${{ env.WEB_SERVICE }}-199504026920.${{ env.REGION }}.run.app \
             --update-secrets INTERNAL_SECRET=predev-internal-secret:latest \
             --quiet

@@ -43,6 +43,25 @@ export interface CompetencyScore {
   secondScore: number | null;
   /** False when the two gradings differ by more than one point. */
   judgesAgree: boolean | null;
+  /**
+   * The four things an answer is judged on, 1-5 each (absent on reports made
+   * before 2026-11). The score above is capped by them in code: an answer
+   * that misses the question, or only recites a definition, cannot score high.
+   */
+  dimensions?: AnswerDimensions | null;
+  /** The answer only defined terms, with nothing the candidate did or decided. */
+  definitionOnly?: boolean;
+}
+
+export interface AnswerDimensions {
+  /** Took up the question that was asked. */
+  relevance: number | null;
+  /** Concrete first-person detail: what they built, chose, hit and fixed. */
+  ownership: number | null;
+  /** Technically right. */
+  correctness: number | null;
+  /** How and why, trade-offs, what failed. */
+  depth: number | null;
 }
 
 /**
@@ -128,10 +147,28 @@ export interface AuthenticitySignal {
   penalty?: number;
 }
 
+/** How one answer was delivered, compared with how this candidate normally talks. */
+export type OwnAnswerVerdict = "natural" | "polished" | "likely_read";
+
+export interface OwnAnswerReading {
+  turnSeq: number;
+  verdict: OwnAnswerVerdict;
+  /** Short, plain reasons pointing at what was said. */
+  reasons: string[];
+}
+
 export interface Authenticity {
-  /** 0-100, higher = more consistent with the candidate's own answers. */
-  score: number;
+  /**
+   * 0-100, higher = more consistent with the candidate's own answers. Null
+   * when the check did not run: "not checked" is never shown as a clean 100.
+   */
+  score: number | null;
   signals: AuthenticitySignal[];
+  /** Absent on reports made before 2026-11, which always ran the check. */
+  status?: "checked" | "not_checked";
+  reason?: string | null;
+  /** Per-answer reading of the delivery, when the check ran. */
+  answers?: OwnAnswerReading[];
 }
 
 export type VideoMomentKind =
@@ -234,6 +271,154 @@ export interface VideoBehaviour {
   durationSeconds?: number | null;
   /** When the analysis was handed to the worker (ISO), used to spot a lost job. */
   queuedAt?: string | null;
+  /** 2 = calibrated analysis with audio checks (2026-11). Absent on older reports. */
+  version?: 2;
+  /** The calibrated measurements, kept so findings can be recomputed and shown. */
+  measures?: VideoMeasures | null;
+}
+
+/** Picture conditions for an answer or the whole interview. */
+export interface PictureQuality {
+  /** Mean brightness, 0-255. */
+  brightness: number | null;
+  /** Median face width in pixels. */
+  facePx: number | null;
+  /** Laplacian variance of the face area: low = soft, blurry picture. */
+  sharpness: number | null;
+  /** Share of frames where eyes could be read. */
+  measurable: number;
+  /** Share of frames that had to be brightened first. */
+  enhanced: number;
+}
+
+export interface GazeSpot {
+  id: number;
+  /** In plain words, relative to the candidate's own screen position. */
+  where: string;
+  /** Distance from the screen centre, in units of the candidate's own spread. */
+  distance: number;
+  /** Candidate turns during which the eyes stayed on this spot. */
+  heldAnswers: number[];
+  /** Share of listening time spent on this spot (low = only used while answering). */
+  listeningShare: number;
+}
+
+export interface AnswerDelivery {
+  words: number;
+  spokenSeconds: number;
+  wordsPerMinute: number;
+  /** "um", "uh"… per 100 words. */
+  fillersPer100: number;
+  /** Repeated words and restarted phrases per 100 words. */
+  repeatsPer100: number;
+  longPauses: number;
+  pauseShare: number;
+  /** How uneven the pace was; low = very steady, as in reading. */
+  paceVariation: number | null;
+  startDelay: number;
+}
+
+export interface AnswerMeasures {
+  turnSeq: number;
+  start: number;
+  end: number;
+  measuredFrames: number;
+  totalFrames: number;
+  quality: PictureQuality;
+  reason?: string | null;
+  /** Share of the answer spent looking at the screen (calibrated to this person). */
+  atScreenShare: number | null;
+  /** Share of the answer (after the first 2 s) spent on the main off-screen spot. */
+  spotShare?: number | null;
+  /** Seconds into the answer before the eyes first reached that spot. */
+  spotOnset?: number | null;
+  /** Distinct off-screen directions used: many = wandering, as in thinking. */
+  offScreenDirections?: number;
+  reading?: { sweeps: number; perMinute: number; direction: number | null } | null;
+  lipSync?: { correlation: number | null; lag: number | null; voicedFrames: number } | null;
+  multiFaceSeconds: number;
+  phoneSeconds: number | null;
+  extraPersonSeconds: number | null;
+  sampledSeconds: number;
+  pauseOffScreenShare?: number | null;
+  delivery?: AnswerDelivery | null;
+  /** Cosine similarity of this answer's voice to the candidate's other answers. */
+  voiceSimilarity?: number | null;
+}
+
+export interface VideoMeasures {
+  fps: number;
+  baseline: { frames: number; source: "listening" | "all" | "none" };
+  spots: GazeSpot[];
+  answers: AnswerMeasures[];
+  absences: { atSeconds: number; durationSeconds: number }[];
+  quality: PictureQuality;
+  faceSeen: boolean;
+  checks: { audio: boolean; transcriber: boolean; voice: boolean; phone: boolean };
+  partial: boolean;
+  processingSeconds: number;
+}
+
+/** Where a finding comes from. High risk needs two different sources to agree. */
+export type IntegritySource = "video" | "audio" | "text" | "browser";
+
+export type IntegrityFindingKind =
+  | "fixed_spot"
+  | "reading_eyes"
+  | "lip_sync"
+  | "voice_change"
+  | "second_face"
+  | "phone"
+  | "read_aloud"
+  | "scripted_text"
+  | "left_tab"
+  | "left_frame";
+
+export interface IntegrityFinding {
+  kind: IntegrityFindingKind;
+  source: IntegritySource;
+  /** 1 = worth a glance, 2 = notable, 3 = strong. */
+  strength: 1 | 2 | 3;
+  title: string;
+  detail: string;
+  /** Candidate turns it is about; empty for interview-wide findings. */
+  turnSeqs: number[];
+  /** Where to start watching, in seconds into the recording. */
+  atSeconds: number | null;
+}
+
+/**
+ * - clear: the checks ran and nothing stood out;
+ * - review: something is worth watching before deciding;
+ * - high_risk: two different kinds of evidence agree on the same answers;
+ * - pending: the video and audio checks are still running;
+ * - not_checked: none of the checks could run.
+ */
+export type IntegrityLevel = "clear" | "review" | "high_risk" | "pending" | "not_checked";
+
+export type CheckState = "done" | "running" | "not_run" | "unavailable";
+
+/**
+ * Whether the answers were the candidate's own. Kept apart from the ability
+ * score on purpose: an honest candidate does not earn points for honesty, and
+ * a strong candidate is held for review, not marked down, when it is unclear.
+ */
+export interface IntegrityCheck {
+  level: IntegrityLevel;
+  /** Two or three plain sentences for the recruiter. */
+  summary: string;
+  findings: IntegrityFinding[];
+  checks: {
+    ownAnswers: CheckState;
+    camera: CheckState;
+    voice: CheckState;
+    lipSync: CheckState;
+    browser: CheckState;
+  };
+  /** Plain notes on what limited the checks (dim picture, no audio…). */
+  limits: string[];
+  /** Who wrote the summary: the model, or code when the model was unavailable. */
+  summaryBy: "model" | "code";
 }
 
 export type FactorId = "answers" | "resume" | "authenticity" | "video";
@@ -294,6 +479,11 @@ export interface Scorecard {
   /** Weighted 0-100 mean of the custom parameters that could be scored. */
   customScore?: number | null;
   /**
+   * Integrity, separate from the score (2026-11). Absent on older reports,
+   * which blended own answers and on-camera behaviour into the score.
+   */
+  integrityCheck?: IntegrityCheck;
+  /**
    * Cost guard: set when the transcript was too thin for the paid analyses,
    * listing what was skipped and the roughly estimated saving in US dollars.
    */
@@ -306,6 +496,8 @@ export interface ScorecardSummary {
   needsHumanReview: boolean;
   /** The 0-100 overall score and its factors, when the scorecard has them. */
   overall?: OverallScore | null;
+  /** Integrity level, when the report has one. */
+  integrityLevel?: IntegrityLevel | null;
 }
 
 /** Another candidate interviewed for the same role, for side-by-side reading. */

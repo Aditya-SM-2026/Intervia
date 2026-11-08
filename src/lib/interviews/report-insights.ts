@@ -7,7 +7,8 @@
 import type { InterviewRoom, InterviewTurn } from "./interview.types";
 import type { PeerSummary, Scorecard } from "./scorecard.types";
 
-export type HireBand = "strong-hire" | "hire" | "no-hire" | "strong-no-hire" | "insufficient";
+/** "review": the answers say hire, but the integrity check says watch first. */
+export type HireBand = "strong-hire" | "hire" | "review" | "no-hire" | "strong-no-hire" | "insufficient";
 
 export interface ReportInsights {
   hireBand: { band: HireBand; label: string; basis: string };
@@ -37,6 +38,7 @@ export interface ReportInsights {
 const HIRE_LABELS: Record<HireBand, string> = {
   "strong-hire": "Strong hire",
   hire: "Hire",
+  review: "Review before deciding",
   "no-hire": "No hire",
   "strong-no-hire": "Strong no hire",
   insufficient: "Insufficient evidence",
@@ -80,13 +82,20 @@ export function buildReportInsights(input: {
   } else {
     band = "strong-no-hire";
   }
+  // The score is ability only. Integrity can hold a strong candidate for a
+  // look, but never adds to or takes from the score.
+  const integrityLevel = scorecard.integrityCheck?.level ?? null;
+  const held = integrityLevel === "high_risk" && (band === "strong-hire" || band === "hire");
+  if (held) band = "review";
   const hireBand = {
     band,
     label: HIRE_LABELS[band],
     basis:
       score === null
         ? "Not enough scored answers for a verdict."
-        : `From the overall score of ${score} of 100. The final call stays with you.`,
+        : held
+          ? `The answers score ${score} of 100, but the integrity check found signs the answers may not be the candidate's own. Watch the flagged moments first.`
+          : `From the answer score of ${score} of 100. The final call stays with you.`,
   };
 
   // --- talk ratio ----------------------------------------------------------
@@ -155,7 +164,12 @@ export function buildReportInsights(input: {
   if (integrity.candidateDisconnects >= 2) {
     flags.push(`Disconnected ${integrity.candidateDisconnects} times.`);
   }
-  if (scorecard.authenticity?.score !== null && scorecard.authenticity !== undefined) {
+  const check = scorecard.integrityCheck;
+  if (check) {
+    for (const finding of check.findings.filter((item) => item.strength >= 2 && item.kind !== "left_tab")) {
+      flags.push(`${finding.title}.`);
+    }
+  } else if (scorecard.authenticity?.score !== null && scorecard.authenticity !== undefined) {
     const authenticity = scorecard.authenticity.score as number;
     if (authenticity < 50) {
       flags.push(
@@ -174,7 +188,7 @@ export function buildReportInsights(input: {
     }
   }
   const pattern = scorecard.video?.pattern ?? null;
-  if (pattern && pattern.sameSpotAnswers >= 3) {
+  if (!check && pattern && pattern.sameSpotAnswers >= 3) {
     flags.push(
       `Looked at the same off-screen spot while answering ${pattern.sameSpotAnswers} answers.`,
     );
@@ -183,7 +197,13 @@ export function buildReportInsights(input: {
     flags.push("Graders disagreed on one or more answers — review the evidence below.");
   }
   const level: "low" | "medium" | "high" =
-    flags.length === 0 ? "low" : flags.length >= 3 ? "high" : "medium";
+    check?.level === "high_risk"
+      ? "high"
+      : flags.length === 0
+        ? "low"
+        : flags.length >= 3
+          ? "high"
+          : "medium";
   const redFlags = { level, items: flags };
 
   // --- next steps ----------------------------------------------------------
@@ -201,7 +221,9 @@ export function buildReportInsights(input: {
       steps.push(`Probe "${item.name}" further in the next round — scored ${item.score}/5 here.`);
     }
   }
-  if (scorecard.video?.status === "analysed" && (scorecard.video.score ?? 100) < 60) {
+  if (check?.level === "high_risk" || check?.level === "review") {
+    steps.push("Watch the moments listed under Integrity before deciding.");
+  } else if (!check && scorecard.video?.status === "analysed" && (scorecard.video.score ?? 100) < 60) {
     steps.push("Watch the flagged on-camera moments in the video analysis before deciding.");
   }
   if (scorecard.needsHumanReview) {

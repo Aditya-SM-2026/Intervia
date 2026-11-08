@@ -1,9 +1,16 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-opencv-python-headless>=4.9
+opencv-python-headless>=4.9,<4.11
 mediapipe==0.10.21
 numpy>=1.26,<2
 # MediaPipe 0.10.x fails against protobuf 5+ (AttributeError on label). The
 # worker deliberately has no Google client libraries, so nothing else pulls a
 # newer protobuf in; recordings are fetched over plain HTTPS instead.
 protobuf>=4.25.3,<5
+# v2 integrity analysis. All permissive licences (BSD / MIT / Apache 2.0).
+scikit-learn>=1.4,<1.6
+faster-whisper==1.1.0
+# faster-whisper 1.1.0 imports requests without declaring it.
+requests>=2.31
+onnxruntime>=1.18,<1.21
+kaldi-native-fbank>=1.20,<1.22
