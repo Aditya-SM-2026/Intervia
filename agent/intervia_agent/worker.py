@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any
 
@@ -30,6 +31,7 @@ from livekit.agents import (
     function_tool,
     llm,
     room_io,
+    vad,
 )
 from livekit.agents.voice import io
 from livekit.plugins import google, silero
@@ -44,6 +46,8 @@ from .controller import (
     Directive,
     InterviewController,
 )
+from .noise_filter import SAMPLE_RATE as FILTER_SAMPLE_RATE
+from .noise_filter import FilteredVAD, noise_filter_enabled
 from .plan import InterviewContext, parse_context
 from .prompts import SYSTEM_NOTE_PREFIX, build_instructions
 
@@ -257,10 +261,14 @@ class InterviewRuntime:
         # times for the event log, which Gemini only reports after the fact,
         # and stops the interviewer's audio the moment the candidate cuts in.
         self.session = AgentSession(
-            vad=self.ctx.proc.userdata.get("vad") or silero.VAD.load(),
+            vad=self._voice_detector(),
             turn_handling=TurnHandlingOptions(
                 turn_detection="realtime_llm",
-                interruption=InterruptionOptions(mode="vad"),
+                # A cough, a door or a fan is shorter than this; a candidate
+                # who means to cut in keeps talking past it.
+                interruption=InterruptionOptions(
+                    mode="vad", min_duration=min_interruption_seconds()
+                ),
             ),
             user_away_timeout=None,
         )
@@ -274,7 +282,12 @@ class InterviewRuntime:
             room_options=room_io.RoomOptions(
                 close_on_disconnect=False,
                 # Smaller frames reach the model sooner (default is 50 ms).
-                audio_input=room_io.AudioInputOptions(frame_size_ms=20),
+                # With the noise filter on, the candidate's audio arrives at
+                # the 16 kHz the filter works at (Gemini takes 16 kHz anyway).
+                audio_input=room_io.AudioInputOptions(
+                    frame_size_ms=20,
+                    **({"sample_rate": FILTER_SAMPLE_RATE} if noise_filter_enabled() else {}),
+                ),
             ),
         )
         # Always gated: the closing mutes the candidate through it.
@@ -319,6 +332,12 @@ class InterviewRuntime:
             user_input=f"{SYSTEM_NOTE_PREFIX} {text}", allow_interruptions=allow_interruptions
         )
 
+    def _voice_detector(self) -> vad.VAD:
+        """The local voice detector, hearing the candidate through the noise
+        filter when it is on, so room noise cannot stop the interviewer."""
+        detector = self.ctx.proc.userdata.get("vad") or silero.VAD.load()
+        return FilteredVAD(detector) if noise_filter_enabled() else detector
+
     def new_model(self) -> google.realtime.RealtimeModel:
         """A Gemini Live model instance; each one opens its own session."""
         return google.realtime.RealtimeModel(
@@ -340,6 +359,14 @@ class InterviewRuntime:
             # keeps it from taking a thinking pause for the end of an answer.
             realtime_input_config=genai_types.RealtimeInputConfig(
                 automatic_activity_detection=genai_types.AutomaticActivityDetection(
+                    # GEMINI_START_SENSITIVITY=low makes Gemini slower to take
+                    # room noise for the candidate starting to speak; the
+                    # default (high) is kept so a quiet voice is never missed.
+                    **(
+                        {"start_of_speech_sensitivity": genai_types.StartSensitivity.START_SENSITIVITY_LOW}
+                        if os.environ.get("GEMINI_START_SENSITIVITY", "").strip().lower() == "low"
+                        else {}
+                    ),
                     end_of_speech_sensitivity=genai_types.EndSensitivity.END_SENSITIVITY_LOW,
                     silence_duration_ms=self.config.turn_silence_ms,
                 )
@@ -921,6 +948,14 @@ def interview_id_for(ctx: JobContext) -> str:
         pass
     name = ctx.room.name
     return name.removeprefix(ROOM_NAME_PREFIX)
+
+
+def min_interruption_seconds() -> float:
+    """Seconds of candidate speech before the interviewer stops talking."""
+    try:
+        return min(2.0, max(0.2, float(os.environ.get("AGENT_MIN_INTERRUPTION_S", "0.8"))))
+    except ValueError:
+        return 0.8
 
 
 def prewarm(proc: JobProcess) -> None:

@@ -834,6 +834,8 @@ source = { virtual = "." }
 dependencies = [
     { name = "httpx" },
     { name = "livekit-agents", extra = ["google", "silero"] },
+    { name = "numpy" },
+    { name = "onnxruntime" },
     { name = "python-dotenv" },
 ]
 
@@ -847,6 +849,8 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "livekit-agents", extras = ["google", "silero"], specifier = ">=1.8.6" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "onnxruntime", specifier = ">=1.20" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
 ]
 
