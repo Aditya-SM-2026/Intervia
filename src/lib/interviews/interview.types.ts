@@ -19,7 +19,7 @@ export type InterviewStatus =
   | "cancelled";
 
 /** Who a participant is in the interview room. */
-export type ParticipantRole = "candidate" | "interviewer" | "ai_agent";
+export type ParticipantRole = "candidate" | "interviewer" | "ai_agent" | "hr";
 
 /**
  * Interviewer style: how hard the AI interviewer pushes and how many
@@ -130,6 +130,13 @@ export interface InterviewRoom {
   recruiterName: string | null;
   /** The only email that may open this link; the join token is issued after it matches. */
   candidateEmail: string | null;
+  /**
+   * Optional HR email: the person who may join the call alongside the
+   * candidate, listen to the whole interview and speak to the candidate.
+   */
+  hrEmail: string | null;
+  /** Secret token for the HR join link; null when no HR was invited. */
+  hrToken: string | null;
   roleTitle: string | null;
   /**
    * The hiring role this interview belongs to (roles module). Null for
@@ -160,6 +167,8 @@ export interface CreateInterviewInput {
   recruiterName: string;
   candidateName: string;
   candidateEmail: string;
+  /** Optional HR email; when set, HR gets their own join link. */
+  hrEmail?: string | null;
   roleTitle: string;
   /**
    * The hiring role to associate the interview with (roles module). Optional

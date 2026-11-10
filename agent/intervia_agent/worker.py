@@ -36,9 +36,15 @@ from livekit.agents import (
 from livekit.agents.voice import io
 from livekit.plugins import google, silero
 
-from .audio_track import InterviewAudio
+from .audio_track import InterviewAudio, InterviewHrAudio
 from .backend import Backend, iso_from_epoch, iso_now
-from .config import CLIENT_EVENT_TOPIC, AgentConfig, agent_name, load_env
+from .config import (
+    CLIENT_EVENT_TOPIC,
+    HR_EVENT_TOPIC,
+    AgentConfig,
+    agent_name,
+    load_env,
+)
 from .controller import (
     CLOSING_LEAD_SECONDS,
     CLOSING_OVERRUN_SECONDS,
@@ -54,6 +60,7 @@ from .prompts import SYSTEM_NOTE_PREFIX, build_instructions
 logger = logging.getLogger("intervia.agent")
 
 CANDIDATE_IDENTITY_PREFIX = "candidate-"
+HR_IDENTITY_PREFIX = "hr-"
 ROOM_NAME_PREFIX = "interview-"
 WATCHDOG_INTERVAL_SECONDS = 2.0
 # How long the interviewer waits for a rejoin after the candidate drops
@@ -107,6 +114,10 @@ class GatedAudioInput(io.AudioInput):
 
     def mute(self) -> None:
         self._muted = True
+        self._open.set()
+
+    def unmute(self) -> None:
+        self._muted = False
         self._open.set()
 
     async def __anext__(self) -> rtc.AudioFrame:
@@ -237,6 +248,9 @@ class InterviewRuntime:
         # Two-sided audio recording fields (set when the session starts).
         self._audio: InterviewAudio | None = None
         self._audio_started_at: float | None = None
+        self._hr_audio: InterviewHrAudio | None = None
+        # When HR speaks the interviewer steps aside until they press Unmute.
+        self._hr_muted = False
 
     # --- lifecycle -------------------------------------------------------
 
@@ -276,11 +290,17 @@ class InterviewRuntime:
         self._wire_room_events()
         self.backend.start()
 
+        # The agent may arrive before the candidate (or HR may be in the room
+        # first). The session must link to the candidate only: HR is present to
+        # listen and speak to the candidate, never to feed the model.
+        candidate = await self._wait_for_candidate()
+
         await self.session.start(
             agent=InterviewerAgent(self, self.instructions_for_current_step()),
             room=self.ctx.room,
             room_options=room_io.RoomOptions(
                 close_on_disconnect=False,
+                participant_identity=candidate.identity,
                 # Smaller frames reach the model sooner (default is 50 ms).
                 # With the noise filter on, the candidate's audio arrives at
                 # the 16 kHz the filter works at (Gemini takes 16 kHz anyway).
@@ -303,7 +323,6 @@ class InterviewRuntime:
                 "voiceMode": self.context.voice_mode,
             },
         )
-        candidate = await self.ctx.wait_for_participant()
         self._spawn(self._start_recording(candidate.identity))
         self.controller.begin()
         self._started_at_iso = iso_now()
@@ -319,6 +338,14 @@ class InterviewRuntime:
         if await self._audio.start():
             self._audio_started_at = self._audio.started_at
 
+        # HR's own microphone, recorded separately and folded into the report
+        # recording by the web app.
+        self._hr_audio = InterviewHrAudio(self.ctx.room)
+        self._hr_audio.start()
+        for participant in self.ctx.room.remote_participants.values():
+            if participant.identity.startswith(HR_IDENTITY_PREFIX):
+                self._hr_audio.attach(participant)
+
     def instruct(self, text: str, allow_interruptions: bool = True) -> Any:
         """Has the interviewer act on a system instruction now.
 
@@ -331,6 +358,33 @@ class InterviewRuntime:
         return self.session.generate_reply(
             user_input=f"{SYSTEM_NOTE_PREFIX} {text}", allow_interruptions=allow_interruptions
         )
+
+    async def _wait_for_candidate(self) -> rtc.RemoteParticipant:
+        """Waits until the candidate is in the room, ignoring HR.
+
+        The interviewer is dispatched with the candidate's join token, but HR
+        may already be waiting in the room, and may even have joined first.
+        Linking the session to whichever participant happens to be there would
+        make the model hear HR, so the candidate's identity is waited for
+        explicitly and pinned on the session.
+        """
+        room = self.ctx.room
+        for participant in room.remote_participants.values():
+            if participant.identity.startswith(CANDIDATE_IDENTITY_PREFIX):
+                return participant
+
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[rtc.RemoteParticipant] = loop.create_future()
+
+        def _on_join(participant: rtc.RemoteParticipant) -> None:
+            if participant.identity.startswith(CANDIDATE_IDENTITY_PREFIX) and not future.done():
+                future.set_result(participant)
+
+        room.on("participant_connected", _on_join)
+        try:
+            return await future
+        finally:
+            room.off("participant_connected", _on_join)
 
     def _voice_detector(self) -> vad.VAD:
         """The local voice detector, hearing the candidate through the noise
@@ -520,21 +574,29 @@ class InterviewRuntime:
         await self.backend.aclose()
 
     async def _upload_audio(self) -> None:
-        """Sends the two-sided audio file to the web app, before the outcome.
+        """Sends the interview's audio files to the web app, before the outcome.
 
-        The web app mixes it into the candidate's video when it scores the
-        interview, so the report plays both voices. A failed upload only costs
-        the interviewer's voice in the recording.
+        The web app mixes them into the candidate's video when it scores the
+        interview, so the report plays every voice. A failed upload only costs
+        that voice in the recording.
         """
-        if self._audio is None:
-            return
-        started = self._audio_started_at
-        path = await self._audio.stop()
-        try:
-            if path is not None and started is not None:
-                await self.backend.upload_audio(path, iso_from_epoch(started))
-        finally:
-            self._audio.discard()
+        if self._audio is not None:
+            started = self._audio_started_at
+            path = await self._audio.stop()
+            try:
+                if path is not None and started is not None:
+                    await self.backend.upload_audio(path, iso_from_epoch(started))
+            finally:
+                self._audio.discard()
+
+        if self._hr_audio is not None:
+            hr_started = self._hr_audio.started_at
+            hr_path = await self._hr_audio.stop()
+            try:
+                if hr_path is not None and hr_started is not None:
+                    await self.backend.upload_hr_audio(hr_path, iso_from_epoch(hr_started))
+            finally:
+                self._hr_audio.discard()
 
     async def on_job_shutdown(self, reason: str = "") -> None:
         """Runs when the job stops for any reason, including the room closing
@@ -797,7 +859,15 @@ class InterviewRuntime:
 
         @room.on("participant_disconnected")
         def _left(participant: rtc.RemoteParticipant) -> None:
-            if not participant.identity.startswith(CANDIDATE_IDENTITY_PREFIX) or _candidates():
+            if participant.identity.startswith(HR_IDENTITY_PREFIX):
+                self.backend.add_event("hr_left")
+                # Nobody is left for HR to help: let the interviewer continue.
+                if self._hr_muted:
+                    self._unmute_after_hr()
+                return
+            if not participant.identity.startswith(CANDIDATE_IDENTITY_PREFIX):
+                return
+            if _candidates():
                 return
             self._candidate_gone = True
             self.backend.add_event("candidate_disconnected")
@@ -806,8 +876,20 @@ class InterviewRuntime:
 
         @room.on("participant_connected")
         def _joined(participant: rtc.RemoteParticipant) -> None:
+            if participant.identity.startswith(HR_IDENTITY_PREFIX):
+                self.backend.add_event("hr_present")
+                if self._hr_audio is not None:
+                    self._hr_audio.attach(participant)
+                return
             if not participant.identity.startswith(CANDIDATE_IDENTITY_PREFIX):
                 return
+            # A rejoining candidate has a new identity. The session was pinned
+            # to the old one, so it must be re-linked or the model hears nothing.
+            if self.session is not None:
+                try:
+                    self.session.room_io.set_participant(participant.identity)
+                except Exception as error:  # noqa: BLE001
+                    logger.warning("could not re-link the session to the candidate: %s", error)
             was_gone = self._candidate_gone
             self._candidate_gone = False
             if self._rejoin_task is not None:
@@ -825,11 +907,31 @@ class InterviewRuntime:
                     allow_interruptions=False,
                 )
 
+        @room.on("track_subscribed")
+        def _track_subscribed(
+            track: rtc.Track,
+            publication: rtc.RemoteTrackPublication,
+            participant: rtc.RemoteParticipant,
+        ) -> None:
+            # HR's microphone usually arrives after they join, so subscribe to
+            # the track itself rather than only looking at join time.
+            if (
+                participant.identity.startswith(HR_IDENTITY_PREFIX)
+                and publication.kind == rtc.TrackKind.KIND_AUDIO
+                and self._hr_audio is not None
+            ):
+                self._hr_audio.attach_track(track)
+
         def _client_event(reader: rtc.TextStreamReader, participant_identity: str) -> None:
             if participant_identity.startswith(CANDIDATE_IDENTITY_PREFIX):
                 self._spawn(self._record_client_event(reader))
 
+        def _hr_event(reader: rtc.TextStreamReader, participant_identity: str) -> None:
+            if participant_identity.startswith(HR_IDENTITY_PREFIX):
+                self._spawn(self._record_hr_event(reader))
+
         room.register_text_stream_handler(CLIENT_EVENT_TOPIC, _client_event)
+        room.register_text_stream_handler(HR_EVENT_TOPIC, _hr_event)
 
     async def _wait_for_rejoin(self) -> None:
         await asyncio.sleep(CANDIDATE_REJOIN_GRACE_SECONDS)
@@ -860,7 +962,66 @@ class InterviewRuntime:
             return
         self.backend.add_event(f"client_{event_type}")
 
-    # --- recording -------------------------------------------------------
+    async def _record_hr_event(self, reader: rtc.TextStreamReader) -> None:
+        """Signals from the HR page: their speech, the unmute button, captions."""
+        try:
+            payload = json.loads(await reader.read_all())
+        except Exception:  # noqa: BLE001 - malformed client input is ignored
+            return
+        if not isinstance(payload, dict):
+            return
+        event_type = payload.get("type")
+        if event_type == "hr_speaking_start":
+            self._mute_for_hr()
+        elif event_type == "hr_speaking_end":
+            self.backend.add_event("hr_speech_ended")
+        elif event_type == "hr_unmute":
+            self._unmute_after_hr()
+        elif event_type == "hr_turn":
+            text = payload.get("text")
+            if isinstance(text, str) and text.strip():
+                self.backend.add_event(
+                    "hr_speech",
+                    {"text": text.strip()[:4000], "saidAt": payload.get("at")},
+                )
+
+    def _mute_for_hr(self) -> None:
+        """The interviewer goes quiet while HR speaks.
+
+        The model never hears HR: its audio pipeline only carries the
+        candidate. What changes is that the model's output is silenced and its
+        input is muted too, so it cannot talk over HR or answer on the
+        candidate's behalf until HR hands the conversation back.
+        """
+        if self._finished or self.closing or self._hr_muted:
+            return
+        self._hr_muted = True
+        self.backend.add_event("agent_muted_by_hr")
+        self._interrupt_speech()
+        if self.session is not None and self.session.output.audio is not None:
+            self.session.output.set_audio_enabled(False)
+        if self._gate is not None:
+            self._gate.mute()
+
+    def _unmute_after_hr(self) -> None:
+        """HR pressed Unmute agent: the interviewer takes over again."""
+        if not self._hr_muted:
+            return
+        self._hr_muted = False
+        if self._finished or self.closing:
+            return
+        self.backend.add_event("agent_resumed_after_hr")
+        if self.session is not None and self.session.output.audio is not None:
+            self.session.output.set_audio_enabled(True)
+        if self._gate is not None:
+            self._gate.unmute()
+        try:
+            self.instruct(
+                "The HR colleague has finished speaking. Continue the interview with the "
+                "candidate from where it stopped. Do not mention the pause.",
+            )
+        except Exception as error:  # noqa: BLE001
+            logger.warning("could not resume the interviewer after HR: %s", error)
 
     async def _start_recording(self, candidate_identity: str) -> None:
         """Records the candidate, and only the candidate, to GCS.

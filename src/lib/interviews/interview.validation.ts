@@ -93,6 +93,17 @@ export const createInterviewSchema = z.object({
     .toLowerCase()
     .email("Candidate email must be a valid email address")
     .max(MAX_NAME_LENGTH, `Candidate email must be at most ${MAX_NAME_LENGTH} characters`),
+  /** Optional: the HR person invited to sit in on the interview. */
+  hrEmail: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .trim()
+      .toLowerCase()
+      .email("HR email must be a valid email address")
+      .max(MAX_NAME_LENGTH, `HR email must be at most ${MAX_NAME_LENGTH} characters`)
+      .optional(),
+  ),
   scheduledDate: z.preprocess(
     emptyToUndefined,
     z
@@ -179,6 +190,15 @@ export const verifyEmailSchema = z.object({
 });
 
 export type VerifyEmailPayload = z.infer<typeof verifyEmailSchema>;
+
+/** HR link: the token in the emailed URL is the only credential. */
+export const hrJoinSchema = z.object({
+  token: z
+    .string()
+    .trim()
+    .min(16, "This HR link is invalid.")
+    .max(128, "This HR link is invalid."),
+});
 
 /** Recruiter's hiring decision on a finished interview. */
 export const decisionSchema = z.object({

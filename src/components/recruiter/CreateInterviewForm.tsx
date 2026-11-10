@@ -24,6 +24,8 @@ export interface CreateInterviewFormValues {
   recruiterName: string;
   candidateName: string;
   candidateEmail: string;
+  /** Optional HR email: they get their own link and may sit in on the call. */
+  hrEmail?: string;
   roleTitle: string;
   /** Existing role the interview belongs to; omitted for a brand-new role. */
   roleId?: string;
@@ -178,6 +180,7 @@ export function CreateInterviewForm({
 }: CreateInterviewFormProps) {
   const [candidateName, setCandidateName] = useState(initial?.candidateName ?? "");
   const [candidateEmail, setCandidateEmail] = useState(initial?.candidateEmail ?? "");
+  const [hrEmail, setHrEmail] = useState(initial?.hrEmail ?? "");
   const [roleTitle, setRoleTitle] = useState(
     initial?.roleTitle ?? initialRole?.title ?? initialRoleTitle ?? "",
   );
@@ -254,6 +257,7 @@ export function CreateInterviewForm({
       recruiterName: initial?.recruiterName ?? "",
       candidateName: candidateName.trim(),
       candidateEmail: candidateEmail.trim(),
+      ...(hrEmail.trim() ? { hrEmail: hrEmail.trim() } : {}),
       roleTitle: title,
       roleId: selectedRole?.id,
       durationMinutes,
@@ -309,6 +313,24 @@ export function CreateInterviewForm({
                 className={inputClasses}
               />
             </Field>
+            <div className="sm:col-span-2">
+              <Field
+                id="hr-email"
+                label="HR email (optional)"
+                hint="HR gets a separate link and can sit in on the call. Joining is their choice."
+              >
+                <input
+                  id="hr-email"
+                  type="email"
+                  maxLength={200}
+                  autoComplete="off"
+                  placeholder="hr@company.com"
+                  value={hrEmail}
+                  onChange={(event) => setHrEmail(event.target.value)}
+                  className={inputClasses}
+                />
+              </Field>
+            </div>
           </div>
         </Step>
 
@@ -547,6 +569,7 @@ export function CreateInterviewForm({
         <h2 className="text-[15px] font-semibold">This interview</h2>
         <dl className="mt-4 grid gap-3 text-sm">
           <SummaryRow label="Candidate" value={candidateName.trim() || "—"} />
+          <SummaryRow label="HR" value={hrEmail.trim() || "Not invited"} />
           <SummaryRow label="Role" value={(selectedRole ? selectedRole.title : roleTitle.trim()) || "—"} />
           <SummaryRow label="Length" value={`${durationMinutes} minutes`} />
           <SummaryRow label="Style" value={style?.label ?? "—"} />

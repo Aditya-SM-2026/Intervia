@@ -16,9 +16,11 @@ interface InviteEmailStatus {
 interface CreateResult {
   room: InterviewRoom;
   candidateUrl: string;
+  hrUrl?: string | null;
   uploadUrl?: string | null;
   duplicate?: boolean;
   inviteEmail?: InviteEmailStatus;
+  hrInviteEmail?: InviteEmailStatus | null;
 }
 
 interface CreateInterviewPanelProps {
@@ -58,6 +60,7 @@ export function CreateInterviewPanel({
       form.set("recruiterName", values.recruiterName);
       form.set("candidateName", values.candidateName);
       form.set("candidateEmail", values.candidateEmail);
+      if (values.hrEmail) form.set("hrEmail", values.hrEmail);
       form.set("roleTitle", values.roleTitle);
       if (values.roleId) form.set("roleId", values.roleId);
       form.set("durationMinutes", String(values.durationMinutes));
@@ -85,7 +88,12 @@ export function CreateInterviewPanel({
       if (response.status === 409 && data?.room && data?.candidateUrl) {
         // A double submit or a retry hit the same schedule: show the
         // existing interview instead of an error.
-        setResult({ room: data.room, candidateUrl: data.candidateUrl, duplicate: true });
+        setResult({
+          room: data.room,
+          candidateUrl: data.candidateUrl,
+          hrUrl: data.hrUrl ?? null,
+          duplicate: true,
+        });
         return;
       }
 

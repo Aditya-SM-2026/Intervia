@@ -16,8 +16,10 @@ import asyncio
 import logging
 import tempfile
 import time
+import wave
 from pathlib import Path
 
+from livekit import rtc
 from livekit.agents import AgentSession
 from livekit.agents.voice.recorder_io import RecorderIO
 
@@ -26,6 +28,8 @@ logger = logging.getLogger("intervia.audio")
 # The encoder flushes the last seconds of audio on close; a stuck flush must
 # not hold up the interview's completion record.
 STOP_TIMEOUT_SECONDS = 30.0
+# HR's voice is mixed in as a separate mono track; 16 kHz is plenty for speech.
+HR_SAMPLE_RATE = 16_000
 
 
 class InterviewAudio:
@@ -94,3 +98,120 @@ class InterviewAudio:
             except Exception as error:  # noqa: BLE001 - leftover temp files are harmless
                 logger.debug("interview audio temp dir not removed: %s", error)
             self._directory = None
+
+
+class InterviewHrAudio:
+    """Records the HR participant's microphone to its own mono WAV.
+
+    RecorderIO only captures the linked participant (the candidate) and the
+    agent, so HR's voice is recorded from their published microphone track
+    directly. The web app mixes this file into the report recording alongside
+    the other two voices.
+    """
+
+    def __init__(self, room: rtc.Room) -> None:
+        self._room = room
+        self._path: Path | None = None
+        self._directory: tempfile.TemporaryDirectory[str] | None = None
+        self._writer: wave.Wave_write | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
+        self._started_at: float | None = None
+        self._open = False
+        self._frames = 0
+
+    @property
+    def started_at(self) -> float | None:
+        return self._started_at
+
+    def start(self) -> bool:
+        """Opens the file. Failures only cost HR's voice in the mix."""
+        if self._open:
+            return True
+        try:
+            directory = tempfile.TemporaryDirectory(prefix="interview-hr-audio-")
+            path = Path(directory.name) / "hr-audio.wav"
+            writer = wave.open(str(path), "wb")  # noqa: SIM115 - kept open for the call
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(HR_SAMPLE_RATE)
+            self._directory = directory
+            self._path = path
+            self._writer = writer
+            self._started_at = time.time()
+            self._open = True
+            return True
+        except Exception as error:  # noqa: BLE001 - recording never breaks the call
+            logger.warning("HR audio could not be recorded: %s", error)
+            self._discard_directory()
+            return False
+
+    def attach(self, participant: rtc.RemoteParticipant) -> None:
+        """Starts a stream for an HR participant's microphone, if present yet."""
+        if not self._open:
+            return
+        for publication in participant.track_publications.values():
+            if publication.kind == rtc.TrackKind.KIND_AUDIO and publication.track:
+                self.attach_track(publication.track)
+                return
+
+    def attach_track(self, track: rtc.Track) -> None:
+        """Records one already-subscribed audio track (HR's microphone)."""
+        if not self._open:
+            return
+        try:
+            stream = rtc.AudioStream(track, sample_rate=HR_SAMPLE_RATE, num_channels=1)
+        except Exception as error:  # noqa: BLE001
+            logger.warning("HR audio track could not be opened: %s", error)
+            return
+        task = asyncio.create_task(self._drain(stream))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _drain(self, stream: rtc.AudioStream) -> None:
+        writer = self._writer
+        if writer is None:
+            return
+        try:
+            async for event in stream:
+                if not self._open or self._writer is None:
+                    break
+                self._writer.writeframes(bytes(event.frame.data))
+                self._frames += 1
+        except Exception as error:  # noqa: BLE001
+            logger.debug("HR audio stream ended: %s", error)
+
+    async def stop(self) -> Path | None:
+        """Closes every stream and returns the file, or None when empty."""
+        self._open = False
+        for task in list(self._tasks):
+            task.cancel()
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+            self._tasks.clear()
+        writer, path = self._writer, self._path
+        self._writer = None
+        if writer is not None:
+            try:
+                writer.close()
+            except Exception as error:  # noqa: BLE001
+                logger.warning("HR audio file could not be closed cleanly: %s", error)
+        if path is None:
+            return None
+        if self._frames == 0:
+            return None
+        try:
+            return path if path.exists() and path.stat().st_size > 0 else None
+        except OSError:
+            return None
+
+    def discard(self) -> None:
+        self._discard_directory()
+
+    def _discard_directory(self) -> None:
+        if self._directory is not None:
+            try:
+                self._directory.cleanup()
+            except Exception as error:  # noqa: BLE001
+                logger.debug("HR audio temp dir not removed: %s", error)
+            self._directory = None
+        self._path = None

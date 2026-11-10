@@ -578,4 +578,16 @@ export interface InterviewDetailResponse {
   hasRecording: boolean;
   /** When the recording used for playback and analysis began (ISO 8601). */
   recordingStartedAt: string | null;
+  /**
+   * What HR said, in order. Captured as text by the HR page, never fed to the
+   * interviewer. Empty when no HR joined or their browser could not caption.
+   */
+  hrSpeech: HrSpeechEntry[];
+}
+
+/** A line HR spoke during the interview, used for the HR↔candidate section. */
+export interface HrSpeechEntry {
+  text: string;
+  /** ISO 8601 when HR said it, or null when the caption carried no clock. */
+  at: string | null;
 }
