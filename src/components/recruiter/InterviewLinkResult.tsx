@@ -8,11 +8,16 @@ interface InterviewLinkResultProps {
   result: {
     room: InterviewRoom;
     candidateUrl: string;
+    hrUrl?: string | null;
     uploadUrl?: string | null;
     inviteEmail?: {
       status: "sent" | "failed" | "not_configured";
       detail?: string;
     };
+    hrInviteEmail?: {
+      status: "sent" | "failed" | "not_configured";
+      detail?: string;
+    } | null;
   };
   onReset: () => void;
 }
@@ -20,8 +25,9 @@ interface InterviewLinkResultProps {
 const COPY_FEEDBACK_MS = 2000;
 
 export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProps) {
-  const { room, candidateUrl, uploadUrl, inviteEmail } = result;
+  const { room, candidateUrl, hrUrl, uploadUrl, inviteEmail, hrInviteEmail } = result;
   const [copied, setCopied] = useState(false);
+  const [hrCopied, setHrCopied] = useState(false);
   const [manualCopyNeeded, setManualCopyNeeded] = useState(false);
   const copyTimer = useRef<number | null>(null);
 
@@ -37,6 +43,17 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
       setManualCopyNeeded(false);
       setCopied(true);
       copyTimer.current = window.setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
+    } catch {
+      setManualCopyNeeded(true);
+    }
+  }
+
+  async function handleCopyHr() {
+    if (!hrUrl) return;
+    try {
+      await navigator.clipboard.writeText(hrUrl);
+      setHrCopied(true);
+      copyTimer.current = window.setTimeout(() => setHrCopied(false), COPY_FEEDBACK_MS);
     } catch {
       setManualCopyNeeded(true);
     }
@@ -98,6 +115,39 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
         )}
         <p className="mt-1.5 text-xs text-muted">It opens only for the invited email address.</p>
       </div>
+
+      {hrUrl && (
+        <div>
+          <p className="mb-1.5 text-sm font-medium">HR link</p>
+          <div className="flex items-center gap-1 rounded-xl border border-border bg-background/50 p-1 pl-3.5">
+            <input
+              type="text"
+              readOnly
+              value={hrUrl}
+              aria-label="HR link"
+              onFocus={(event) => event.currentTarget.select()}
+              className="min-w-0 flex-1 bg-transparent text-sm text-muted outline-none"
+            />
+            <button
+              type="button"
+              onClick={handleCopyHr}
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 text-sm font-medium text-white transition hover:bg-accent/90"
+            >
+              {hrCopied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />}
+              {hrCopied ? "Copied" : "Copy link"}
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-muted">
+            {hrInviteEmail?.status === "sent"
+              ? `Emailed to ${room.hrEmail}.`
+              : hrInviteEmail?.status === "failed"
+                ? `The email to ${room.hrEmail} did not go through. Copy the link and send it yourself.`
+                : hrInviteEmail?.status === "not_configured"
+                  ? `Email is not set up here. Copy the link and send it to ${room.hrEmail}.`
+                  : "Joining is optional. HR can listen and speak to the candidate."}
+          </p>
+        </div>
+      )}
 
       {uploadUrl && !room.resume && (
         <div>

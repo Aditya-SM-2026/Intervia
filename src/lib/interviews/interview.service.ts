@@ -193,6 +193,8 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     uploadToken: generateUploadToken(),
     uploadUsedAt: null,
     candidateEmail: input.candidateEmail,
+    hrEmail: input.hrEmail ?? null,
+    hrToken: input.hrEmail ? generateUploadToken() : null,
     roleTitle: input.roleTitle,
     roleId: input.roleId ?? null,
     difficulty: input.difficulty,
@@ -388,8 +390,9 @@ export async function listDashboardInterviews(
         ? { fileName: room.resume.fileName, text: "", ...(room.resume.unreadable ? { unreadable: true } : {}) }
         : null,
       plan: null,
-      // The upload token is a credential; summaries must not carry it.
+      // The upload and HR tokens are credentials; summaries must not carry them.
       uploadToken: null,
+      hrToken: null,
     },
     scorecard: summaries.get(room.id) ?? null,
   }));

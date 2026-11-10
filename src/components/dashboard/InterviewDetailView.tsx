@@ -19,6 +19,7 @@ import type {
 import type { PlanCompetency } from "@/lib/interviews/plan.types";
 import type {
   FactorId,
+  HrSpeechEntry,
   IntegrityCheck,
   IntegrityLevel,
   InterviewDetailResponse,
@@ -126,6 +127,7 @@ const TONE_STROKE: Record<Tone, string> = {
 const REPORT_SECTIONS = [
   { id: "overview", label: "Overview" },
   { id: "answers", label: "Answers" },
+  { id: "hr", label: "HR" },
   { id: "resume", label: "Resume" },
   { id: "recording", label: "Recording" },
   { id: "comments", label: "Decision" },
@@ -538,6 +540,7 @@ export function InterviewDetailView({
                 ? [
                     "overview",
                     "answers",
+                    ...(detail.hrSpeech.length > 0 ? ["hr"] : []),
                     ...(scorecard.resumeMatch ? ["resume"] : []),
                     "recording",
                     "comments",
@@ -560,6 +563,13 @@ export function InterviewDetailView({
                 offsetFor={recordingOffset}
                 onPlay={playFrom}
               />
+              {detail.hrSpeech.length > 0 && (
+                <HrConversationSection
+                  hrSpeech={detail.hrSpeech}
+                  turns={turns}
+                  candidateName={session.candidateName || "Candidate"}
+                />
+              )}
               <CustomParametersSection scorecard={scorecard} />
               <ResumeTable
                 scorecard={scorecard}
@@ -3218,4 +3228,61 @@ function formatDateTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+/**
+ * What HR said to the candidate, with the candidate's replies. Text only: the
+ * recording above already plays all three voices, so this section is the
+ * conversation read-back rather than a second player.
+ */
+function HrConversationSection({
+  hrSpeech,
+  turns,
+  candidateName,
+}: {
+  hrSpeech: HrSpeechEntry[];
+  turns: InterviewTurn[];
+  candidateName: string;
+}) {
+  const candidateTurns = turns.filter((turn) => turn.speaker === "candidate");
+  const lines = hrSpeech.map((line, index) => {
+    const start = line.at ? Date.parse(line.at) : Number.NaN;
+    const nextAt = hrSpeech[index + 1]?.at;
+    const end = nextAt ? Date.parse(nextAt) : Number.POSITIVE_INFINITY;
+    const replies = Number.isNaN(start)
+      ? []
+      : candidateTurns.filter((turn) => {
+          if (!turn.startedAt) return false;
+          const at = Date.parse(turn.startedAt);
+          return at >= start && at < end;
+        });
+    return { line, replies };
+  });
+
+  return (
+    <section id="hr" className={`${cardClasses} scroll-mt-32`}>
+      <CardHeading
+        icon={MessageSquare}
+        title="HR and candidate"
+        subtitle="What HR said during the interview, with the candidate's replies. The agent stays silent while HR speaks."
+        right={<span className="text-xs font-medium text-muted">{hrSpeech.length} lines</span>}
+      />
+      <ol className="mt-4 grid gap-4">
+        {lines.map(({ line, replies }, index) => (
+          <li key={`${line.at ?? "hr"}-${index}`} className="grid gap-2 border-l-2 border-amber-400/50 pl-4">
+            <div>
+              <span className="mb-0.5 block text-xs font-semibold text-amber-600 dark:text-amber-400">HR</span>
+              <p className="text-sm leading-relaxed text-foreground">{line.text}</p>
+            </div>
+            {replies.map((reply) => (
+              <div key={reply.seq} className="pl-3">
+                <span className="mb-0.5 block text-xs font-semibold text-muted">{candidateName}</span>
+                <p className="text-sm leading-relaxed text-muted">{reply.text}</p>
+              </div>
+            ))}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
 }

@@ -4,7 +4,7 @@ import { requireAgent } from "@/lib/auth/guards";
 import { roomIdSchema } from "@/lib/interviews/interview.validation";
 import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
 import { getInterviewRepository } from "@/server/repositories";
-import { storeAgentAudio } from "@/lib/recordings/agent-audio";
+import { storeAgentAudio, storeHrAudio } from "@/lib/recordings/agent-audio";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
 
@@ -27,10 +27,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 
   const mimeType = (request.headers.get("content-type") ?? "").slice(0, 80);
-  if (!mimeType.includes("ogg")) {
+  const kind = (request.headers.get("x-audio-kind") ?? "").trim().toLowerCase();
+  const isHr = kind === "hr";
+  if (isHr ? !mimeType.includes("wav") : !mimeType.includes("ogg")) {
     return interviewErrorResponse(
       "INVALID_INPUT",
-      "The interview audio track must be an ogg file.",
+      isHr
+        ? "HR's audio track must be a wav file."
+        : "The interview audio track must be an ogg file.",
     );
   }
   const startedAt = request.headers.get("x-audio-started-at") ?? new Date().toISOString();
@@ -45,6 +49,27 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   if (!(await getInterviewRepository().get(roomId))) {
     return interviewErrorResponse("ROOM_NOT_FOUND", "Interview not found.");
+  }
+
+  if (isHr) {
+    const stored = await storeHrAudio(roomId, bytes, startedAt);
+    if (!stored) {
+      return interviewErrorResponse("SERVER_ERROR", "HR's audio could not be stored.");
+    }
+    await getInterviewRepository().appendEvents(roomId, [
+      {
+        type: "interview_hr_audio_uploaded",
+        at: new Date().toISOString(),
+        data: {
+          storage: stored.storage,
+          location: stored.location,
+          ...(stored.bucket ? { bucket: stored.bucket } : {}),
+          startedAt: stored.startedAt,
+          mimeType,
+        },
+      },
+    ]);
+    return NextResponse.json({ ok: true, storage: stored.storage });
   }
 
   const stored = await storeAgentAudio(roomId, bytes, startedAt);

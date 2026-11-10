@@ -17,6 +17,7 @@ import { storeResumeFile } from "@/lib/uploads/resume-storage";
 import { getInterviewRepository } from "@/server/repositories";
 import {
   invitationInputFromRoom,
+  sendHrInvitation,
   sendInterviewInvitation,
 } from "@/lib/emails/email.service";
 
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
     recruiterName: accountDisplayName(),
     candidateName: text("candidateName"),
     candidateEmail: text("candidateEmail"),
+    hrEmail: text("hrEmail"),
     roleTitle: text("roleTitle"),
     roleId: text("roleId"),
     scheduledDate: text("scheduledDate"),
@@ -83,6 +85,9 @@ export async function POST(request: NextRequest) {
       {
         room: duplicate,
         candidateUrl,
+        hrUrl: duplicate.hrToken
+          ? new URL(`/interview/${duplicate.id}/hr?token=${duplicate.hrToken}`, publicOrigin(request)).toString()
+          : null,
         duplicate: true,
         error: { code: "DUPLICATE_INTERVIEW", message: "This exact interview is already scheduled." },
       },
@@ -171,6 +176,9 @@ export async function POST(request: NextRequest) {
         {
           room: error.room,
           candidateUrl,
+          hrUrl: error.room.hrToken
+            ? new URL(`/interview/${error.room.id}/hr?token=${error.room.hrToken}`, publicOrigin(request)).toString()
+            : null,
           duplicate: true,
           error: { code: "DUPLICATE_INTERVIEW", message: "This exact interview is already scheduled." },
         },
@@ -219,11 +227,32 @@ export async function POST(request: NextRequest) {
     invitationInputFromRoom(room, candidateUrl),
   );
 
+  // HR gets their own link, and only when the recruiter named one. Joining is
+  // their choice; the email says so.
+  const hrUrl = room.hrToken
+    ? new URL(`/interview/${room.id}/hr?token=${room.hrToken}`, publicOrigin(request)).toString()
+    : null;
+  const hrInviteEmail =
+    hrUrl && room.hrEmail
+      ? await sendHrInvitation({
+          to: room.hrEmail,
+          candidateName: room.candidateName ?? "the candidate",
+          roleTitle: room.roleTitle || room.title,
+          recruiterName: room.recruiterName,
+          hrUrl,
+          scheduledAt: room.scheduledAt,
+          durationMinutes: room.durationMinutes,
+        })
+      : null;
+
   const uploadUrl = room.uploadToken
     ? new URL(`/upload/${room.uploadToken}`, publicOrigin(request)).toString()
     : null;
 
-  return NextResponse.json({ room, candidateUrl, uploadUrl, inviteEmail }, { status: 201 });
+  return NextResponse.json(
+    { room, candidateUrl, hrUrl, uploadUrl, inviteEmail, hrInviteEmail },
+    { status: 201 },
+  );
 }
 
 /**

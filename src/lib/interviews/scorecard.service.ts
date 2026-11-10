@@ -572,6 +572,14 @@ export async function getInterviewDetail(
   // Events are re-read: the recording's own events can arrive while scoring runs.
   const latestEvents = await repository.getEvents(roomId);
   const recording = await pickRecording(latestEvents);
+  const hrSpeech = latestEvents
+    .filter((event) => event.type === "hr_speech")
+    .map((event) => {
+      const text = typeof event.data?.text === "string" ? event.data.text.trim() : "";
+      const at = typeof event.data?.saidAt === "string" ? event.data.saidAt : event.at;
+      return { text, at };
+    })
+    .filter((entry) => entry.text.length > 0);
   return {
     session,
     turns,
@@ -581,6 +589,7 @@ export async function getInterviewDetail(
     peers: await findPeers(session),
     hasRecording: hasRecording(latestEvents),
     recordingStartedAt: recording?.startedAt ?? null,
+    hrSpeech,
   };
 }
 
