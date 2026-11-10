@@ -44,6 +44,74 @@ const SUGGESTIONS = [
   "Who scored highest in this role?",
 ];
 
+interface AssistantStreamResult {
+  conversationId: string;
+  message: AssistantMessage;
+}
+
+/**
+ * Reads the assistant's server-sent events. Deltas build the visible draft,
+ * `answer` carries the verified final message, and `reset` clears a partial
+ * stream when the server had to retry with another provider.
+ */
+async function readAssistantStream(
+  response: Response,
+  onDelta: (text: string) => void,
+  onReset: () => void,
+): Promise<AssistantStreamResult> {
+  if (!response.body) throw new Error("The assistant returned an unreadable answer.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const state: { final: AssistantStreamResult | null; error: string | null } = {
+    final: null,
+    error: null,
+  };
+
+  const handleBlock = (block: string) => {
+    let event = "message";
+    const dataLines: string[] = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+    }
+    const raw = dataLines.join("\n");
+    if (!raw) return;
+
+    let data: unknown;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    if (event === "delta") {
+      const text = (data as { text?: string }).text;
+      if (typeof text === "string" && text) onDelta(text);
+    } else if (event === "reset") {
+      onReset();
+    } else if (event === "answer") {
+      state.final = data as AssistantStreamResult;
+    } else if (event === "error") {
+      state.error = (data as { message?: string }).message ?? "The assistant could not answer that.";
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() ?? "";
+    for (const block of blocks) handleBlock(block);
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) handleBlock(buffer);
+
+  if (state.error) throw new Error(state.error);
+  if (!state.final) throw new Error("The assistant stopped before it finished the answer.");
+  return state.final;
+}
 
 export function CandidateAssistant({
   roomId,
@@ -58,6 +126,7 @@ export function CandidateAssistant({
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [streamingAnswer, setStreamingAnswer] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -108,7 +177,7 @@ export function CandidateAssistant({
   useEffect(() => {
     const container = messagesRef.current;
     if (container) container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, streamingAnswer]);
 
   async function openConversation(id: string) {
     setLoading(true);
@@ -140,6 +209,7 @@ export function CandidateAssistant({
     setMessages([]);
     setError(null);
     setInput("");
+    setStreamingAnswer("");
     setHistoryOpen(false);
   }
 
@@ -161,29 +231,56 @@ export function CandidateAssistant({
     };
     setMessages((previous) => [...previous, optimistic]);
     setInput("");
+    setStreamingAnswer("");
     setLoading(true);
     setError(null);
 
     try {
       const response = await fetch(`/api/dashboard/interviews/${roomId}/assistant`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          accept: "text/event-stream",
+        },
         body: JSON.stringify({
           conversationId,
           message: trimmed,
+          stream: true,
         }),
       });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error?.message ?? "The assistant could not answer that.");
-      }
-      const result = body as { conversationId: string; message: AssistantMessage };
-      setConversationId(result.conversationId);
-      setMessages((previous) => [...previous, result.message]);
-      const listResponse = await fetch(`/api/dashboard/interviews/${roomId}/assistant`);
-      if (listResponse.ok) {
-        const list = (await listResponse.json()) as { conversations: AssistantConversation[] };
-        setConversations(list.conversations ?? []);
+
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("text/event-stream")) {
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.error?.message ?? "The assistant could not answer that.");
+        }
+        const result = await readAssistantStream(
+          response,
+          (text: string) => setStreamingAnswer((previous) => previous + text),
+          () => setStreamingAnswer(""),
+        );
+        setConversationId(result.conversationId);
+        setMessages((previous) => [...previous, result.message]);
+        setStreamingAnswer("");
+        const listResponse = await fetch(`/api/dashboard/interviews/${roomId}/assistant`);
+        if (listResponse.ok) {
+          const list = (await listResponse.json()) as { conversations: AssistantConversation[] };
+          setConversations(list.conversations ?? []);
+        }
+      } else {
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(body?.error?.message ?? "The assistant could not answer that.");
+        }
+        const result = body as { conversationId: string; message: AssistantMessage };
+        setConversationId(result.conversationId);
+        setMessages((previous) => [...previous, result.message]);
+        const listResponse = await fetch(`/api/dashboard/interviews/${roomId}/assistant`);
+        if (listResponse.ok) {
+          const list = (await listResponse.json()) as { conversations: AssistantConversation[] };
+          setConversations(list.conversations ?? []);
+        }
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The assistant could not answer that.");
@@ -191,6 +288,7 @@ export function CandidateAssistant({
       setInput(trimmed);
     } finally {
       setLoading(false);
+      setStreamingAnswer("");
     }
   }
 
@@ -374,7 +472,15 @@ export function CandidateAssistant({
                   />
                 ),
               )}
-              {loading && (
+              {streamingAnswer && (
+                <div className="min-w-0 text-sm leading-6 text-foreground/90">
+                  <p className="whitespace-pre-wrap">
+                    {streamingAnswer}
+                    <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse rounded-full bg-accent align-middle" />
+                  </p>
+                </div>
+              )}
+              {loading && !streamingAnswer && (
                 <p className="text-shimmer flex items-center gap-2 text-sm">
                   <Sparkles className="size-3.5 text-accent" aria-hidden />
                   Reading the interview and checking quotes…

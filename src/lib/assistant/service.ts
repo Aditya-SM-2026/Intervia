@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { generateStructured, isStructuredLlmAvailable } from "@/lib/ai/structured";
+import { generateStructured, generateStructuredStream, isStructuredLlmAvailable } from "@/lib/ai/structured";
 import { getInterviewRepository } from "@/server/repositories";
 import type {
   AssistantAnswer,
@@ -179,7 +179,7 @@ const SYSTEM_RULES = [
   "A transcript marked as a relevance-filtered selection is not the full interview. Only judge missing evidence within the shown turns and the report's stated gaps; never claim the rest of the interview lacked a topic.",
   "Do not infer age, gender, ethnicity, nationality, religion, health, disability or any other protected characteristic.",
   "Only discuss job-relevant evidence. Existing numeric scores must come from the supplied report; do not change them.",
-  "When asked for a skill score, use an official custom parameter if the report has one; otherwise give an evidence-based 0-100 score from the report, resume and transcript and set basis to \"estimate\" internally. In the answer, write the score as `AI 72/100 (working level, evidence-based)` and never call it an estimate or general knowledge. Always return the skill name in estimatedSkill, even when the report has an official score; the server marks it as official. Use this scale: 0-39 not evident, 40-59 basic, 60-74 working, 75-89 strong, 90-100 expert. Use at least two supporting citations and a short rationale.",
+  "When asked for a skill score, first use an official custom parameter or a scored competency from the report. If neither exists, assess the skill from the candidate's actual answers. For behavioural skills such as communication, problem solving, leadership or teamwork, the word does not need to appear: judge clarity, structure, reasoning, relevance and completeness. For a specific tool or technology, use direct or strong indirect evidence, and score 0 only when the candidate was asked and clearly showed none. If there are too few meaningful answers, say there is not enough interview evidence to assess it and do not give 0. In the answer, write the score as `AI 72/100 (working level, evidence-based)` and never call it an estimate or general knowledge. Always return the skill name in estimatedSkill. Use this scale: 0-39 not evident, 40-59 basic, 60-74 working, 75-89 strong, 90-100 expert. Use at least two supporting citations and a short rationale.",
   "Quotes must be copied verbatim, character for character, from the supplied report, resume or numbered candidate turn.",
   "Every factual claim drawn from the report, resume or transcript must have a citation. Citation numbers must match the order of the citations array. Put [1], [2] and so on inline in the answer. Each citation must point to the exact sentence or score in the report, or the exact transcript turn or resume line, never just a section. If there is no exact quote, do not use a bracket marker.",
   "Reply with a single JSON object only.",
@@ -228,10 +228,16 @@ interface AssistantTurnResult {
   costUsd: number | null;
 }
 
+export interface AssistantStreamHandlers {
+  onDelta?: (text: string) => void;
+  onReset?: () => void;
+}
+
 export async function askCandidateAssistant(input: {
   roomId: string;
   conversationId: string | null;
   question: string;
+  stream?: AssistantStreamHandlers;
 }): Promise<{
   conversationId: string;
   message: AssistantMessage;
@@ -308,6 +314,7 @@ export async function askCandidateAssistant(input: {
           message.referencedRoomIds.length === 0 ||
           message.referencedRoomIds.every((roomId) => roomId === input.roomId),
       ),
+      input.stream,
     );
   }
 
@@ -342,6 +349,7 @@ async function answerCandidate(
   roomId: string,
   question: string,
   history: readonly { role: "user" | "assistant"; content: string }[],
+  stream?: AssistantStreamHandlers,
 ): Promise<AssistantTurnResult> {
   const evidence = await loadCandidateEvidence(roomId);
   if (!evidence) throw new AssistantError("ROOM_NOT_FOUND", "This interview does not exist.", 404);
@@ -359,7 +367,7 @@ async function answerCandidate(
     "",
     CITATION_SECTIONS,
     "The report facts above are authoritative. Search them first, then the transcript and resume.",
-    "When the question asks for a skill score, use the report's custom parameter if it exists; otherwise give an evidence-based score from the evidence. Start with `Skill: score/100 (level, evidence-based)` and then one short evidence sentence. If the skill is not mentioned in the resume or candidate answers, score it 0.",
+    "When scoring a skill, check the report's custom parameters and competencies first. If neither exists, derive the score from the candidate's answers. Behavioural skills such as communication, problem solving, leadership and teamwork are judged from how the candidate answered, not from whether the word appears. Do not return 0 merely because the word is absent. For a named tool or technology, score 0 only when the candidate was asked and clearly showed no evidence; otherwise say there is not enough interview evidence.",
     "Do not label the answer as estimated, inferred or general knowledge. Those modes are internal only.",
     "For every report citation, copy the exact sentence or score into quote and set the matching sectionId. Never cite a section without the exact report text.",
     "Do not answer general knowledge questions. If the question is unrelated to this candidate, say it is not part of their report.",
@@ -374,13 +382,23 @@ async function answerCandidate(
     CANDIDATE_ANSWER_SHAPE,
   ].join("\n");
 
-  const result = await generateStructured({
+  const request = {
     system: `${SYSTEM_RULES}\n\n${CANDIDATE_ANSWER_SHAPE}`,
     user: prompt,
     schema: candidateModelSchema,
     timeoutMs: 40_000,
     temperature: 0.1,
-  });
+  };
+  const answerStream = stream ? createAnswerStream(stream.onDelta) : null;
+  const result = answerStream
+    ? await generateStructuredStream(request, {
+        onDelta: (chunk) => answerStream.push(chunk),
+        onReset: () => {
+          answerStream.reset();
+          stream?.onReset?.();
+        },
+      })
+    : await generateStructured(request);
   const answer = verifyCandidateAnswer(result.data, evidence, terms, broad, question);
   return {
     answer,
@@ -388,6 +406,79 @@ async function answerCandidate(
     referencedRoomIds: [evidence.session.id],
     model: result.model,
     costUsd: result.costUsd,
+  };
+}
+
+/**
+ * Extracts just the JSON `answer` string while the model is still streaming.
+ * The rest of the JSON arrives after it and is parsed normally at the end.
+ */
+function createAnswerStream(onDelta?: (text: string) => void) {
+  let buffer = "";
+  let rawStart = -1;
+  let started = false;
+  let done = false;
+  let emitted = 0;
+  const escapes: Record<string, string> = {
+    '"': '"',
+    "\\": "\\",
+    "/": "/",
+    b: "\b",
+    f: "\f",
+    n: "\n",
+    r: "\r",
+    t: "\t",
+  };
+
+  return {
+    push(chunk: string) {
+      if (!onDelta || done) return;
+      buffer += chunk;
+      if (!started) {
+        const match = /"answer"\s*:\s*"/.exec(buffer);
+        if (!match) return;
+        started = true;
+        rawStart = match.index + match[0].length;
+      }
+
+      const raw = buffer.slice(rawStart);
+      let decoded = "";
+      for (let index = 0; index < raw.length; index += 1) {
+        const char = raw[index];
+        if (char === '"') {
+          done = true;
+          break;
+        }
+        if (char === "\\") {
+          if (index + 1 >= raw.length) break;
+          const escape = raw[index + 1];
+          if (escape === "u") {
+            if (index + 6 > raw.length) break;
+            const code = Number.parseInt(raw.slice(index + 2, index + 6), 16);
+            decoded += Number.isNaN(code) ? "" : String.fromCharCode(code);
+            index += 5;
+            continue;
+          }
+          decoded += escapes[escape] ?? escape;
+          index += 1;
+          continue;
+        }
+        decoded += char;
+      }
+
+      if (decoded.length > emitted) {
+        const delta = decoded.slice(emitted);
+        emitted = decoded.length;
+        onDelta(delta);
+      }
+    },
+    reset() {
+      buffer = "";
+      rawStart = -1;
+      started = false;
+      done = false;
+      emitted = 0;
+    },
   };
 }
 
@@ -686,7 +777,6 @@ function verifyCandidateAnswer(
       ? terms.find((term) => !SKILL_QUERY_NOISE.has(term) && !/^\d+$/.test(term))
       : "") ||
     "";
-  const requestedSkillLabel = displaySkillName(requestedSkill);
   const official = requestedSkill
     ? findOfficialSkillScore(evidence, requestedSkill)
     : null;
@@ -700,55 +790,36 @@ function verifyCandidateAnswer(
       official: true,
       rationale:
         official.rationale.trim() ||
-        "Official custom parameter score from the report.",
+        (official.sectionId === "custom"
+          ? "Official custom parameter score from the report."
+          : "Scored competency from the report."),
     };
     basis = "report";
-    answerText = withScoreLine(
-      answerText,
-      official.skill,
-      score,
-      scoreBand(score),
-      true,
-    );
+    const cleaned = answerText
+      .replace(/^[^.]*\b\d{1,3}\s*\/\s*100\b[^.]*\.\s*/i, "")
+      .trim();
+    answerText = `${official.skill} ${score}/100 (${scoreBand(score).toLowerCase()}, official report score). ${cleaned}`.trim();
     confidence = "high";
-    if (!citations.some((citation) => citation.sectionId === "custom")) {
+    if (!citations.some((citation) => citation.sectionId === official.sectionId)) {
       citations.push({
         index: citations.length + 1,
         kind: "report",
-        label: REPORT_SECTION_LABELS.custom,
-        sectionId: "custom",
-        note: "Official custom parameter score from the report.",
+        label: REPORT_SECTION_LABELS[official.sectionId],
+        sectionId: official.sectionId,
+        note:
+          official.sectionId === "custom"
+            ? "Official custom parameter score from the report."
+            : "Scored competency from the report.",
       });
     }
-  } else if (
-    wantsSkillScore &&
-    requestedSkill &&
-    !hasSkillEvidence(evidence, requestedSkill)
-  ) {
-    // A named skill the candidate never mentions in their own resume or
-    // answers is not "unknown", it is zero evidence.
-    estimate = {
-      skill: requestedSkillLabel,
-      score: 0,
-      band: "Not mentioned",
-      official: false,
-      rationale: `No ${requestedSkillLabel} experience appears in the candidate's resume or interview answers.`,
-    };
-    basis = "estimate";
-    answerText = `${requestedSkillLabel} 0/100 (not mentioned in the resume or interview answers).`;
-    missing = null;
-    confidence = "high";
-    citations.splice(0, citations.length);
-    resumeItems.splice(0, resumeItems.length);
-    turnItems.splice(0, turnItems.length);
   } else if (wantsSkillScore && raw.basis === "estimate" && raw.estimatedSkill) {
     const estimateEvidence = citations.filter(
       (citation) => citation.kind === "transcript" || citation.kind === "resume",
     ).length;
     if (estimateEvidence < 2) {
-      answerText = `I don't have enough verified evidence to estimate a ${raw.estimatedSkill.skill} score reliably.`;
-      missing =
-        "At least two verified interview or resume examples are needed for a skill estimate.";
+      const skillLabel = displaySkillName(raw.estimatedSkill.skill);
+      answerText = `There isn't enough interview evidence to assess ${skillLabel}.`;
+      missing = null;
       confidence = "low";
       basis = "report";
     } else {
@@ -774,9 +845,9 @@ function verifyCandidateAnswer(
       );
     }
   } else if (wantsSkillScore && raw.basis === "estimate") {
-    answerText =
-      "I couldn't find enough evidence to estimate a score for that skill reliably.";
-    missing = "A skill estimate needs specific interview or resume evidence.";
+    const skillLabel = displaySkillName(requestedSkill || "this skill");
+    answerText = `There isn't enough interview evidence to assess ${skillLabel}.`;
+    missing = null;
     confidence = "low";
     basis = "report";
   } else if (raw.basis === "estimate") {
@@ -925,32 +996,53 @@ function rewriteCitationMarkers(text: string, mapping: Map<number, number>): str
     .trim();
 }
 
+function scoreNamesMatch(name: string, target: string): boolean {
+  if (!name || !target) return false;
+  const nameTokens = new Set(name.split(" "));
+  const targetTokens = new Set(target.split(" "));
+  return (
+    name === target ||
+    nameTokens.has(target) ||
+    targetTokens.has(name) ||
+    (target.length >= 5 && name.includes(target)) ||
+    (name.length >= 5 && target.includes(name))
+  );
+}
+
 function findOfficialSkillScore(
   evidence: CandidateEvidence,
   requested: string,
-): { skill: string; score: number; rationale: string } | null {
+): { skill: string; score: number; rationale: string; sectionId: AssistantReportSection } | null {
   const target = normalize(requested);
   if (!target) return null;
+  const targets = [target, ...(SKILL_ALIASES[target] ?? []).map(normalize)];
+
   for (const parameter of evidence.scorecard?.customParameters ?? []) {
     if (parameter.score === null || parameter.score === undefined) continue;
     const name = normalize(parameter.skill);
-    if (!name) continue;
-    const nameTokens = new Set(name.split(" "));
-    const targetTokens = new Set(target.split(" "));
-    const matches =
-      name === target ||
-      nameTokens.has(target) ||
-      targetTokens.has(name) ||
-      (target.length >= 4 && name.includes(target)) ||
-      (name.length >= 4 && target.includes(name));
-    if (matches) {
-      return {
-        skill: parameter.skill,
-        score: parameter.score,
-        rationale: parameter.rationale ?? "",
-      };
-    }
+    if (!targets.some((item) => scoreNamesMatch(name, item))) continue;
+    return {
+      skill: parameter.skill,
+      score: parameter.score,
+      rationale: parameter.rationale ?? "",
+      sectionId: "custom",
+    };
   }
+
+  // A scored competency is also an official report result. Competencies are
+  // stored 1-5; the assistant speaks in the report's 0-100 scale.
+  for (const competency of evidence.scorecard?.competencies ?? []) {
+    if (competency.score === null || competency.score === undefined) continue;
+    const name = normalize(competency.name);
+    if (!targets.some((item) => scoreNamesMatch(name, item))) continue;
+    return {
+      skill: competency.name,
+      score: competency.score * 20,
+      rationale: competency.rationale ?? "",
+      sectionId: "answers",
+    };
+  }
+
   return null;
 }
 
@@ -1056,35 +1148,6 @@ function displaySkillName(value: string): string {
   const lower = trimmed.toLowerCase();
   if (SKILL_ACRONYMS.has(lower)) return lower.toUpperCase();
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-}
-
-function skillMentionTerms(skill: string): string[] {
-  const base = normalize(skill);
-  if (!base) return [];
-  const aliases = SKILL_ALIASES[base] ?? [];
-  return [...new Set([base, ...aliases.map(normalize)])].filter(
-    (term) => term.length >= 2,
-  );
-}
-
-/**
- * True when the skill appears in the candidate's resume or their own interview
- * answers. The report and prepared questions are excluded on purpose: the role
- * asking for AWS is not evidence that the candidate has used it.
- */
-function hasSkillEvidence(evidence: CandidateEvidence, skill: string): boolean {
-  const terms = skillMentionTerms(skill);
-  if (terms.length === 0) return true;
-  const haystack = ` ${normalize(
-    [
-      evidence.resumeText,
-      evidence.turns
-        .filter((turn) => turn.speaker === "candidate")
-        .map((turn) => turn.text)
-        .join(" "),
-    ].join(" "),
-  )} `;
-  return terms.some((term) => haystack.includes(` ${term} `));
 }
 
 function asksForSkillScore(question: string): boolean {
