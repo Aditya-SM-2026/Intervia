@@ -4,7 +4,23 @@ import { ApplicationForm } from "@/components/apply/ApplicationForm";
 import { getPublicApplicationState } from "@/lib/roles/application.service";
 import { closedReasonMessage } from "@/lib/roles/form-link-status";
 
-export const metadata: Metadata = { title: "Apply" };
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const { token } = await params;
+  const state = await getPublicApplicationState(token).catch(() => ({
+    form: null,
+    closedReason: null,
+  }));
+  return {
+    title: state.form?.roleTitle ? `Apply for ${state.form.roleTitle} | Intervia` : "Apply | Intervia",
+    description: state.form?.roleDescription
+      ? state.form.roleDescription.slice(0, 160)
+      : "Submit your application on Intervia.",
+  };
+}
 
 export default async function ApplyPage({
   params,
@@ -30,9 +46,12 @@ export default async function ApplyPage({
       <div className="mx-auto w-full max-w-6xl">
         <div className="flex items-center justify-between gap-4">
           <BrandMark href={null} />
-          <span className="hidden rounded-full border border-border bg-surface/70 px-3 py-1 text-[11px] font-medium tracking-[0.12em] text-muted uppercase sm:inline-flex">
-            Candidate application
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="hidden items-center gap-1.5 rounded-full border border-border bg-surface/70 px-3 py-1 text-[11px] font-medium tracking-[0.1em] text-muted uppercase sm:inline-flex">
+              <span className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(52,211,153,0.15)]" />
+              Candidate application
+            </span>
+          </div>
         </div>
         {state.form ? (
           <div className="mt-8">
