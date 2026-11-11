@@ -18,21 +18,37 @@ export default async function ApplyPage({
   }));
 
   return (
-    <main className="relative min-h-dvh px-4 pb-16 pt-8 sm:pt-12">
-      <div aria-hidden className="bg-grid-fade pointer-events-none absolute inset-x-0 top-0 -z-10 h-[360px]" />
-      <div className="mx-auto w-full max-w-2xl">
-        <BrandMark href={null} />
+    <main className="relative min-h-dvh overflow-hidden px-4 pb-16 pt-6 sm:px-6 sm:pt-10">
+      <div
+        aria-hidden
+        className="bg-grid-fade pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px]"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-40 right-0 -z-10 size-[34rem] rounded-full bg-accent/[0.07] blur-3xl"
+      />
+      <div className="mx-auto w-full max-w-6xl">
+        <div className="flex items-center justify-between gap-4">
+          <BrandMark href={null} />
+          <span className="hidden rounded-full border border-border bg-surface/70 px-3 py-1 text-[11px] font-medium tracking-[0.12em] text-muted uppercase sm:inline-flex">
+            Candidate application
+          </span>
+        </div>
         {state.form ? (
-          <ApplicationForm
-            token={token}
-            roleTitle={state.form.roleTitle}
-            roleDescription={state.form.roleDescription}
-            fields={state.form.fields}
-          />
+          <div className="mt-8">
+            <ApplicationForm
+              token={token}
+              roleTitle={state.form.roleTitle}
+              roleDescription={state.form.roleDescription}
+              fields={state.form.fields}
+            />
+          </div>
         ) : (
-          <div className="mt-6 rounded-2xl border border-border bg-surface p-8 text-center sm:p-10">
-            <h1 className="text-xl font-semibold tracking-[-0.01em]">Applications are closed</h1>
-            <p className="mt-2 text-sm text-muted">{closedReasonMessage(state.closedReason)}</p>
+          <div className="mx-auto mt-16 max-w-md rounded-[28px] border border-border bg-surface p-8 text-center shadow-[0_20px_60px_-35px_rgba(8,26,61,0.3)] sm:p-10">
+            <h1 className="text-xl font-semibold tracking-[-0.02em]">Applications are closed</h1>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              {closedReasonMessage(state.closedReason)}
+            </p>
           </div>
         )}
       </div>
