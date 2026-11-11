@@ -218,6 +218,107 @@ export async function sendInterviewInvitation(
   }
 }
 
+export interface HrInvitationEmailInput {
+  to: string;
+  candidateName: string;
+  roleTitle: string;
+  recruiterName: string | null;
+  hrUrl: string;
+  scheduledAt: string | null;
+  durationMinutes: number;
+}
+
+/**
+ * The HR invitation: the person who sits in on the interview, listens the
+ * whole way through and can step in to help the candidate. Their link is
+ * separate from the candidate's and does not require an email gate.
+ */
+export function buildHrInvitationEmail(input: HrInvitationEmailInput): InvitationEmailMessage {
+  const whenLine = input.scheduledAt
+    ? formatMoment(input.scheduledAt)
+    : "any time";
+  const subject = `HR link: ${input.roleTitle} interview`;
+
+  const text = [
+    `Hi,`,
+    "",
+    `You are invited to sit in on the AI-led interview for ${input.candidateName} (${input.roleTitle}).`,
+    "",
+    `When: ${whenLine}`,
+    `Duration: about ${input.durationMinutes} minutes`,
+    ...(input.recruiterName ? [`Interviewer: ${input.recruiterName}`] : []),
+    "",
+    "Join here:",
+    input.hrUrl,
+    "",
+    "Joining is optional. If you join, you can listen to the whole interview.",
+    "Speaking to the candidate pauses the AI interviewer until you press Unmute agent.",
+    "",
+    "The Sreemedhas Agent team",
+  ].join("\n");
+
+  const html = `<!doctype html>
+<html><body style="margin:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#1a1a2e">
+  <div style="max-width:560px;margin:0 auto;padding:24px 16px">
+    <div style="background:#ffffff;border-radius:12px;padding:28px">
+      <p style="margin:0 0 16px;font-size:16px">Hi,</p>
+      <p style="margin:0 0 16px;font-size:15px">
+        You are invited to sit in on the AI-led interview for
+        <strong>${escapeHtml(input.candidateName)}</strong>
+        for the <strong>${escapeHtml(input.roleTitle)}</strong> role.
+      </p>
+      <div style="background:#f4f5f7;border-radius:8px;padding:14px 16px;margin:0 0 20px;font-size:15px;line-height:1.7">
+        <p style="margin:0 0 4px">When: <strong>${escapeHtml(whenLine)}</strong></p>
+        <p style="margin:0 0 4px">Duration: about <strong>${input.durationMinutes}</strong> minutes</p>
+        ${input.recruiterName ? `<p style="margin:0 0 4px">Interviewer: <strong>${escapeHtml(input.recruiterName)}</strong></p>` : ""}
+      </div>
+      <p style="margin:0 0 16px">
+        <a href="${input.hrUrl}"
+           style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;
+                  padding:12px 22px;border-radius:8px;font-size:15px;font-weight:bold">
+          Join as HR
+        </a>
+      </p>
+      <p style="margin:0 0 20px;font-size:13px"><a href="${input.hrUrl}" style="color:#4f46e5;word-break:break-all">${input.hrUrl}</a></p>
+      <ul style="margin:0;padding-left:18px;font-size:13px;color:#555;line-height:1.7">
+        <li>Joining is optional. If you join, you can listen to the whole interview.</li>
+        <li>When you speak, the AI interviewer pauses until you press "Unmute agent".</li>
+        <li>The interview is recorded and includes your voice when you join.</li>
+      </ul>
+    </div>
+    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by Sreemedhas Agent — please do not reply to this email.</p>
+  </div>
+</body></html>`;
+  return { from: fromAddress(), to: input.to, subject, text, html };
+}
+
+/** Sends the HR invitation. Like the others, it never throws. */
+export async function sendHrInvitation(
+  input: HrInvitationEmailInput,
+  transport?: Transporter,
+): Promise<InviteEmailResult> {
+  const linkProblem = publicLinkProblem(input.hrUrl);
+  if (linkProblem) {
+    console.error(`[email] refusing to email ${input.to}: ${linkProblem}`);
+    return { status: "failed", detail: linkProblem };
+  }
+  if (!isSmtpConfigured() && !transport) {
+    console.warn(`[email] SMTP not configured; HR invitation for ${input.to} logged to console only`);
+    return { status: "not_configured" };
+  }
+  const message = buildHrInvitationEmail(input);
+  const sender = transport ?? createTransport();
+  try {
+    await sender.sendMail(message);
+    console.info(`[email] HR invitation sent to ${input.to} (${message.subject})`);
+    return { status: "sent" };
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    console.error(`[email] HR invitation failed for ${input.to}: ${detail}`);
+    return { status: "failed", detail };
+  }
+}
+
 export interface InterviewUpdateEmailInput {
   to: string;
   candidateName: string;

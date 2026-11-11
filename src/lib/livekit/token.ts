@@ -11,6 +11,8 @@ export interface LiveKitTokenParams {
    * agent dispatched to it for this interview (explicit dispatch: no polling).
    */
   dispatchInterviewId?: string;
+  /** HR joins to listen and speak; the agent still only hears the candidate. */
+  canPublish?: boolean;
 }
 
 /**
@@ -39,6 +41,7 @@ export async function generateLiveKitToken({
   identity,
   displayName,
   dispatchInterviewId,
+  canPublish = true,
 }: LiveKitTokenParams): Promise<LiveKitToken> {
   const config = getLiveKitConfig();
 
@@ -50,7 +53,7 @@ export async function generateLiveKitToken({
   token.addGrant({
     roomJoin: true,
     room: roomName,
-    canPublish: true,
+    canPublish,
     canSubscribe: true,
     canPublishData: true,
   });

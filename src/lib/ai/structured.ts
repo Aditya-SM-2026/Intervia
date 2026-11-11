@@ -2,7 +2,7 @@ import "server-only";
 import type { z } from "zod";
 import { getGeminiTextConfig } from "@/lib/config/env";
 import { LlmError } from "./llm-error";
-import { isOminibotConfigured, ominibotChat } from "./ominibot";
+import { isOminibotConfigured, ominibotChat, ominibotChatStream } from "./ominibot";
 
 /**
  * Structured (JSON) generation for the offline pipelines: interview plans and
@@ -80,6 +80,157 @@ export async function generateStructured<T>(
     );
   }
   throw lastError instanceof Error ? lastError : new LlmError("LLM request failed.");
+}
+
+export interface StructuredStreamHandlers {
+  /** Receives raw model text as it arrives. */
+  onDelta?: (text: string) => void;
+  /** Called when a provider emitted partial text and had to be retried. */
+  onReset?: () => void;
+}
+
+/**
+ * Same contract as generateStructured, but forwards the raw model text while
+ * it is still arriving. Callers that need a visible answer string can extract
+ * one field from the JSON stream. If no provider can stream, the normal
+ * non-streaming request is used so the answer still succeeds.
+ */
+export async function generateStructuredStream<T>(
+  request: StructuredRequest<T>,
+  handlers: StructuredStreamHandlers = {},
+): Promise<StructuredResult<T>> {
+  const providers = analysisProviders();
+  if (providers.length === 0) {
+    throw new LlmError("No LLM is configured. Set OMINIBOT_API_KEY or GEMINI_API_KEY.", {
+      status: 400,
+    });
+  }
+
+  let lastError: unknown = null;
+  for (const provider of providers) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let emitted = false;
+      try {
+        const { text, model, costUsd } = await generateJsonTextStream(provider, request, (delta) => {
+          emitted = true;
+          handlers.onDelta?.(delta);
+        });
+        const parsed = request.schema.safeParse(parseJson(text));
+        if (parsed.success) return { data: parsed.data, model, costUsd };
+        if (emitted) handlers.onReset?.();
+        lastError = new LlmError(
+          `LLM reply did not match the expected shape: ${parsed.error.issues[0]?.message ?? "invalid"}`,
+        );
+      } catch (error) {
+        if (emitted) handlers.onReset?.();
+        lastError = error;
+        if (error instanceof LlmError && error.status !== undefined && error.status < 500) break;
+      }
+    }
+    console.warn(
+      `[llm] ${provider} did not produce a usable stream: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+    );
+  }
+
+  try {
+    return await generateStructured(request);
+  } catch (fallbackError) {
+    throw lastError instanceof Error ? lastError : fallbackError;
+  }
+}
+
+async function generateJsonTextStream<T>(
+  provider: Provider,
+  request: StructuredRequest<T>,
+  onDelta: (text: string) => void,
+): Promise<{ text: string; model: string; costUsd: number | null }> {
+  const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  if (provider === "ominibot") {
+    return ominibotChatStream(
+      {
+        system: `${request.system}\n\nReply with a single JSON object and nothing else.`,
+        content: request.user,
+        json: true,
+        temperature: request.temperature ?? 0.2,
+        timeoutMs,
+      },
+      onDelta,
+    );
+  }
+
+  const gemini = getGeminiTextConfig();
+  if (!gemini) throw new LlmError("GEMINI_API_KEY is not set.", { status: 400 });
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${GEMINI_BASE_URL}/models/${gemini.model}:streamGenerateContent?alt=sse`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": gemini.apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: request.system }] },
+          contents: [{ role: "user", parts: [{ text: request.user }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: request.temperature ?? 0.2,
+          },
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      },
+    );
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      throw new LlmError("LLM service request timed out.");
+    }
+    throw new LlmError("Could not reach the LLM service.", { cause: error });
+  }
+  if (!response.ok) {
+    throw new LlmError(`LLM service returned ${response.status} ${response.statusText}.`, {
+      status: response.status,
+    });
+  }
+  if (!response.body) throw new LlmError("LLM service returned an unreadable stream.");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+
+  const handleLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return;
+    const raw = trimmed.slice(5).trim();
+    if (!raw || raw === "[DONE]") return;
+    try {
+      const payload = JSON.parse(raw) as {
+        candidates?: { content?: { parts?: { text?: string }[] } }[];
+      };
+      const delta = (payload.candidates?.[0]?.content?.parts ?? [])
+        .map((part) => part.text ?? "")
+        .join("");
+      if (delta) {
+        text += delta;
+        onDelta(delta);
+      }
+    } catch {
+      // Ignore a malformed SSE event and keep the rest of the stream.
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+    for (const line of lines) handleLine(line);
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) handleLine(buffer);
+  if (!text) throw new LlmError("LLM service returned an empty response.");
+  return { text, model: gemini.model, costUsd: null };
 }
 
 async function generateJsonText<T>(

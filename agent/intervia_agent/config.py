@@ -26,6 +26,8 @@ def agent_name() -> str:
 
 # Text-stream topic the candidate page uses for browser events (tab focus).
 CLIENT_EVENT_TOPIC = "intervia.client"
+# Text-stream topic the HR page uses: speaking, unmute, and their captions.
+HR_EVENT_TOPIC = "intervia.hr"
 
 
 def load_env() -> None:

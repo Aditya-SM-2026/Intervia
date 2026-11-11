@@ -5,17 +5,21 @@ import { useEffect, useRef } from "react";
 export interface TranscriptEntry {
   /** Stable id of the caption segment; lets a streaming entry update in place. */
   id?: string;
-  role: "candidate" | "interviewer";
+  role: "candidate" | "interviewer" | "hr";
   text: string;
 }
 
 interface TranscriptPanelProps {
   entries: TranscriptEntry[];
+  /** Optional names to show instead of the default labels. */
+  labels?: Partial<Record<TranscriptEntry["role"], string>>;
   /** Interim (still-being-recognized) candidate text. */
   interim: string | null;
 }
 
-export function TranscriptPanel({ entries, interim }: TranscriptPanelProps) {
+export function TranscriptPanel({ entries, labels, interim }: TranscriptPanelProps) {
+  const label = (role: TranscriptEntry["role"]) =>
+    labels?.[role] ?? (role === "candidate" ? "You" : role === "hr" ? "HR" : "Interviewer");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -41,10 +45,14 @@ export function TranscriptPanel({ entries, interim }: TranscriptPanelProps) {
           <li key={entry.id ?? index} className={entry.role === "candidate" ? "" : "text-left"}>
             <span
               className={`mb-0.5 block text-xs font-semibold ${
-                entry.role === "candidate" ? "text-candidate" : "text-accent"
+                entry.role === "candidate"
+                  ? "text-candidate"
+                  : entry.role === "hr"
+                    ? "text-amber-500"
+                    : "text-accent"
               }`}
             >
-              {entry.role === "candidate" ? "You" : "Interviewer"}
+              {label(entry.role)}
             </span>
             {entry.text}
           </li>

@@ -13,6 +13,7 @@ type RouteParams = { params: Promise<{ roomId: string }> };
 const askSchema = z.object({
   conversationId: z.string().trim().min(8).max(80).nullish(),
   message: z.string().trim().min(2).max(600),
+  stream: z.boolean().optional(),
 });
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
@@ -74,6 +75,62 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 
   try {
+    if (parsed.data.stream) {
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          let open = true;
+          const send = (event: string, data: unknown) => {
+            if (!open) return;
+            try {
+              controller.enqueue(
+                encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
+              );
+            } catch {
+              open = false;
+            }
+          };
+
+          try {
+            const result = await askCandidateAssistant({
+              roomId,
+              conversationId: parsed.data.conversationId ?? null,
+              question: parsed.data.message,
+              stream: {
+                onDelta: (text) => send("delta", { text }),
+                onReset: () => send("reset", {}),
+              },
+            });
+            send("answer", result);
+          } catch (error) {
+            if (error instanceof AssistantError) {
+              send("error", { code: error.code, message: error.message });
+            } else {
+              console.error(
+                `[assistant] stream failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
+              send("error", {
+                code: "SERVER_ERROR",
+                message: "The assistant could not answer that. Please try again.",
+              });
+            }
+          } finally {
+            open = false;
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(body, {
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+
     const result = await askCandidateAssistant({
       roomId,
       conversationId: parsed.data.conversationId ?? null,

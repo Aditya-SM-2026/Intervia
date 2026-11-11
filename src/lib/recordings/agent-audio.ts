@@ -97,3 +97,75 @@ export async function agentAudioFile(ref: AgentAudioRef, workDir: string): Promi
   await fs.writeFile(target, Buffer.from(await response.arrayBuffer()));
   return target;
 }
+
+export const HR_AUDIO_MIME = "audio/wav";
+export const HR_AUDIO_EVENT = "interview_hr_audio_uploaded";
+
+/** HR's microphone recording, in the same shape as the agent's audio ref. */
+export type HrAudioRef = AgentAudioRef;
+
+export function hrAudioObjectPath(roomId: string): string {
+  return `interviews/${roomId}/hr-audio.wav`;
+}
+
+export function hrAudioDiskFile(roomId: string): string {
+  return path.join(recordingsDir(), roomId, "hr-audio.wav");
+}
+
+/** Stores HR's microphone recording; the route writes the event. */
+export async function storeHrAudio(
+  roomId: string,
+  bytes: Uint8Array,
+  startedAt: string,
+): Promise<{ storage: "gcs" | "local"; location: string; startedAt: string; bucket?: string } | null> {
+  if (bytes.byteLength <= 0 || bytes.byteLength > MAX_AGENT_AUDIO_BYTES) return null;
+  const bucket = recordingsBucket();
+  if (bucket) {
+    const location = hrAudioObjectPath(roomId);
+    const ok = await uploadStoredObject({ bucket, path: location }, bytes, HR_AUDIO_MIME);
+    if (ok) return { storage: "gcs", location, startedAt, bucket };
+    return null;
+  }
+  const location = hrAudioDiskFile(roomId);
+  await fs.mkdir(path.dirname(location), { recursive: true });
+  await fs.writeFile(location, bytes);
+  return { storage: "local", location, startedAt };
+}
+
+/** Finds the most recent HR recording in the event log. */
+export function findHrAudio(
+  events: readonly { type: string; at: string; data: Record<string, unknown> }[],
+): HrAudioRef | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event.type !== HR_AUDIO_EVENT) continue;
+    const { storage, bucket, location } = event.data;
+    if (storage !== "gcs" && storage !== "local") continue;
+    if (typeof location !== "string" || location.length === 0) continue;
+    return {
+      storage,
+      bucket: typeof bucket === "string" ? bucket : undefined,
+      location,
+      startedAt: typeof event.data.startedAt === "string" ? event.data.startedAt : event.at,
+    };
+  }
+  return null;
+}
+
+/** A local copy of HR's recording for the mix. */
+export async function hrAudioFile(ref: HrAudioRef, workDir: string): Promise<string | null> {
+  if (ref.storage === "local") {
+    try {
+      return (await fs.stat(ref.location)).size > 0 ? ref.location : null;
+    } catch {
+      return null;
+    }
+  }
+  const bucket = ref.bucket ?? recordingsBucket();
+  if (!bucket) return null;
+  const response = await fetchStoredObject({ bucket, path: ref.location });
+  if (!response || !response.ok || !response.body) return null;
+  const target = path.join(workDir, "hr-audio.wav");
+  await fs.writeFile(target, Buffer.from(await response.arrayBuffer()));
+  return target;
+}

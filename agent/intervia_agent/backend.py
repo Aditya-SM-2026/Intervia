@@ -117,6 +117,35 @@ class Backend:
             logger.error("could not upload interview audio: %s", error)
             return False
 
+    async def upload_hr_audio(self, path: Path, started_at: str) -> bool:
+        """Sends HR's own microphone track to the web app.
+
+        Kept separate from the two-sided track: the mixer folds all three
+        voices into the report recording.
+        """
+        try:
+            body = await asyncio.to_thread(path.read_bytes)
+        except OSError as error:
+            logger.error("could not read HR audio: %s", error)
+            return False
+        try:
+            response = await self._client.post(
+                f"{self._base}/audio",
+                content=body,
+                headers={
+                    "Content-Type": "audio/wav",
+                    "X-Audio-Started-At": started_at,
+                    "X-Audio-Kind": "hr",
+                },
+                timeout=AUDIO_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            logger.info("uploaded %.1f MB of HR audio", len(body) / 1024 / 1024)
+            return True
+        except Exception as error:  # noqa: BLE001
+            logger.error("could not upload HR audio: %s", error)
+            return False
+
     async def complete(self, payload: dict[str, Any]) -> None:
         if self._flush_task is not None:
             self._flush_task.cancel()
