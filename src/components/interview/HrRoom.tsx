@@ -23,7 +23,6 @@ import {
   Mic,
   MicOff,
   PhoneOff,
-  Volume2,
   VolumeX,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand/BrandMark";
@@ -63,11 +62,7 @@ type SpeechRecognitionCtor = new () => {
   stop(): void;
 };
 
-/** Speech detection on HR's own microphone. */
-const SPEECH_RMS_THRESHOLD = 0.02;
-const SPEECH_ATTACK_MS = 250;
-const SPEECH_RELEASE_MS = 900;
-type Stage = "joining" | "connected" | "left" | "error";
+type Stage = "joining" | "connected" | "ended" | "left" | "error";
 
 interface HrRoomProps {
   roomId: string;
@@ -81,6 +76,10 @@ interface HrCredentials {
   token: string;
   url: string;
   identity: string;
+  /** Seconds left on the server's interview clock, when the interview has started. */
+  remainingSeconds?: number;
+  /** The server's current time, for correcting clock skew between the two. */
+  serverNow?: string;
 }
 
 function toAiState(agentState: string | undefined): AiUiState {
@@ -105,16 +104,17 @@ function formatClock(totalSeconds: number): string {
 
 /**
  * The HR view: joins the same LiveKit room as the candidate, hears the whole
- * interview and can speak to the candidate. The agent never listens to HR;
- * instead it mutes itself when HR talks and waits for "Unmute agent".
+ * interview and can speak to the candidate. The agent never listens to HR: one
+ * button hands HR the floor (their microphone opens and the agent pauses), and
+ * pressing it again gives the interview back to the agent.
  */
 export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, token }: HrRoomProps) {
   const [stage, setStage] = useState<Stage>("joining");
   const [failure, setFailure] = useState<string | null>(null);
   const [connectionStage, setConnectionStage] = useState<ConnectionStage>("connecting");
   const [started, setStart] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [agentMuted, setAgentMuted] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const [hasFloor, setHasFloor] = useState(false);
   const [aiState, setAiState] = useState<AiUiState>("connecting");
   const [interviewerTrack, setInterviewerTrack] = useState<MediaStreamTrack | null>(null);
   const [candidateTrack, setCandidateTrack] = useState<MediaStreamTrack | null>(null);
@@ -128,24 +128,17 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
   const streamRef = useRef<MediaStream | null>(null);
   const publicationRef = useRef<LocalTrackPublication | null>(null);
   const audioElementsRef = useRef<HTMLMediaElement[]>([]);
-  const startedAtRef = useRef<number>(0);
+  const startedAtRef = useRef<number | null>(null);
   const leftIntentionallyRef = useRef(false);
-  const mutedRef = useRef(false);
-  const speechRef = useRef<{
-    speaking: boolean;
-    attack: ReturnType<typeof setTimeout> | null;
-    release: ReturnType<typeof setTimeout> | null;
-  }>({ speaking: false, attack: null, release: null });
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
 
-  useEffect(() => {
-    mutedRef.current = muted;
-  }, [muted]);
+  const agentMuted = hasFloor;
 
   useEffect(() => {
     if (stage !== "connected") return;
     const timer = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - startedAtRef.current) / 1000));
+      const startedAt = startedAtRef.current;
+      setElapsedSeconds(startedAt === null ? 0 : Math.floor((Date.now() - startedAt) / 1000));
     }, 1000);
     return () => clearInterval(timer);
   }, [stage]);
@@ -177,68 +170,6 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
       next[index] = entry;
       return next;
     });
-  }
-
-  /** Reports HR starting and stopping speech, so the agent can step aside. */
-  function watchSpeech(track: MediaStreamTrack) {
-    const context = new AudioContext();
-    if (context.state === "suspended") void context.resume();
-    const source = context.createMediaStreamSource(new MediaStream([track]));
-    const analyser = context.createAnalyser();
-    analyser.fftSize = 1024;
-    source.connect(analyser);
-    const data = new Float32Array(analyser.fftSize);
-    let frame = 0;
-    const state = speechRef.current;
-
-    const finish = () => {
-      if (!state.speaking) return;
-      state.speaking = false;
-      send("hr_speaking_end");
-    };
-
-    const tick = () => {
-      analyser.getFloatTimeDomainData(data);
-      let sum = 0;
-      for (const sample of data) sum += sample * sample;
-      const loud = !mutedRef.current && Math.sqrt(sum / data.length) > SPEECH_RMS_THRESHOLD;
-
-      if (loud) {
-        if (state.release) {
-          clearTimeout(state.release);
-          state.release = null;
-        }
-        if (!state.speaking && !state.attack) {
-          state.attack = setTimeout(() => {
-            state.attack = null;
-            if (mutedRef.current || state.speaking) return;
-            state.speaking = true;
-            setAgentMuted(true);
-            send("hr_speaking_start");
-          }, SPEECH_ATTACK_MS);
-        }
-      } else {
-        if (state.attack) {
-          clearTimeout(state.attack);
-          state.attack = null;
-        }
-        if (state.speaking && !state.release) {
-          state.release = setTimeout(() => {
-            state.release = null;
-            finish();
-          }, SPEECH_RELEASE_MS);
-        }
-      }
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(frame);
-      if (state.attack) clearTimeout(state.attack);
-      if (state.release) clearTimeout(state.release);
-      finish();
-      void context.close().catch(() => {});
-    };
   }
 
   /** Local captions for what HR says, sent to the agent as HR turns. */
@@ -291,7 +222,13 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
     });
     room.on(RoomEvent.ParticipantAttributesChanged, (changed, participant) => {
       if (participant.isLocal || !(AGENT_STATE_ATTRIBUTE in changed)) return;
-      setAiState(toAiState(changed[AGENT_STATE_ATTRIBUTE]));
+      const next = toAiState(changed[AGENT_STATE_ATTRIBUTE]);
+      setAiState(next);
+      // Same rule as the candidate page: the shared clock starts when the
+      // interviewer first speaks (used only when the server had no start yet).
+      if (next === "speaking" && startedAtRef.current === null) {
+        startedAtRef.current = Date.now();
+      }
     });
 
     room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication: RemoteTrackPublication, participant: RemoteParticipant) => {
@@ -320,7 +257,7 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
       streamRef.current?.getTracks().forEach((track) => track.stop());
       if (leftIntentionallyRef.current) return;
       if (reason === DisconnectReason.ROOM_DELETED) {
-        setStage("left");
+        setStage("ended");
         return;
       }
       setFailure("The connection to the interview was lost.");
@@ -392,8 +329,10 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
           publicationRef.current = await room.localParticipant.publishTrack(audio, {
             source: Track.Source.Microphone,
           });
+          // HR listens first; the floor button opens their microphone.
+          await publicationRef.current?.mute().catch(() => {});
           setMicrophoneTrack(audio);
-          watchSpeech(audio);
+          setMuted(true);
         }
 
         await room.startAudio().catch(() => {});
@@ -403,7 +342,18 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
           once: true,
         });
         startRecognition();
-        startedAtRef.current = Date.now();
+        // The interview clock is the server's, not this browser's join time:
+        // HR sees the same time left as the candidate, however late they join.
+        if (typeof credentials.remainingSeconds === "number") {
+          const serverNow = credentials.serverNow ? Date.parse(credentials.serverNow) : Date.now();
+          const skew = Number.isFinite(serverNow) ? serverNow - Date.now() : 0;
+          const elapsed = durationMinutes * 60 - credentials.remainingSeconds;
+          startedAtRef.current = Date.now() - elapsed * 1000 - skew;
+          setElapsedSeconds(Math.max(0, Math.floor(elapsed)));
+        } else {
+          startedAtRef.current = null;
+          setElapsedSeconds(0);
+        }
         send("hr_present");
         setStage("connected");
         setConnectionStage("connected");
@@ -426,28 +376,30 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started]);
 
-  async function handleToggleMute() {
+  /**
+   * One button, two jobs. Off: HR is muted and the agent runs the interview.
+   * On: HR's microphone opens and the agent pauses. Pressing it again hands
+   * the interview straight back to the agent.
+   */
+  async function handleToggleFloor() {
     const publication = publicationRef.current;
     if (!publication) return;
-    if (muted) {
-      await publication.unmute();
+    if (!hasFloor) {
+      await publication.unmute().catch(() => {});
+      setMuted(false);
+      setHasFloor(true);
+      send("hr_speaking_start");
     } else {
-      await publication.mute();
-      if (speechRef.current.speaking) {
-        speechRef.current.speaking = false;
-        send("hr_speaking_end");
-      }
+      send("hr_unmute");
+      setHasFloor(false);
+      setMuted(true);
+      await publication.mute().catch(() => {});
     }
-    setMuted(!muted);
-  }
-
-  async function handleUnmuteAgent() {
-    send("hr_unmute");
-    setAgentMuted(false);
   }
 
   async function handleLeave() {
     leftIntentionallyRef.current = true;
+    if (hasFloor) send("hr_unmute");
     recognitionRef.current?.stop();
     await roomRef.current?.disconnect();
     roomRef.current = null;
@@ -483,7 +435,9 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
             </li>
             <li className="flex gap-2">
               <Mic className="mt-0.5 size-4 shrink-0" aria-hidden />
-              When you speak, the AI interviewer goes quiet until you press Unmute agent.
+              Press <span className="font-semibold text-white/80">Speak</span> to talk to the
+              candidate: the AI pauses while your microphone is open. Press it again to hand the
+              interview back.
             </li>
             <li className="flex gap-2">
               <MicOff className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -542,6 +496,22 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
     );
   }
 
+  if (stage === "ended") {
+    return (
+      <main className="interview-stage grid min-h-dvh place-items-center bg-[#08123a] px-6 text-white">
+        <div className="max-w-md text-center">
+          <span className="mx-auto grid size-16 place-items-center rounded-full bg-white/10">
+            <Check className="size-7" aria-hidden />
+          </span>
+          <h1 className="mt-4 text-xl font-semibold">The interview has ended</h1>
+          <p className="mt-2 text-sm text-white/70">
+            It finished at the scheduled time for the candidate and for you. You can close this page.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   if (stage === "left") {
     return (
       <main className="interview-stage grid min-h-dvh place-items-center bg-[#08123a] px-6 text-white">
@@ -593,16 +563,8 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
         <div className="mx-4 mb-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-2.5 text-sm text-amber-200 sm:mx-8">
           <span className="flex items-center gap-2">
             <VolumeX className="size-4 shrink-0" aria-hidden />
-            Agent is on mute until you speak. Press Unmute agent to continue the interview.
+            The agent is paused while you have the floor. Press the button again when you are done.
           </span>
-          <button
-            type="button"
-            onClick={handleUnmuteAgent}
-            className="inline-flex items-center gap-1.5 rounded-full bg-amber-400 px-3.5 py-1.5 text-xs font-semibold text-[#08123a] transition hover:bg-amber-300"
-          >
-            <Volume2 className="size-3.5" aria-hidden />
-            Unmute agent
-          </button>
         </div>
       )}
 
@@ -663,26 +625,17 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
         <div className="flex items-center gap-2 rounded-full border border-white/10 bg-[#0d1838]/80 p-2 backdrop-blur">
           <button
             type="button"
-            onClick={handleToggleMute}
-            aria-label={muted ? "Unmute your microphone" : "Mute your microphone"}
-            className={`inline-flex h-12 min-w-12 items-center justify-center rounded-full transition ${
-              muted ? "bg-white text-[#0b1640]" : "bg-white/10 text-white hover:bg-white/15"
-            }`}
-          >
-            {muted ? <MicOff className="size-5" aria-hidden /> : <Mic className="size-5" aria-hidden />}
-          </button>
-          <button
-            type="button"
-            onClick={handleUnmuteAgent}
-            aria-label="Unmute agent"
+            onClick={handleToggleFloor}
+            aria-pressed={hasFloor}
+            aria-label={hasFloor ? "Let the agent continue" : "Speak to the candidate"}
             className={`inline-flex h-12 items-center gap-2 rounded-full px-4 text-sm font-semibold transition ${
-              agentMuted
+              hasFloor
                 ? "bg-amber-400 text-[#08123a] hover:bg-amber-300"
-                : "bg-white/10 text-white hover:bg-white/15"
+                : "bg-white text-[#0b1640] hover:bg-white/90"
             }`}
           >
-            <Volume2 className="size-5" aria-hidden />
-            Unmute agent
+            {hasFloor ? <MicOff className="size-5" aria-hidden /> : <Mic className="size-5" aria-hidden />}
+            {hasFloor ? "Let agent continue" : "Speak"}
           </button>
           <button
             type="button"

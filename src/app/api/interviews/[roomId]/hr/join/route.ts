@@ -6,6 +6,7 @@ import { validateRoomAccess } from "@/lib/interviews/interview.service";
 import { hrJoinSchema, roomIdSchema } from "@/lib/interviews/interview.validation";
 import { getLiveKitRoomName } from "@/lib/livekit/room";
 import { generateLiveKitToken } from "@/lib/livekit/token";
+import { reconnectStateFor } from "@/lib/interviews/reconnect.service";
 import { getInterviewRepository } from "@/server/repositories";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
@@ -55,6 +56,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const identity = `hr-${randomUUID()}`;
   try {
+    // The interview clock is shared, not restarted when HR joins: the same
+    // event log the candidate's rejoin gate reads says how much time is left.
+    const repository = getInterviewRepository();
+    const events = await repository.getEvents(roomId);
+    const clock = reconnectStateFor(access.room, events);
     const credentials = await generateLiveKitToken({
       roomName: getLiveKitRoomName(roomId),
       identity,
@@ -63,10 +69,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // to them, it only steps aside while they talk.
       canPublish: true,
     });
-    await getInterviewRepository().appendEvents(roomId, [
+    await repository.appendEvents(roomId, [
       { type: "hr_joined", at: new Date().toISOString(), data: { identity } },
     ]);
-    return NextResponse.json({ ...credentials, identity });
+    return NextResponse.json({
+      ...credentials,
+      identity,
+      // Present once the interview has started: how much of the duration is
+      // left on the server's clock, so HR's timer matches the candidate's.
+      remainingSeconds: clock.kind === "active" ? clock.remainingSeconds : undefined,
+      serverNow: new Date().toISOString(),
+    });
   } catch (error) {
     console.error("HR LiveKit token generation failed:", error);
     return interviewErrorResponse(

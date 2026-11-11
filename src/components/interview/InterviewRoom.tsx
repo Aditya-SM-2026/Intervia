@@ -83,6 +83,7 @@ export function InterviewRoom({
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [startedAtMs, setStartedAtMs] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [hrNotice, setHrNotice] = useState(false);
 
   const roomRef = useRef<Room | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -94,6 +95,7 @@ export function InterviewRoom({
   const recorderRef = useRef<CandidateRecorder | null>(null);
   const leftIntentionallyRef = useRef(false);
   const agentJoinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hrNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * Server-side deadline. The interviewer agent normally ends the interview;
    * if it never joins (or hangs), the candidate's session must still end when
@@ -105,6 +107,8 @@ export function InterviewRoom({
   function releaseMedia() {
     if (agentJoinTimerRef.current) clearTimeout(agentJoinTimerRef.current);
     agentJoinTimerRef.current = null;
+    if (hrNoticeTimerRef.current) clearTimeout(hrNoticeTimerRef.current);
+    hrNoticeTimerRef.current = null;
     if (hardStopTimerRef.current) clearTimeout(hardStopTimerRef.current);
     hardStopTimerRef.current = null;
     // Stop recording before the tracks end, so the last piece is uploaded.
@@ -175,6 +179,34 @@ export function InterviewRoom({
     });
   }
 
+  function announceHr() {
+    setHrNotice(true);
+    if (hrNoticeTimerRef.current) clearTimeout(hrNoticeTimerRef.current);
+    hrNoticeTimerRef.current = setTimeout(() => setHrNotice(false), 5000);
+    // A soft two-note chime, quiet enough not to break the conversation.
+    try {
+      const context = new AudioContext();
+      const start = context.currentTime;
+      [660, 880].forEach((frequency, index) => {
+        const at = start + index * 0.16;
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.value = frequency;
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.05, at + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(at);
+        oscillator.stop(at + 0.18);
+      });
+      setTimeout(() => void context.close().catch(() => {}), 900);
+    } catch {
+      // Sound is optional; the notice still shows.
+    }
+  }
+
   function wireRoom(room: Room) {
     const isAgent = (participant: RemoteParticipant) =>
       participant.kind === ParticipantKind.AGENT;
@@ -188,6 +220,8 @@ export function InterviewRoom({
 
     room.on(RoomEvent.ParticipantConnected, (participant) => {
       if (isAgent(participant)) onAgentPresent(participant);
+      // HR joining is quiet: a small notice and a chime, never a pause.
+      else if (participant.identity.startsWith("hr-")) announceHr();
     });
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
       if (isAgent(participant)) setAiState("disconnected");
@@ -329,6 +363,10 @@ export function InterviewRoom({
           );
         }, AGENT_JOIN_TIMEOUT_MS);
       }
+      // HR may already be waiting in the room before the candidate arrives.
+      if ([...room.remoteParticipants.values()].some((participant) => participant.identity.startsWith("hr-"))) {
+        announceHr();
+      }
 
       setConnectionStage("connected");
       setStage("connected");
@@ -437,6 +475,7 @@ export function InterviewRoom({
         cameraOff={cameraOff}
         transcript={transcript}
         showConversation={showConversation}
+        hrNotice={hrNotice}
         audioBlocked={audioBlocked}
         onToggleConversation={() => setShowConversation((shown) => !shown)}
         onToggleMute={handleToggleMute}
