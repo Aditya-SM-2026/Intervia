@@ -1,4 +1,5 @@
 import "server-only";
+import { randomBytes } from "node:crypto";
 import { ZodError } from "zod";
 import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
 import {
@@ -24,6 +25,7 @@ import type {
   ApplicationField,
   ApplicationStatus,
   PublicApplicationState,
+  PublicResumeUpdateState,
   RoleApplication,
   RoleFormLink,
   RoleFormLinkResponse,
@@ -36,6 +38,13 @@ import {
   closedReasonMessage,
   formLinkStatus,
 } from "@/lib/roles/form-link-status";
+import {
+  isResumeUpdateOpen,
+  isResumeUpdateToken,
+  resumeUpdateExpiresAt,
+  samePhone,
+} from "@/lib/roles/resume-update";
+import { screenApplication } from "@/lib/screening/screening.service";
 
 /**
  * The shareable application form on top of the roles repository. All input
@@ -44,6 +53,11 @@ import {
  */
 
 const MAX_APPLICATIONS_PAGE = 100;
+
+/** 24 random bytes, URL-safe: the private resume-replacement credential. */
+function newResumeUpdateToken(): string {
+  return randomBytes(24).toString("base64url");
+}
 
 function repository() {
   return getRolesRepository();
@@ -221,7 +235,16 @@ export async function getPublicApplicationState(
 }
 
 export type SubmitApplicationResult =
-  | { ok: true; applicationId: string }
+  | {
+      ok: true;
+      applicationId: string;
+      /** Null when an existing application was refreshed instead of created. */
+      resumeUpdateToken: string | null;
+      /** True when this submission replaced the resume on an earlier one. */
+      updated: boolean;
+      /** The file that was replaced, when this was an update. */
+      previousFileName: string | null;
+    }
   | { ok: false; code: "token" | "invalid" | "duplicate" | "closed"; message: string };
 
 /**
@@ -291,7 +314,26 @@ export async function submitApplication(
     return { ok: false, code: "invalid", message: messages[validation.reason] };
   }
 
-  const applicationId = newApplicationId();
+  // A second submission with the same email is not a duplicate to refuse: the
+  // candidate is usually fixing a wrong resume. The phone on the application
+  // has to match, so knowing an email alone is not enough to change it.
+  const existing = await repository().getApplicationByEmail(role.id, identity.email);
+  if (existing && existing.status === "rejected") {
+    return {
+      ok: false,
+      code: "closed",
+      message: "This application is closed, so its resume can no longer be changed.",
+    };
+  }
+  if (existing && !samePhone(existing.phone, identity.phone)) {
+    return {
+      ok: false,
+      code: "duplicate",
+      message: `You have already applied for ${role.title} with this email address. To replace your resume, use the same phone number you applied with.`,
+    };
+  }
+
+  const applicationId = existing?.id ?? newApplicationId();
   const data = Buffer.from(await file.arrayBuffer());
   const stored = await storeResumeFile(
     applicationId,
@@ -309,27 +351,84 @@ export async function submitApplication(
     }
   }
 
+  const collegeId = identity.collegeId?.trim() ? identity.collegeId.trim() : null;
+
+  if (existing) {
+    const updated = await repository().refreshApplication(existing.id, {
+      name: identity.name,
+      collegeId,
+      answers,
+      fileName: file.name,
+      text,
+      objectPath: stored.objectPath,
+      updatedAt: new Date().toISOString(),
+    });
+    if (!updated) {
+      return {
+        ok: false,
+        code: "duplicate",
+        message: `You have already applied for ${role.title} with this email address.`,
+      };
+    }
+    if (role.screeningEnabled !== false) {
+      queueScreening(role.id, updated.id);
+    }
+    return {
+      ok: true,
+      applicationId: updated.id,
+      resumeUpdateToken: null,
+      updated: true,
+      previousFileName: existing.resumeFileName,
+    };  }
+
+  const resumeUpdateToken = newResumeUpdateToken();
   const created = await repository().createApplication({
     id: applicationId,
     roleId: role.id,
     name: identity.name,
     phone: identity.phone,
     email: identity.email,
-    collegeId: identity.collegeId?.trim() ? identity.collegeId.trim() : null,
+    collegeId,
     answers,
     resumeFileName: file.name,
     resumeText: text,
     resumeObjectPath: stored.objectPath,
+    resumeUpdateToken,
   });
 
   if (!created) {
     return {
       ok: false,
       code: "duplicate",
-      message: `You have already applied for ${role.title} with this email address.`,
+      message: `You have already applied for ${role.title} with this email address. If your resume needs replacing, open the private link you were shown after applying.`,
     };
   }
-  return { ok: true, applicationId: created.id };
+  if (role.screeningEnabled !== false) {
+    queueScreening(role.id, created.id);
+  }
+  return {
+    ok: true,
+    applicationId: created.id,
+    resumeUpdateToken,
+    updated: false,
+    previousFileName: null,
+  };
+}
+
+/**
+ * Screens a freshly received application in the background. The candidate's
+ * confirmation must not wait 2-6 seconds for a model call, and a failure here
+ * is not their problem: the application is already stored, and the recruiter
+ * can re-run it from the role page.
+ */
+export function queueScreening(roleId: string, applicationId: string): void {
+  void screenApplication(roleId, applicationId).catch((error: unknown) => {
+    console.warn(
+      `[screening] ${applicationId} could not be screened: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  });
 }
 
 /** Every application for a role, newest first. Null when the role is unknown. */
@@ -373,6 +472,110 @@ export async function getApplicationResumeFile(
   applicationId: string,
 ): Promise<{ fileName: string | null; objectPath: string | null; text: string } | null> {
   return repository().getApplicationResume(roleId, applicationId);
+}
+
+// ---------------------------------------------------------------------------
+// Replacing the resume after the application was sent
+// ---------------------------------------------------------------------------
+
+const RESUME_UPDATE_EXPIRED = "This resume link has expired. Ask the recruiting team for help.";
+const RESUME_UPDATE_REJECTED = "This application is closed, so its resume can no longer be changed.";
+
+/**
+ * What the candidate's private replace page shows: the role, the file on
+ * record, and whether replacement is still allowed. Null when the token is
+ * unknown.
+ */
+export async function getResumeUpdateState(
+  token: string,
+): Promise<PublicResumeUpdateState | null> {
+  if (!isResumeUpdateToken(token)) return null;
+  const application = await repository().getApplicationByResumeToken(token);
+  if (!application) return null;
+  const role = await repository().getRole(application.roleId);
+  const expiresAt = resumeUpdateExpiresAt(application);
+  const withinWindow = isResumeUpdateOpen(application);
+  const open = withinWindow && application.status !== "rejected";
+  return {
+    roleTitle: role?.title ?? "this role",
+    candidateName: application.name,
+    fileName: application.resumeFileName,
+    updatedAt: application.resumeUpdatedAt,
+    expiresAt,
+    open,
+    closedMessage: open
+      ? null
+      : application.status === "rejected"
+        ? RESUME_UPDATE_REJECTED
+        : RESUME_UPDATE_EXPIRED,
+  };
+}
+
+export type ReplaceResumeResult =
+  | { ok: true; fileName: string; updatedAt: string }
+  | { ok: false; code: "token" | "expired" | "closed" | "invalid"; message: string };
+
+/**
+ * Swaps the resume on an existing application. Only the file changes: name,
+ * answers, status and any booked interview stay exactly as they were, so the
+ * candidate never has to fill the form again.
+ */
+export async function replaceApplicationResume(
+  token: string,
+  file: File,
+): Promise<ReplaceResumeResult> {
+  if (!isResumeUpdateToken(token)) {
+    return { ok: false, code: "token", message: "This resume link is not valid." };
+  }
+  const application = await repository().getApplicationByResumeToken(token);
+  if (!application) {
+    return { ok: false, code: "token", message: "This resume link is not valid." };
+  }
+  if (application.status === "rejected") {
+    return { ok: false, code: "closed", message: RESUME_UPDATE_REJECTED };
+  }
+  if (!isResumeUpdateOpen(application)) {
+    return { ok: false, code: "expired", message: RESUME_UPDATE_EXPIRED };
+  }
+
+  const validation = validateResumeUpload({ name: file.name, size: file.size });
+  if (!validation.ok) {
+    const messages = {
+      empty: "The resume file is empty.",
+      too_large: "The resume must be smaller than 10 MB.",
+      unsupported_type: "Attach your resume as a PDF, DOC or DOCX file.",
+    } as const;
+    return { ok: false, code: "invalid", message: messages[validation.reason] };
+  }
+
+  const data = Buffer.from(await file.arrayBuffer());
+  const stored = await storeResumeFile(
+    application.id,
+    validation.kind as ResumeUploadFileKind,
+    data,
+    file.name,
+  );
+
+  let text = "";
+  if (validation.kind === "pdf") {
+    try {
+      text = await extractPdfText(file, "Resume");
+    } catch (error) {
+      if (!(error instanceof PdfExtractionError)) throw error;
+    }
+  }
+
+  const updatedAt = new Date().toISOString();
+  const updated = await repository().replaceApplicationResume(application.id, {
+    fileName: file.name,
+    text,
+    objectPath: stored.objectPath,
+    updatedAt,
+  });
+  if (!updated) {
+    return { ok: false, code: "token", message: "This resume link is not valid." };
+  }
+  return { ok: true, fileName: file.name, updatedAt };
 }
 
 function asText(value: FormDataEntryValue | null): string | undefined {

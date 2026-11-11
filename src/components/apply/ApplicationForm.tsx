@@ -95,6 +95,11 @@ export function ApplicationForm({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [resumeToken, setResumeToken] = useState<string | null>(null);
+  const [update, setUpdate] = useState<{
+    previousFileName: string | null;
+    fileName: string | null;
+  } | null>(null);
 
 
   const byId = (id: string) => fields.find((field) => field.id === id && field.system);
@@ -160,10 +165,25 @@ export function ApplicationForm({
         body,
       });
       const data = (await response.json().catch(() => null)) as
-        | { error?: { message?: string } }
+        | {
+            resumeToken?: string | null;
+            updated?: boolean;
+            previousFileName?: string | null;
+            fileName?: string | null;
+            error?: { message?: string };
+          }
         | null;
       if (!response.ok) {
         throw new Error(data?.error?.message ?? "Could not send your application. Please try again.");
+      }
+      if (typeof data?.resumeToken === "string" && data.resumeToken !== "") {
+        setResumeToken(data.resumeToken);
+      }
+      if (data?.updated) {
+        setUpdate({
+          previousFileName: data.previousFileName ?? null,
+          fileName: data.fileName ?? null,
+        });
       }
       setDone(true);
     } catch (cause) {
@@ -188,12 +208,48 @@ export function ApplicationForm({
         >
           <Check className="size-6" />
         </span>
-        <h1 className="mt-4 text-xl font-semibold">Application sent</h1>
-        <p className="mt-2 text-sm text-muted">
-          Thanks, {name.trim().split(/\s+/)[0] || "there"}. Your details and resume are with the
-          hiring team for <strong className="text-foreground">{roleTitle}</strong>. They will
-          contact you at {email.trim()} if there is a next step.
-        </p>
+        <h1 className="mt-4 text-xl font-semibold">
+          {update ? "Application updated" : "Application sent"}
+        </h1>
+        {update ? (
+          <p className="mt-2 text-sm text-muted">
+            Thanks, {name.trim().split(/\s+/)[0] || "there"}. We found your earlier application
+            for <strong className="text-foreground">{roleTitle}</strong> with this email and phone,
+            and replaced the resume on it. Nothing else you filled in has changed.
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-muted">
+            Thanks, {name.trim().split(/\s+/)[0] || "there"}. Your details and resume are with the
+            hiring team for <strong className="text-foreground">{roleTitle}</strong>. They will
+            contact you at {email.trim()} if there is a next step.
+          </p>
+        )}
+        {update && (
+          <div className="mt-5 rounded-xl border border-border bg-background/50 p-4 text-left text-sm">
+            <p className="text-xs uppercase tracking-wide text-muted">Resume on your application</p>
+            <p className="mt-1 font-medium">{update.fileName ?? "your new file"}</p>
+            {update.previousFileName && update.previousFileName !== update.fileName && (
+              <p className="mt-1 text-xs text-muted">
+                It replaced {update.previousFileName}, which the hiring team will no longer see.
+              </p>
+            )}
+          </div>
+        )}
+        {resumeToken && (
+          <div className="mt-6 rounded-xl border border-border bg-background/50 p-4 text-left">
+            <p className="text-sm font-medium">Uploaded the wrong file?</p>
+            <p className="mt-1 text-xs text-muted">
+              This private link lets you replace your resume. Keep it to yourself: anyone who has
+              it can change the file on your application.
+            </p>
+            <a
+              href={`/apply/resume/${encodeURIComponent(resumeToken)}`}
+              className="mt-3 inline-flex h-10 items-center rounded-lg border border-border px-3.5 text-sm font-medium transition hover:border-foreground/25 hover:bg-foreground/[0.03]"
+            >
+              Replace my resume
+            </a>
+          </div>
+        )}
       </div>
     );
   }
@@ -470,7 +526,8 @@ export function ApplicationForm({
         {preview ? "Preview only" : submitting ? "Sending…" : "Send application"}
       </button>
       <p className="mt-3 text-center text-xs text-muted">
-        One application per email address for this role.
+        One application per email address for this role. Applied before? Sending again with the
+        same email and phone replaces the resume on your existing application.
       </p>
     </form>
   );

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { groundProfile, isGrounded, statedYears } from "./resume-profile";
+import { groundProfile, isGrounded, statedYears } from "./resume-profile.ts";
 
 // Shaped like a real resume (names made up where they are not the point).
 const RESUME = `PRANJUL GUPTA SAP BW/4HANA Consultant | 5 Years of Experience

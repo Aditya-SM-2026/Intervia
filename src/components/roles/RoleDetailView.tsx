@@ -34,6 +34,8 @@ import { countPipeline, PIPELINE_STEPS, pipelineStep, scoreTone, type PipelineSt
 import type { ApplicationField } from "@/lib/roles/application.types";
 import { documentFacts } from "@/lib/text/document-blocks";
 import { ApplicationFormSettings } from "@/components/roles/ApplicationFormSettings";
+import { ScreeningSettings } from "@/components/roles/ScreeningSettings";
+import { ApplicationScreening } from "@/components/roles/ApplicationScreening";
 import { RoleFormSheet } from "@/components/roles/RoleFormSheet";
 import { RoleIcon } from "@/components/roles/RoleIcon";
 import { Pagination } from "@/components/dashboard/Pagination";
@@ -678,6 +680,10 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       {/* ------------------------------------------------- application form */}
       <ApplicationFormSettings roleId={roleId} roleTitle={role.title} roleDescription={role.description} />
 
+      <div className="mt-4">
+        <ScreeningSettings roleId={roleId} />
+      </div>
+
       {/* ------------------------------------------------------------ views */}
       <section className="mt-8" aria-label="Candidates">
         <StageTabs value={tab} onChange={selectTab} total={rows?.length ?? 0} />
@@ -835,6 +841,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                         </th>
                         <SortableHeader label="Candidate" column="candidate" sort={sort} onSort={toggleSort} />
                         <th scope="col" className="px-3 py-2.5 font-medium">Stage</th>
+                        <th scope="col" className="px-3 py-2.5 font-medium">Match</th>
                         <SortableHeader label="Score" column="score" sort={sort} onSort={toggleSort} />
                         <SortableHeader label="Date" column="applied" sort={sort} onSort={toggleSort} />
                         <th scope="col" className="px-3 py-2.5 font-medium">Outcome</th>
@@ -886,6 +893,15 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                                 <span aria-hidden className={`size-1.5 rounded-full ${step.dot}`} />
                                 {step.step === "closed" ? "Rejected" : step.label}
                               </span>
+                            </td>
+                            <td className="px-3 py-3">
+                              {candidate.screeningScore === null || candidate.screeningScore === undefined ? (
+                                <span className="text-muted">—</span>
+                              ) : (
+                                <span className={`inline-flex min-w-9 justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${scoreTone(candidate.screeningScore).text} bg-foreground/[0.04]`}>
+                                  {Math.round(candidate.screeningScore)}
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-3">
                               {score === null ? (
@@ -1028,6 +1044,10 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                   <ExternalLink className="size-3.5 text-muted" aria-hidden />
                 </a>
               </div>
+            )}
+
+            {application.applicationId && (
+              <ApplicationScreening roleId={roleId} applicationId={application.applicationId} />
             )}
           </div>
         )}

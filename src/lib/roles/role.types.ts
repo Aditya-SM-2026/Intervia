@@ -1,5 +1,6 @@
 import type { HumanDecision, InterviewStatus } from "@/lib/interviews/interview.types";
 import type { ScoreSuggestion } from "@/lib/interviews/scorecard.types";
+import type { ScreeningWeights } from "@/lib/screening/types";
 
 /** Lifecycle of a hiring role. */
 export type RoleStatus = "open" | "completed";
@@ -14,6 +15,10 @@ export interface Role {
   /** Hiring deadline or target closing date, YYYY-MM-DD; null when open-ended. */
   deadline: string | null;
   status: RoleStatus;
+  /** Whether new applications get screened against this role. */
+  screeningEnabled?: boolean;
+  /** The six section weights, in percent. Absent means the defaults. */
+  screeningWeights?: ScreeningWeights;
   createdAt: string;
   updatedAt: string;
 }
@@ -70,6 +75,10 @@ export interface RoleCandidateSummary {
   candidateCollegeId?: string | null;
   /** Answers to the role's extra form fields, keyed by field id. */
   answers?: Record<string, string> | null;
+  /** Resume screening total for the application, when it has been screened. */
+  screeningScore?: number | null;
+  /** "scored" | "not_screened" | "failed"; null when never screened. */
+  screeningStatus?: string | null;
 }
 
 /** One interview of a candidate inside a role, with its scorecard summary. */

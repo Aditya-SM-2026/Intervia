@@ -20,6 +20,13 @@ import type {
   RoleFormLink,
 } from "@/lib/roles/application.types";
 import {
+  DEFAULT_SCREENING_WEIGHTS,
+  type ScreeningSnapshot,
+  type ScreeningWeights,
+  type SectionResult,
+} from "@/lib/screening/types";
+import { sanitizeWeights } from "@/lib/screening/score";
+import {
   aggregateCandidates,
   computeRoleStats,
   matchesRoleAssociation,
@@ -71,6 +78,8 @@ export interface CreateApplicationRow {
   resumeFileName: string | null;
   resumeText: string;
   resumeObjectPath: string | null;
+  /** Private token the candidate uses to replace this resume later. */
+  resumeUpdateToken: string;
 }
 
 /** Roles are linked to interviews two ways: by id (new) or legacy title match. */
@@ -114,6 +123,31 @@ export interface RoleRepository {
     candidateId: string,
   ): Promise<{ fileName: string | null; text: string } | null>;
 
+  // --- Resume screening ---------------------------------------------------------
+  /** Whether screening runs for this role, and the six section weights. */
+  getRoleScreeningSettings(
+    roleId: string,
+  ): Promise<{ enabled: boolean; weights: ScreeningWeights } | null>;
+  updateRoleScreeningSettings(
+    roleId: string,
+    settings: { enabled: boolean; weights: ScreeningWeights },
+  ): Promise<{ enabled: boolean; weights: ScreeningWeights } | null>;
+  /** Resume text and the hash of the last screening, for one application. */
+  getApplicationResumeText(
+    roleId: string,
+    applicationId: string,
+  ): Promise<{ fileName: string | null; text: string; inputHash: string | null } | null>;
+  saveApplicationScreening(applicationId: string, snapshot: ScreeningSnapshot): Promise<void>;
+  /** Applications without a result yet, oldest first, for the backfill job. */
+  listUnscreenedApplications(
+    roleId: string,
+    limit: number,
+  ): Promise<{ id: string; hasText: boolean }[]>;
+  /** Score per application, for the candidate table. */
+  getApplicationScreeningScores(
+    roleId: string,
+  ): Promise<Map<string, { score: number | null; status: string; sections: SectionResult[] }>>;
+
   // --- Public application form -------------------------------------------------
   /** The role's form link row (active or revoked), or null when none exists. */
   getFormLink(roleId: string): Promise<RoleFormLink | null>;
@@ -156,6 +190,40 @@ export interface RoleRepository {
     roleId: string,
     applicationId: string,
   ): Promise<{ fileName: string | null; objectPath: string | null; text: string } | null>;
+  /** The application this email already sent to this role, or null. */
+  getApplicationByEmail(roleId: string, email: string): Promise<RoleApplication | null>;
+  /**
+   * Rewrites the candidate-editable parts of an application: name, roll
+   * number, answers and the resume. Status, interview link and creation time
+   * are deliberately left alone.
+   */
+  refreshApplication(
+    applicationId: string,
+    patch: {
+      name: string;
+      collegeId: string | null;
+      answers: Record<string, string>;
+      fileName: string;
+      text: string;
+      objectPath: string | null;
+      updatedAt: string;
+    },
+  ): Promise<RoleApplication | null>;
+  /** The application a resume-replacement token belongs to, or null. */
+  getApplicationByResumeToken(token: string): Promise<RoleApplication | null>;
+  /**
+   * Swaps the resume stored on one application. Everything else on the
+   * application (answers, status, interview link) is left untouched.
+   */
+  replaceApplicationResume(
+    applicationId: string,
+    resume: {
+      fileName: string;
+      text: string;
+      objectPath: string | null;
+      updatedAt: string;
+    },
+  ): Promise<RoleApplication | null>;
 }
 
 export function newRoleId(): string {
@@ -226,14 +294,33 @@ CREATE TABLE IF NOT EXISTS role_applications (
   resume_file_name TEXT,
   resume_text TEXT,
   resume_object_path TEXT,
+  resume_update_token TEXT,
+  resume_updated_at TIMESTAMPTZ,
   status TEXT NOT NULL DEFAULT 'new',
   interview_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS resume_update_token TEXT;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS resume_updated_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS role_applications_resume_update_token_idx
+  ON role_applications (resume_update_token);
 CREATE UNIQUE INDEX IF NOT EXISTS role_applications_role_email_idx
   ON role_applications (role_id, lower(email));
 CREATE INDEX IF NOT EXISTS role_applications_role_created_idx
   ON role_applications (role_id, created_at DESC);
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS screening_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS screening_weights JSONB;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_status TEXT;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_score INT;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_sections JSONB;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_keywords JSONB;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_summary TEXT;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_model TEXT;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_cost_usd NUMERIC;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_at TIMESTAMPTZ;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_input_hash TEXT;
+CREATE INDEX IF NOT EXISTS role_applications_role_screening_idx
+  ON role_applications (role_id, screening_status);
 `;
 
 function getPool(): Pool {
@@ -267,6 +354,8 @@ interface RolePgRow {
   skills: unknown;
   deadline: string | null;
   status: string;
+  screening_enabled: boolean | null;
+  screening_weights: unknown;
   created_at: Date;
   updated_at: Date;
 }
@@ -279,6 +368,8 @@ function rowToRole(row: RolePgRow): Role {
     skills: Array.isArray(row.skills) ? row.skills.filter((s): s is string => typeof s === "string") : [],
     deadline: row.deadline,
     status: row.status === "completed" ? "completed" : "open",
+    screeningEnabled: row.screening_enabled ?? true,
+    screeningWeights: sanitizeWeights(row.screening_weights),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -322,9 +413,51 @@ interface ApplicationPgRow {
   resume_file_name: string | null;
   resume_text: string | null;
   resume_object_path: string | null;
+  resume_updated_at: Date | null;
   status: string;
   interview_id: string | null;
+  screening_status: string | null;
+  screening_score: number | null;
+  screening_sections: unknown;
+  screening_keywords: unknown;
+  screening_summary: string | null;
+  screening_model: string | null;
+  screening_cost_usd: string | null;
+  screening_at: Date | null;
+  screening_input_hash: string | null;
   created_at: Date;
+}
+
+/** Assembles the stored screening columns into the shape the app reads. */
+function rowToScreening(row: ApplicationPgRow): ScreeningSnapshot | null {
+  const status = row.screening_status;
+  if (status !== "scored" && status !== "not_screened" && status !== "failed") return null;
+  if (!row.screening_at) return null;
+  const sections = Array.isArray(row.screening_sections) ? row.screening_sections : [];
+  const keywords =
+    row.screening_keywords && typeof row.screening_keywords === "object"
+      ? (row.screening_keywords as ScreeningSnapshot["keywords"])
+      : { matched: [], missing: [] };
+  const scoredSections = sections.filter(
+    (section) =>
+      typeof section === "object" &&
+      section !== null &&
+      (section as { status?: string }).status === "scored",
+  ).length;
+  return {
+    status,
+    score: row.screening_score ?? null,
+    sections: sections as ScreeningSnapshot["sections"],
+    keywords,
+    summary: row.screening_summary ?? "",
+    reason: null,
+    model: row.screening_model,
+    costUsd: row.screening_cost_usd === null ? null : Number(row.screening_cost_usd),
+    createdAt: row.screening_at.toISOString(),
+    inputHash: row.screening_input_hash ?? "",
+    scoredSections,
+    weightedSections: scoredSections,
+  };
 }
 
 function rowToApplication(row: ApplicationPgRow): RoleApplication {
@@ -341,15 +474,19 @@ function rowToApplication(row: ApplicationPgRow): RoleApplication {
         : {},
     resumeFileName: row.resume_file_name,
     resumeObjectPath: row.resume_object_path,
+    resumeUpdatedAt: row.resume_updated_at ? row.resume_updated_at.toISOString() : null,
     hasResumeText: Boolean(row.resume_text && row.resume_text.trim() !== ""),
     status: row.status === "rejected" || row.status === "scheduled" ? row.status : "new",
     interviewId: row.interview_id,
+    screening: rowToScreening(row),
     createdAt: row.created_at.toISOString(),
   };
 }
 
 const APPLICATION_COLUMNS = `id, role_id, name, phone, email, college_id, answers,
-  resume_file_name, resume_text, resume_object_path, status, interview_id, created_at`;
+  resume_file_name, resume_text, resume_object_path, resume_updated_at, status, interview_id,
+  screening_status, screening_score, screening_sections, screening_keywords, screening_summary,
+  screening_model, screening_cost_usd, screening_at, screening_input_hash, created_at`;
 
 function decisionFromJson(value: unknown): HumanDecision | null {
   if (!value || typeof value !== "object") return null;
@@ -918,8 +1055,8 @@ export function getPostgresRolesRepository(): RoleRepository {
         const result = await getPool().query(
           `INSERT INTO role_applications
              (id, role_id, name, phone, email, college_id, answers,
-              resume_file_name, resume_text, resume_object_path)
-           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+              resume_file_name, resume_text, resume_object_path, resume_update_token)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11)
            RETURNING ${APPLICATION_COLUMNS}`,
           [
             input.id,
@@ -932,6 +1069,7 @@ export function getPostgresRolesRepository(): RoleRepository {
             input.resumeFileName,
             input.resumeText,
             input.resumeObjectPath,
+            input.resumeUpdateToken,
           ],
         );
         return rowToApplication(result.rows[0] as ApplicationPgRow);
@@ -1010,6 +1148,254 @@ export function getPostgresRolesRepository(): RoleRepository {
         text: row.resume_text ?? "",
       };
     },
+
+    async getRoleScreeningSettings(
+      roleId: string,
+    ): Promise<{ enabled: boolean; weights: ScreeningWeights } | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT screening_enabled, screening_weights FROM roles WHERE id = $1`,
+        [roleId],
+      );
+      const row = result.rows[0] as
+        | { screening_enabled: boolean | null; screening_weights: unknown }
+        | undefined;
+      if (!row) return null;
+      return {
+        enabled: row.screening_enabled ?? true,
+        weights: sanitizeWeights(row.screening_weights),
+      };
+    },
+
+    async updateRoleScreeningSettings(
+      roleId: string,
+      settings: { enabled: boolean; weights: ScreeningWeights },
+    ): Promise<{ enabled: boolean; weights: ScreeningWeights } | null> {
+      await ensureSchema();
+      const weights = sanitizeWeights(settings.weights);
+      const result = await getPool().query(
+        `UPDATE roles
+         SET screening_enabled = $2, screening_weights = $3::jsonb, updated_at = now()
+         WHERE id = $1
+         RETURNING screening_enabled, screening_weights`,
+        [roleId, settings.enabled, JSON.stringify(weights)],
+      );
+      const row = result.rows[0] as
+        | { screening_enabled: boolean | null; screening_weights: unknown }
+        | undefined;
+      if (!row) return null;
+      return {
+        enabled: row.screening_enabled ?? true,
+        weights: sanitizeWeights(row.screening_weights),
+      };
+    },
+
+    async getApplicationResumeText(
+      roleId: string,
+      applicationId: string,
+    ): Promise<{ fileName: string | null; text: string; inputHash: string | null } | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT resume_file_name, resume_text, screening_input_hash
+         FROM role_applications WHERE role_id = $1 AND id = $2`,
+        [roleId, applicationId],
+      );
+      const row = result.rows[0] as
+        | { resume_file_name: string | null; resume_text: string | null; screening_input_hash: string | null }
+        | undefined;
+      if (!row) return null;
+      return {
+        fileName: row.resume_file_name,
+        text: row.resume_text ?? "",
+        inputHash: row.screening_input_hash,
+      };
+    },
+
+    async saveApplicationScreening(
+      applicationId: string,
+      snapshot: ScreeningSnapshot,
+    ): Promise<void> {
+      await ensureSchema();
+      await getPool().query(
+        `UPDATE role_applications
+         SET screening_status = $2,
+             screening_score = $3,
+             screening_sections = $4::jsonb,
+             screening_keywords = $5::jsonb,
+             screening_summary = $6,
+             screening_model = $7,
+             screening_cost_usd = $8,
+             screening_at = $9::timestamptz,
+             screening_input_hash = $10
+         WHERE id = $1`,
+        [
+          applicationId,
+          snapshot.status,
+          snapshot.score === null ? null : Math.round(snapshot.score),
+          JSON.stringify(snapshot.sections),
+          JSON.stringify(snapshot.keywords),
+          snapshot.summary,
+          snapshot.model,
+          snapshot.costUsd,
+          snapshot.createdAt,
+          snapshot.inputHash,
+        ],
+      );
+    },
+
+    async listUnscreenedApplications(
+      roleId: string,
+      limit: number,
+    ): Promise<{ id: string; hasText: boolean }[]> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT id, (resume_text IS NOT NULL AND length(trim(resume_text)) > 0) AS has_text
+         FROM role_applications
+         WHERE role_id = $1 AND screening_at IS NULL
+         ORDER BY created_at ASC
+         LIMIT $2`,
+        [roleId, Math.min(Math.max(limit, 1), 200)],
+      );
+      return (result.rows as { id: string; has_text: boolean }[]).map((row) => ({
+        id: row.id,
+        hasText: row.has_text,
+      }));
+    },
+
+    async getApplicationScreeningScores(
+      roleId: string,
+    ): Promise<Map<string, { score: number | null; status: string; sections: SectionResult[] }>> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT id, screening_score, screening_status, screening_sections
+         FROM role_applications
+         WHERE role_id = $1 AND screening_status IS NOT NULL`,
+        [roleId],
+      );
+      const map = new Map<
+        string,
+        { score: number | null; status: string; sections: SectionResult[] }
+      >();
+      for (const row of result.rows as {
+        id: string;
+        screening_score: number | null;
+        screening_status: string;
+        screening_sections: unknown;
+      }[]) {
+        map.set(row.id, {
+          score: row.screening_score,
+          status: row.screening_status,
+          sections: Array.isArray(row.screening_sections)
+            ? (row.screening_sections as SectionResult[])
+            : [],
+        });
+      }
+      return map;
+    },
+
+    async getApplicationByResumeToken(token: string): Promise<RoleApplication | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT ${APPLICATION_COLUMNS}
+         FROM role_applications WHERE resume_update_token = $1`,
+        [token],
+      );
+      const row = result.rows[0] as ApplicationPgRow | undefined;
+      return row ? rowToApplication(row) : null;
+    },
+
+    async getApplicationByEmail(roleId: string, email: string): Promise<RoleApplication | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT ${APPLICATION_COLUMNS}
+         FROM role_applications
+         WHERE role_id = $1 AND lower(email) = lower($2)`,
+        [roleId, email],
+      );
+      const row = result.rows[0] as ApplicationPgRow | undefined;
+      return row ? rowToApplication(row) : null;
+    },
+
+    async refreshApplication(
+      applicationId: string,
+      patch: {
+        name: string;
+        collegeId: string | null;
+        answers: Record<string, string>;
+        fileName: string;
+        text: string;
+        objectPath: string | null;
+        updatedAt: string;
+      },
+    ): Promise<RoleApplication | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `UPDATE role_applications
+         SET name = $2,
+             college_id = $3,
+             answers = $4::jsonb,
+             resume_file_name = $5,
+             resume_text = $6,
+             resume_object_path = $7,
+             resume_updated_at = $8::timestamptz,
+             screening_status = NULL,
+             screening_score = NULL,
+             screening_sections = NULL,
+             screening_keywords = NULL,
+             screening_summary = NULL,
+             screening_model = NULL,
+             screening_cost_usd = NULL,
+             screening_at = NULL,
+             screening_input_hash = NULL
+         WHERE id = $1
+         RETURNING ${APPLICATION_COLUMNS}`,
+        [
+          applicationId,
+          patch.name,
+          patch.collegeId,
+          JSON.stringify(patch.answers),
+          patch.fileName,
+          patch.text,
+          patch.objectPath,
+          patch.updatedAt,
+        ],
+      );
+      const row = result.rows[0] as ApplicationPgRow | undefined;
+      return row ? rowToApplication(row) : null;
+    },
+
+    async replaceApplicationResume(
+      applicationId: string,
+      resume: {
+        fileName: string;
+        text: string;
+        objectPath: string | null;
+        updatedAt: string;
+      },
+    ): Promise<RoleApplication | null> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `UPDATE role_applications
+         SET resume_file_name = $2,
+             resume_text = $3,
+             resume_object_path = $4,
+             resume_updated_at = $5::timestamptz,
+             screening_status = NULL,
+             screening_score = NULL,
+             screening_sections = NULL,
+             screening_keywords = NULL,
+             screening_summary = NULL,
+             screening_model = NULL,
+             screening_cost_usd = NULL,
+             screening_at = NULL,
+             screening_input_hash = NULL
+         WHERE id = $1
+         RETURNING ${APPLICATION_COLUMNS}`,
+        [applicationId, resume.fileName, resume.text, resume.objectPath, resume.updatedAt],
+      );
+      const row = result.rows[0] as ApplicationPgRow | undefined;
+      return row ? rowToApplication(row) : null;
+    },
   };
 }
 
@@ -1021,6 +1407,10 @@ interface InMemoryRoleStore {
   roles: Map<string, Role>;
   formLinks: Map<string, RoleFormLink>;
   applications: Map<string, RoleApplication>;
+  /** Resume-replacement token to application id. */
+  resumeTokens: Map<string, string>;
+  /** Extracted resume text per application, used only by resume screening. */
+  resumeTexts: Map<string, string>;
 }
 
 const globalStore = globalThis as unknown as { __rolesStoreV2?: InMemoryRoleStore };
@@ -1031,6 +1421,8 @@ function getStore(): InMemoryRoleStore {
       roles: new Map(),
       formLinks: new Map(),
       applications: new Map(),
+      resumeTokens: new Map(),
+      resumeTexts: new Map(),
     };
   }
   return globalStore.__rolesStoreV2;
@@ -1112,6 +1504,8 @@ export function getInMemoryRolesRepository(): RoleRepository {
         skills: [...input.skills],
         deadline: input.deadline,
         status: "open",
+        screeningEnabled: true,
+        screeningWeights: { ...DEFAULT_SCREENING_WEIGHTS },
         createdAt: now,
         updatedAt: now,
       };
@@ -1166,7 +1560,11 @@ export function getInMemoryRolesRepository(): RoleRepository {
         if (getStore().roles.delete(id)) roles += 1;
         getStore().formLinks.delete(id);
         for (const [applicationId, application] of getStore().applications) {
-          if (application.roleId === id) getStore().applications.delete(applicationId);
+          if (application.roleId !== id) continue;
+          getStore().applications.delete(applicationId);
+          for (const [token, tokenApplicationId] of getStore().resumeTokens) {
+            if (tokenApplicationId === applicationId) getStore().resumeTokens.delete(token);
+          }
         }
       }
       return { roles, interviews };
@@ -1396,11 +1794,14 @@ export function getInMemoryRolesRepository(): RoleRepository {
         resumeFileName: input.resumeFileName,
         resumeObjectPath: input.resumeObjectPath,
         hasResumeText: input.resumeText.trim() !== "",
+        resumeUpdatedAt: null,
         status: "new",
         interviewId: null,
         createdAt: new Date().toISOString(),
       };
       store.applications.set(application.id, application);
+      store.resumeTokens.set(input.resumeUpdateToken, application.id);
+      store.resumeTexts.set(application.id, input.resumeText);
       return application;
     },
 
@@ -1452,6 +1853,159 @@ export function getInMemoryRolesRepository(): RoleRepository {
         objectPath: application.resumeObjectPath,
         text: "",
       };
+    },
+
+    async getApplicationByResumeToken(token: string): Promise<RoleApplication | null> {
+      const store = getStore();
+      const applicationId = store.resumeTokens.get(token);
+      return applicationId ? store.applications.get(applicationId) ?? null : null;
+    },
+
+    async getApplicationByEmail(roleId: string, email: string): Promise<RoleApplication | null> {
+      const wanted = email.trim().toLowerCase();
+      return (
+        [...getStore().applications.values()].find(
+          (application) =>
+            application.roleId === roleId && application.email.toLowerCase() === wanted,
+        ) ?? null
+      );
+    },
+
+    async refreshApplication(
+      applicationId: string,
+      patch: {
+        name: string;
+        collegeId: string | null;
+        answers: Record<string, string>;
+        fileName: string;
+        text: string;
+        objectPath: string | null;
+        updatedAt: string;
+      },
+    ): Promise<RoleApplication | null> {
+      const store = getStore();
+      const application = store.applications.get(applicationId);
+      if (!application) return null;
+      const updated: RoleApplication = {
+        ...application,
+        name: patch.name,
+        collegeId: patch.collegeId,
+        answers: patch.answers,
+        resumeFileName: patch.fileName,
+        resumeObjectPath: patch.objectPath,
+        hasResumeText: patch.text.trim() !== "",
+        resumeUpdatedAt: patch.updatedAt,
+        screening: null,
+      };
+      store.applications.set(applicationId, updated);
+      store.resumeTexts.set(applicationId, patch.text);
+      return updated;
+    },
+
+    async getRoleScreeningSettings(
+      roleId: string,
+    ): Promise<{ enabled: boolean; weights: ScreeningWeights } | null> {
+      const role = roleOf(roleId);
+      if (!role) return null;
+      return {
+        enabled: role.screeningEnabled ?? true,
+        weights: sanitizeWeights(role.screeningWeights),
+      };
+    },
+
+    async updateRoleScreeningSettings(
+      roleId: string,
+      settings: { enabled: boolean; weights: ScreeningWeights },
+    ): Promise<{ enabled: boolean; weights: ScreeningWeights } | null> {
+      const store = getStore();
+      const role = store.roles.get(roleId);
+      if (!role) return null;
+      const weights = sanitizeWeights(settings.weights);
+      store.roles.set(roleId, {
+        ...role,
+        screeningEnabled: settings.enabled,
+        screeningWeights: weights,
+        updatedAt: new Date().toISOString(),
+      });
+      return { enabled: settings.enabled, weights };
+    },
+
+    async getApplicationResumeText(
+      roleId: string,
+      applicationId: string,
+    ): Promise<{ fileName: string | null; text: string; inputHash: string | null } | null> {
+      const application = getStore().applications.get(applicationId);
+      if (!application || application.roleId !== roleId) return null;
+      return {
+        fileName: application.resumeFileName,
+        text: getStore().resumeTexts.get(applicationId) ?? "",
+        inputHash: application.screening?.inputHash ?? null,
+      };
+    },
+
+    async saveApplicationScreening(
+      applicationId: string,
+      snapshot: ScreeningSnapshot,
+    ): Promise<void> {
+      const store = getStore();
+      const application = store.applications.get(applicationId);
+      if (!application) return;
+      store.applications.set(applicationId, { ...application, screening: snapshot });
+    },
+
+    async listUnscreenedApplications(
+      roleId: string,
+      limit: number,
+    ): Promise<{ id: string; hasText: boolean }[]> {
+      return [...getStore().applications.values()]
+        .filter((application) => application.roleId === roleId && !application.screening)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .slice(0, Math.min(Math.max(limit, 1), 200))
+        .map((application) => ({ id: application.id, hasText: application.hasResumeText }));
+    },
+
+    async getApplicationScreeningScores(
+      roleId: string,
+    ): Promise<Map<string, { score: number | null; status: string; sections: SectionResult[] }>> {
+      const map = new Map<
+        string,
+        { score: number | null; status: string; sections: SectionResult[] }
+      >();
+      for (const application of getStore().applications.values()) {
+        if (application.roleId !== roleId || !application.screening) continue;
+        map.set(application.id, {
+          score: application.screening.score,
+          status: application.screening.status,
+          sections: application.screening.sections,
+        });
+      }
+      return map;
+    },
+
+    async replaceApplicationResume(
+      applicationId: string,
+      resume: {
+        fileName: string;
+        text: string;
+        objectPath: string | null;
+        updatedAt: string;
+      },
+    ): Promise<RoleApplication | null> {
+      const store = getStore();
+      const application = store.applications.get(applicationId);
+      if (!application) return null;
+      const updated: RoleApplication = {
+        ...application,
+        resumeFileName: resume.fileName,
+        resumeObjectPath: resume.objectPath,
+        hasResumeText: resume.text.trim() !== "",
+        resumeUpdatedAt: resume.updatedAt,
+        // A new resume makes the old screening stale: clear it so it runs again.
+        screening: null,
+      };
+      store.applications.set(applicationId, updated);
+      store.resumeTexts.set(applicationId, resume.text);
+      return updated;
     },
   };
 }

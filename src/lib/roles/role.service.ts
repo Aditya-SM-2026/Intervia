@@ -2,6 +2,7 @@ import "server-only";
 import type { HumanDecision } from "@/lib/interviews/interview.types";
 import { recordDecision } from "@/lib/interviews/interview.service";
 import { ROOM_ID_PATTERN } from "@/lib/interviews/interview.validation";
+import { sanitizeWeights, screeningTotal } from "@/lib/screening/score";
 import type { Role, RoleCandidateSummary, RoleSummary } from "@/lib/roles/role.types";
 import { createRoleSchema, updateRoleSchema } from "@/lib/roles/role.validation";
 import {
@@ -141,6 +142,17 @@ export async function listRoleCandidates(
   if (!role) return null;
   const page = await repository().listRoleCandidates(roleId, role.title, limit, offset);
   const counts = await repository().getRoleCandidateCounts(roleId, role.title);
+  const screeningScores = await repository().getApplicationScreeningScores(roleId);
+  const weights = sanitizeWeights(role.screeningWeights);
+  /** The stored section scores re-weighted with the role's current setting. */
+  const screeningFor = (applicationId: string | null | undefined) => {
+    if (!applicationId) return { score: null as number | null, status: null as string | null };
+    const entry = screeningScores.get(applicationId);
+    if (!entry) return { score: null as number | null, status: null as string | null };
+    if (entry.status !== "scored") return { score: null as number | null, status: entry.status };
+    const totals = screeningTotal(entry.sections, weights);
+    return { score: totals.score === null ? null : Math.round(totals.score), status: entry.status };
+  };
   const candidates: RoleCandidateSummary[] = page.candidates.map((row) => ({
     candidateId: row.candidateId,
     candidateEmail: row.candidateEmail,
@@ -162,6 +174,8 @@ export async function listRoleCandidates(
     candidatePhone: row.candidatePhone ?? null,
     candidateCollegeId: row.candidateCollegeId ?? null,
     answers: row.answers ?? null,
+    screeningScore: screeningFor(row.applicationId).score,
+    screeningStatus: screeningFor(row.applicationId).status,
   }));
   return { candidates, total: page.total, counts };
 }

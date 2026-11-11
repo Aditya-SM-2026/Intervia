@@ -4,7 +4,7 @@ A short guide to the feature added to the Roles section: what it does, where the
 code lives, and how to check it yourself.
 
 Nothing has been committed, branched or pushed. All of this is sitting in the
-working tree of `C:\Users\Siva Sai\Desktop\interview bot\Intervia`.
+working tree of `C:\Users\Siva Sai\Desktop\interview bot\Intervia-verify`.
 
 ---
 
@@ -23,6 +23,9 @@ schedule an interview for them.
   dropdown, yes/no. Any of them can be required, reordered or deleted.
 - Resume is stored in the same recordings bucket as interview resumes, under
   `resumes/<applicationId>/`.
+- A candidate who sent the wrong file can replace it from the private link on
+  their confirmation screen, or by opening the form again and sending with the
+  same email and phone. See `docs/RESUME-REPLACE.md`.
 - The candidate table keeps exactly the same seven columns. Only the Stage
   values grow: **Waiting** and **Rejected** now sit alongside Completed, Not
   started and the rest.
@@ -109,6 +112,8 @@ applications. The resume itself goes to storage, not the database:
 | `GET /api/roles/<roleId>/applications` | recruiter | All applications for the role |
 | `PATCH /api/roles/<roleId>/applications/<id>` | recruiter | `{ action: "reject" \| "restore" \| "scheduled" }` |
 | `GET /api/roles/<roleId>/applications/<id>/resume` | recruiter | Original file, or the extracted text |
+| `GET /api/apply/resume/<resumeToken>` | public | State of a candidate's private replace-resume link |
+| `POST /api/apply/resume/<resumeToken>` | public | Swap the resume on an existing application |
 
 ## 6. Files
 

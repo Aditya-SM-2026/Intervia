@@ -6,6 +6,8 @@
  * marking the built-in fields.
  */
 
+import type { ScreeningSnapshot } from "@/lib/screening/types";
+
 /** Input types on an application form. "file" belongs to the resume only. */
 export type ApplicationFieldType =
   | "text"
@@ -120,9 +122,13 @@ export interface RoleApplication {
   resumeObjectPath: string | null;
   /** True when resume text could be extracted and stored. */
   hasResumeText: boolean;
+  /** When the candidate last replaced the resume; null when never replaced. */
+  resumeUpdatedAt: string | null;
   status: ApplicationStatus;
   /** Interview created from this application, when one was booked. */
   interviewId: string | null;
+  /** Resume screening result, when one has run. Null means never screened. */
+  screening?: ScreeningSnapshot | null;
   createdAt: string;
 }
 
@@ -167,6 +173,20 @@ export interface PublicApplicationForm {
 export interface PublicApplicationState {
   form: PublicApplicationForm | null;
   closedReason: FormLinkClosedReason | null;
+}
+
+/** What the candidate sees on their private resume-replacement page. */
+export interface PublicResumeUpdateState {
+  roleTitle: string;
+  candidateName: string;
+  fileName: string | null;
+  /** When the resume was last replaced, or null when it never was. */
+  updatedAt: string | null;
+  /** When the link stops working. */
+  expiresAt: string;
+  open: boolean;
+  /** Why replacement is unavailable; null while it is open. */
+  closedMessage: string | null;
 }
 
 /** Shape of GET/POST /api/roles/[roleId]/form-link. */

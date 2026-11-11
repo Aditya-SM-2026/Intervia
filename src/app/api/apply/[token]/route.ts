@@ -78,7 +78,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const result = await submitApplication(token, form);
-  if (result.ok) return NextResponse.json({ ok: true, applicationId: result.applicationId });
+  if (result.ok) {
+    const resume = form.get("resume");
+    return NextResponse.json({
+      ok: true,
+      applicationId: result.applicationId,
+      // Present on a new application: the private link to replace the resume.
+      resumeToken: result.resumeUpdateToken,
+      // True when this submission replaced the resume on an earlier one.
+      updated: result.updated,
+      previousFileName: result.previousFileName,
+      fileName: resume instanceof File ? resume.name : null,
+    });
+  }
 
   const status =
     result.code === "token" ? 404 : result.code === "duplicate" ? 409 : result.code === "closed" ? 410 : 400;
