@@ -18,7 +18,11 @@ Safe by design:
   candidate is always still detected.
 - If the filter fails in any way, the detector gets the original audio for
   the rest of the interview, exactly as before the filter existed.
-- ``NOISE_FILTER=off`` switches it off entirely.
+- ``NOISE_FILTER=off`` switches it off entirely. It is **off by default**: the
+  ONNX models run inside the voice detector's audio path, and on a small agent
+  VM that blocked the event loop for 200 ms per frame, which stutters the
+  interviewer's own voice. Enable it (``NOISE_FILTER=on``) only where there is
+  CPU to spare.
 
 DTLN works on 16 kHz audio in 8 ms steps; its delay is 32 ms.
 """
@@ -243,17 +247,20 @@ def _dtln() -> tuple[BlockProcessor, int]:
 
 
 def noise_filter_enabled() -> bool:
-    """On unless NOISE_FILTER=off (or the models are missing)."""
-    if os.environ.get("NOISE_FILTER", "on").strip().lower() in {
-        "off",
-        "0",
-        "false",
-        "no",
+    """Off unless NOISE_FILTER is explicitly on and the models are present.
+
+    Off by default: the filter's ONNX inference runs on the agent's event loop,
+    and on the deployment VM that stalled audio for hundreds of milliseconds per
+    frame, which made the interviewer's voice break up mid-sentence.
+    """
+    if os.environ.get("NOISE_FILTER", "").strip().lower() not in {
+        "on",
+        "1",
+        "true",
+        "yes",
     }:
         return False
-    return (MODEL_DIR / "model_1.onnx").is_file() and (
-        MODEL_DIR / "model_2.onnx"
-    ).is_file()
+    return (MODEL_DIR / "model_1.onnx").is_file() and (MODEL_DIR / "model_2.onnx").is_file()
 
 
 def filter_level() -> float:

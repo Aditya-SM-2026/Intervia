@@ -454,6 +454,10 @@ class InterviewRuntime:
         just finished speaking, continue in a fresh one."""
         if not self.rolling or self._renewing or self._finished or self.closing:
             return
+        # Never swap the model out from under HR's turn: the new session opens
+        # silently, so an interview where HR is talking would go dead.
+        if self._hr_muted:
+            return
         assert self.controller is not None
         if self.controller.step_key()[0] in ("closing", "ended"):
             return
@@ -488,6 +492,9 @@ class InterviewRuntime:
                     ),
                 )
             )
+            # This is the new session's clock: without it the age check would
+            # fire again a moment later and swap the model twice in a row.
+            self._session_started_at = time.monotonic()
             self.backend.add_event(
                 "voice_session_renewed",
                 {**self.controller.state_snapshot(), "ageSeconds": round(age, 1), "why": "age"},
@@ -502,6 +509,7 @@ class InterviewRuntime:
     def agent_for_current_step(self, previous: llm.ChatContext) -> InterviewerAgent:
         """The interviewer for the step the controller has just moved to."""
         assert self.controller is not None
+        self._session_started_at = time.monotonic()
         self.backend.add_event(
             "voice_session_renewed",
             {
@@ -590,8 +598,8 @@ class InterviewRuntime:
                 self._audio.discard()
 
         if self._hr_audio is not None:
-            hr_started = self._hr_audio.started_at
             hr_path = await self._hr_audio.stop()
+            hr_started = self._hr_audio.started_at
             try:
                 if hr_path is not None and hr_started is not None:
                     await self.backend.upload_hr_audio(hr_path, iso_from_epoch(hr_started))
