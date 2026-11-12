@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { exitFullscreen } from "@/lib/browser/fullscreen";
 import { CandidateEndScreen, ConnectingOrb, JoinScreen } from "@/components/interview/CandidateScreens";
 import { CandidateMessage } from "@/components/interview/CandidateShell";
 import { LiveRoom } from "@/components/interview/LiveRoom";
@@ -55,7 +56,10 @@ export function InterviewPreview() {
         onToggleConversation={() => setConversation((value) => !value)}
         onToggleMute={() => setMuted((value) => !value)}
         onToggleCamera={() => setCameraOff((value) => !value)}
-        onLeave={() => setStage("left")}
+        onLeave={() => {
+          void exitFullscreen();
+          setStage("left");
+        }}
         onEnableAudio={() => {}}
       />
     );
