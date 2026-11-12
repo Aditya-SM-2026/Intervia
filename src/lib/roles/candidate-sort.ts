@@ -1,12 +1,12 @@
-import type { InterviewStatus } from "@/lib/interviews/interview.types";
-import type { HireStage } from "@/lib/roles/hire-stage";
-import type { RoleCandidateSummary } from "@/lib/roles/role.types";
+import type { RoleCandidateSummary } from "./role.types";
+import { CANDIDATE_STATUS_ORDER, INTERVIEW_STATE_ORDER } from "./candidate-status.ts";
 
 export type CandidateSortKey =
   | "candidate"
   | "applied"
   | "interview"
   | "status"
+  | "interviewState"
   | "score"
   | "match";
 export type SortDirection = "asc" | "desc";
@@ -16,21 +16,10 @@ export interface SortState {
   direction: SortDirection;
 }
 
-/** A candidate row plus the stage it is shown under. */
+/** A candidate row as the table holds it. */
 export interface SortableCandidateRow {
   candidate: RoleCandidateSummary;
-  stage: HireStage;
 }
-
-/** Display order of interview statuses, earliest stage first. */
-export const STATUS_SORT_ORDER: InterviewStatus[] = [
-  "scheduled",
-  "waiting",
-  "active",
-  "completed",
-  "expired",
-  "cancelled",
-];
 
 /** The sortable value of one candidate row, or null when it has none. */
 export function candidateSortValue(
@@ -50,7 +39,11 @@ export function candidateSortValue(
           ? Date.parse(candidate.latestInterviewAt)
           : null;
     case "status": {
-      const index = STATUS_SORT_ORDER.indexOf(candidate.latestStatus);
+      const index = CANDIDATE_STATUS_ORDER.indexOf(candidate.status);
+      return index >= 0 ? index : null;
+    }
+    case "interviewState": {
+      const index = INTERVIEW_STATE_ORDER.indexOf(candidate.interviewState);
       return index >= 0 ? index : null;
     }
     case "score":

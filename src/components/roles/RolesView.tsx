@@ -29,7 +29,6 @@ import type {
   RoleSummary,
   RolesResponse,
 } from "@/lib/roles/role.types";
-import { deriveApplicationStage, deriveHireStage, type HireStage } from "@/lib/roles/hire-stage";
 import { countPipeline, PIPELINE_STEPS, type PipelineStep } from "@/lib/roles/pipeline";
 import { Avatar } from "@/components/dashboard/primitives";
 import { ScoreRing } from "@/components/ui/ScoreRing";
@@ -56,8 +55,8 @@ const SORT_OPTIONS = [
 type SortKey = "updated" | "candidates" | "score";
 
 const STEP_FILTERS = [
-  { value: "", label: "Any stage" },
-  ...PIPELINE_STEPS.map(({ step, label }) => ({ value: step, label: `Has ${label.toLowerCase()}` })),
+  { value: "", label: "Any status" },
+  ...PIPELINE_STEPS.map(({ step, label }) => ({ value: step, label })),
 ];
 
 async function fetchRoles(): Promise<RoleSummary[]> {
@@ -74,15 +73,8 @@ async function fetchCandidates(roleId: string): Promise<RoleCandidateSummary[]> 
   return data.candidates;
 }
 
-function candidateStage(candidate: RoleCandidateSummary): HireStage {
-  return candidate.applicationStatus && candidate.interviews === 0
-    ? deriveApplicationStage(candidate.applicationStatus)
-    : deriveHireStage({
-        status: candidate.latestStatus,
-        overallScore: candidate.overallScore,
-        decision: candidate.decision?.outcome ?? null,
-        cutoff: null,
-      });
+function candidateStage(candidate: RoleCandidateSummary): PipelineStep {
+  return candidate.status;
 }
 
 function relativeDay(iso: string): string {
@@ -265,7 +257,7 @@ function RoleCard({
                 <PipelineBar counts={counts} total={total} index={index} />
                 <p className="mt-1.5 truncate text-xs text-muted">
                   {PIPELINE_STEPS.filter(({ step }) => counts[step] > 0)
-                    .map(({ step, label }) => `${counts[step]} ${step === "closed" ? "rejected" : label.toLowerCase()}`)
+                    .map(({ step, label }) => `${counts[step]} ${label.toLowerCase()}`)
                     .join(", ")}
                 </p>
               </>
@@ -386,7 +378,7 @@ export function RolesView() {
     for (const role of roles ?? []) {
       const candidates = candidatesByRole[role.id];
       map[role.id] = candidates
-        ? countPipeline(candidates.map((candidate) => ({ stage: candidateStage(candidate), interviewed: candidate.interviews > 0 })))
+        ? countPipeline(candidates.map((candidate) => ({ status: candidateStage(candidate) })))
         : candidates === null
           ? countPipeline([])
           : null;

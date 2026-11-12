@@ -26,7 +26,12 @@ import {
   type SectionResult,
 } from "@/lib/screening/types";
 import { sanitizeWeights } from "@/lib/screening/score";
-import { clampCutoff } from "@/lib/roles/shortlist";
+import { clampCutoff, DEFAULT_SHORTLIST_CUTOFF } from "@/lib/roles/shortlist";
+import {
+  DEFAULT_AUTO_FILTER_RULE,
+  sanitizeAutoFilterRule,
+  type AutoFilterRule,
+} from "@/lib/roles/auto-filter";
 import {
   aggregateCandidates,
   computeRoleStats,
@@ -127,6 +132,16 @@ export interface RoleRepository {
     roleTitle: string,
     candidateId: string,
   ): Promise<{ fileName: string | null; text: string } | null>;
+  /**
+   * Removes candidates from one role for good: their interviews (turns,
+   * events, scorecards), their applications and any invited-candidate
+   * screening. Emails are matched case-insensitively.
+   */
+  deleteRoleCandidates(
+    roleId: string,
+    roleTitle: string,
+    emails: readonly string[],
+  ): Promise<{ interviews: number; applications: number; screenings: number }>;
 
   // --- Resume screening ---------------------------------------------------------
   /** Whether screening runs for this role, and the six section weights. */
@@ -140,6 +155,9 @@ export interface RoleRepository {
   /** Minimum Match score that shortlists automatically; 0 means no cutoff. */
   getRoleShortlistCutoff(roleId: string): Promise<number>;
   setRoleShortlistCutoff(roleId: string, cutoff: number): Promise<number>;
+  /** The per-role automatic filtration rule: Match below X and CGPA below Y. */
+  getAutoFilterRule(roleId: string): Promise<AutoFilterRule>;
+  setAutoFilterRule(roleId: string, rule: AutoFilterRule): Promise<AutoFilterRule>;
   /** A recruiter's manual shortlist decision on one application; null clears it. */
   setApplicationShortlisted(
     roleId: string,
@@ -341,6 +359,23 @@ ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS education TEXT;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS cgpa NUMERIC;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS shortlisted BOOLEAN;
 ALTER TABLE roles ADD COLUMN IF NOT EXISTS shortlist_cutoff INT NOT NULL DEFAULT 0;
+ALTER TABLE roles ALTER COLUMN shortlist_cutoff SET DEFAULT ${DEFAULT_SHORTLIST_CUTOFF};
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS auto_filter_match_below INT NOT NULL DEFAULT ${DEFAULT_AUTO_FILTER_RULE.matchBelow};
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS auto_filter_cgpa_below NUMERIC NOT NULL DEFAULT ${DEFAULT_AUTO_FILTER_RULE.cgpaBelow};
+-- Roles created before the 70% door existed still say 0, which means "off".
+-- Move each role to the new starting point exactly once: the marker row is the
+-- guard, so a later 0 set by HR on purpose is left alone.
+CREATE TABLE IF NOT EXISTS app_migrations (
+  id TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+WITH applied AS (
+  INSERT INTO app_migrations (id) VALUES ('shortlist-cutoff-70')
+  ON CONFLICT (id) DO NOTHING
+  RETURNING id
+)
+UPDATE roles SET shortlist_cutoff = ${DEFAULT_SHORTLIST_CUTOFF}
+WHERE shortlist_cutoff = 0 AND EXISTS (SELECT 1 FROM applied);
 CREATE TABLE IF NOT EXISTS role_candidate_screenings (
   role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
   candidate_email TEXT NOT NULL,
@@ -751,7 +786,7 @@ export function getPostgresRolesRepository(): RoleRepository {
       const result = await getPool().query(
         `WITH assoc AS (
            SELECT i.id, i.candidate_name, i.candidate_email, i.status, i.created_at, i.decision,
-             i.scheduled_at, i.completed_at
+             i.scheduled_at, i.completed_at, i.expires_at
            FROM interviews i
            WHERE (i.role_id = $1 OR (i.role_id IS NULL AND lower(i.role_title) = lower($2)))
              AND i.candidate_email IS NOT NULL AND i.candidate_email <> ''
@@ -770,6 +805,7 @@ export function getPostgresRolesRepository(): RoleRepository {
              l.decision,
              l.scheduled_at,
              l.completed_at,
+             l.expires_at,
              (SELECT a.candidate_name FROM assoc a
                WHERE LOWER(a.candidate_email) = LOWER(l.candidate_email)
                  AND a.candidate_name IS NOT NULL
@@ -804,6 +840,7 @@ export function getPostgresRolesRepository(): RoleRepository {
              NULL::jsonb AS decision,
              NULL::timestamptz AS scheduled_at,
              NULL::timestamptz AS completed_at,
+             NULL::timestamptz AS expires_at,
              a.name AS candidate_name,
              0 AS interviews,
              0 AS completed,
@@ -837,6 +874,7 @@ export function getPostgresRolesRepository(): RoleRepository {
         decision: unknown;
         scheduled_at: Date | null;
         completed_at: Date | null;
+        expires_at: Date | null;
         interviews: number;
         completed: number;
         overall: string | null;
@@ -863,6 +901,7 @@ export function getPostgresRolesRepository(): RoleRepository {
         latestInterviewAt: row.created_at.toISOString(),
         scheduledAt: row.scheduled_at ? row.scheduled_at.toISOString() : null,
         completedAt: row.completed_at ? row.completed_at.toISOString() : null,
+        latestExpiresAt: row.expires_at ? row.expires_at.toISOString() : null,
         overallScore: row.overall === null ? null : Math.round(Number(row.overall)),
         suggestion: parseSuggestion(row.suggestion),
         decision: decisionFromJson(row.decision),
@@ -988,6 +1027,58 @@ export function getPostgresRolesRepository(): RoleRepository {
         | { resume_file_name: string | null; resume_text: string }
         | undefined;
       return row ? { fileName: row.resume_file_name, text: row.resume_text } : null;
+    },
+
+    async deleteRoleCandidates(
+      roleId: string,
+      roleTitle: string,
+      emails: readonly string[],
+    ): Promise<{ interviews: number; applications: number; screenings: number }> {
+      const lowered = [...new Set(emails.map((email) => email.trim().toLowerCase()))].filter(
+        (email) => email !== "",
+      );
+      if (lowered.length === 0) return { interviews: 0, applications: 0, screenings: 0 };
+      await ensureSchema();
+      const client = await getPool().connect();
+      try {
+        await client.query("BEGIN");
+        const rooms = await client.query<{ id: string }>(
+          `SELECT i.id FROM interviews i
+           WHERE ${roleAssociationSql("$1::text[]", "$2::text[]")}
+             AND i.candidate_email IS NOT NULL
+             AND lower(i.candidate_email) = ANY($3::text[])`,
+          [[roleId], [roleTitle.toLowerCase()], lowered],
+        );
+        const roomIds = rooms.rows.map((row) => row.id);
+        let interviews = 0;
+        if (roomIds.length > 0) {
+          await client.query("DELETE FROM interview_turns WHERE room_id = ANY($1)", [roomIds]);
+          await client.query("DELETE FROM interview_events WHERE room_id = ANY($1)", [roomIds]);
+          await client.query("DELETE FROM scorecards WHERE room_id = ANY($1)", [roomIds]);
+          const removed = await client.query("DELETE FROM interviews WHERE id = ANY($1)", [roomIds]);
+          interviews = removed.rowCount ?? 0;
+        }
+        const applications = await client.query(
+          `DELETE FROM role_applications WHERE role_id = $1 AND lower(email) = ANY($2::text[])`,
+          [roleId, lowered],
+        );
+        const screenings = await client.query(
+          `DELETE FROM role_candidate_screenings
+           WHERE role_id = $1 AND lower(candidate_email) = ANY($2::text[])`,
+          [roleId, lowered],
+        );
+        await client.query("COMMIT");
+        return {
+          interviews,
+          applications: applications.rowCount ?? 0,
+          screenings: screenings.rowCount ?? 0,
+        };
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async getFormLink(roleId: string): Promise<RoleFormLink | null> {
@@ -1276,7 +1367,7 @@ export function getPostgresRolesRepository(): RoleRepository {
         [roleId],
       );
       const row = result.rows[0] as { shortlist_cutoff: number | null } | undefined;
-      return clampCutoff(row?.shortlist_cutoff ?? 0);
+      return clampCutoff(row?.shortlist_cutoff ?? DEFAULT_SHORTLIST_CUTOFF);
     },
 
     async setRoleShortlistCutoff(roleId: string, cutoff: number): Promise<number> {
@@ -1289,6 +1380,33 @@ export function getPostgresRolesRepository(): RoleRepository {
       );
       const row = result.rows[0] as { shortlist_cutoff: number | null } | undefined;
       return clampCutoff(row?.shortlist_cutoff ?? value);
+    },
+
+    async getAutoFilterRule(roleId: string): Promise<AutoFilterRule> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT auto_filter_match_below, auto_filter_cgpa_below FROM roles WHERE id = $1`,
+        [roleId],
+      );
+      const row = result.rows[0] as
+        | { auto_filter_match_below: number | null; auto_filter_cgpa_below: string | number | null }
+        | undefined;
+      if (!row) return { ...DEFAULT_AUTO_FILTER_RULE };
+      return sanitizeAutoFilterRule({
+        matchBelow: row.auto_filter_match_below,
+        cgpaBelow: row.auto_filter_cgpa_below,
+      });
+    },
+
+    async setAutoFilterRule(roleId: string, rule: AutoFilterRule): Promise<AutoFilterRule> {
+      await ensureSchema();
+      const value = sanitizeAutoFilterRule(rule);
+      await getPool().query(
+        `UPDATE roles SET auto_filter_match_below = $2, auto_filter_cgpa_below = $3, updated_at = now()
+         WHERE id = $1`,
+        [roleId, value.matchBelow, value.cgpaBelow],
+      );
+      return value;
     },
 
     async setApplicationShortlisted(
@@ -1656,6 +1774,7 @@ interface InMemoryRoleStore {
   resumeTexts: Map<string, string>;
   /** Per-role Match score that shortlists automatically; absent means none. */
   shortlistCutoffs: Map<string, number>;
+  autoFilterRules: Map<string, AutoFilterRule>;
   /** Screening results for invited candidates, keyed `roleId:email`. */
   invitedScreenings: Map<string, ScreeningSnapshot>;
 }
@@ -1671,6 +1790,7 @@ function getStore(): InMemoryRoleStore {
       resumeTokens: new Map(),
       resumeTexts: new Map(),
       shortlistCutoffs: new Map(),
+      autoFilterRules: new Map(),
       invitedScreenings: new Map(),
     };
   }
@@ -1688,6 +1808,7 @@ function toAggregationInterview(room: InterviewRoom): AggregationInterview {
     createdAt: room.createdAt,
     completedAt: room.completedAt,
     scheduledAt: room.scheduledAt,
+    expiresAt: room.expiresAt,
     decision: room.decision,
     resumeFileName: room.resume?.fileName ?? null,
     resumeText: room.resume?.text ?? null,
@@ -1728,6 +1849,7 @@ function applicationToCandidate(application: RoleApplication): CandidateRow {
     latestInterviewAt: application.createdAt,
     scheduledAt: null,
     completedAt: null,
+    latestExpiresAt: null,
     overallScore: null,
     suggestion: null,
     decision: null,
@@ -1955,6 +2077,45 @@ export function getInMemoryRolesRepository(): RoleRepository {
       return latest?.resume
         ? { fileName: latest.resume.fileName ?? null, text: latest.resume.text }
         : null;
+    },
+
+    async deleteRoleCandidates(
+      roleId: string,
+      roleTitle: string,
+      emails: readonly string[],
+    ): Promise<{ interviews: number; applications: number; screenings: number }> {
+      const wanted = new Set(
+        emails.map((email) => email.trim().toLowerCase()).filter((email) => email !== ""),
+      );
+      if (wanted.size === 0) return { interviews: 0, applications: 0, screenings: 0 };
+      const store = getStore();
+      const rooms = getInterviewStore();
+      let interviews = 0;
+      for (const [roomId, room] of rooms.rooms) {
+        if (!matchesRoleAssociation(roleId, roleTitle, room)) continue;
+        const email = room.candidateEmail?.trim().toLowerCase() ?? "";
+        if (!wanted.has(email)) continue;
+        rooms.rooms.delete(roomId);
+        rooms.turns.delete(roomId);
+        rooms.events.delete(roomId);
+        rooms.scorecards.delete(roomId);
+        interviews += 1;
+      }
+      let applications = 0;
+      for (const [applicationId, application] of store.applications) {
+        if (application.roleId !== roleId) continue;
+        if (!wanted.has(application.email.trim().toLowerCase())) continue;
+        store.applications.delete(applicationId);
+        for (const [token, tokenApplicationId] of store.resumeTokens) {
+          if (tokenApplicationId === applicationId) store.resumeTokens.delete(token);
+        }
+        applications += 1;
+      }
+      let screenings = 0;
+      for (const email of wanted) {
+        if (store.invitedScreenings.delete(`${roleId}:${email}`)) screenings += 1;
+      }
+      return { interviews, applications, screenings };
     },
 
     async getFormLink(roleId: string): Promise<RoleFormLink | null> {
@@ -2212,12 +2373,24 @@ export function getInMemoryRolesRepository(): RoleRepository {
     },
 
     async getRoleShortlistCutoff(roleId: string): Promise<number> {
-      return clampCutoff(getStore().shortlistCutoffs.get(roleId) ?? 0);
+      return clampCutoff(getStore().shortlistCutoffs.get(roleId) ?? DEFAULT_SHORTLIST_CUTOFF);
     },
 
     async setRoleShortlistCutoff(roleId: string, cutoff: number): Promise<number> {
       const value = clampCutoff(cutoff);
       getStore().shortlistCutoffs.set(roleId, value);
+      return value;
+    },
+
+    async getAutoFilterRule(roleId: string): Promise<AutoFilterRule> {
+      return (
+        getStore().autoFilterRules.get(roleId) ?? { ...DEFAULT_AUTO_FILTER_RULE }
+      );
+    },
+
+    async setAutoFilterRule(roleId: string, rule: AutoFilterRule): Promise<AutoFilterRule> {
+      const value = sanitizeAutoFilterRule(rule);
+      getStore().autoFilterRules.set(roleId, value);
       return value;
     },
 

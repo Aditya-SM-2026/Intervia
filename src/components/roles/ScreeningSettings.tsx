@@ -10,6 +10,7 @@ import {
   type ScreeningWeights,
 } from "@/lib/screening/types";
 import { Toast, type ToastMessage } from "@/components/ui/Toast";
+import { DEFAULT_SHORTLIST_CUTOFF } from "@/lib/roles/shortlist";
 
 /** The six sections in display order, with the wording the editor shows. */
 const SECTIONS = RESUME_SECTION_IDS.map((id) => ({
@@ -63,8 +64,8 @@ export function ScreeningSettings({ roleId }: { roleId: string }) {
   const [weights, setWeights] = useState<ScreeningWeights>({ ...DEFAULT_SCREENING_WEIGHTS });
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
-  const [cutoff, setCutoff] = useState(0);
-  const [cutoffSaved, setCutoffSaved] = useState(0);
+  const [cutoff, setCutoff] = useState(DEFAULT_SHORTLIST_CUTOFF);
+  const [cutoffSaved, setCutoffSaved] = useState(DEFAULT_SHORTLIST_CUTOFF);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 

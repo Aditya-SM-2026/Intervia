@@ -2,6 +2,7 @@ import type { HumanDecision, InterviewStatus } from "@/lib/interviews/interview.
 import type { ScoreSuggestion } from "@/lib/interviews/scorecard.types";
 import type { ScreeningWeights } from "@/lib/screening/types";
 import type { ShortlistStatus } from "@/lib/roles/shortlist";
+import type { CandidateStatus, InterviewState } from "@/lib/roles/candidate-status";
 
 /** Lifecycle of a hiring role. */
 export type RoleStatus = "open" | "completed";
@@ -60,7 +61,13 @@ export interface RoleCandidateSummary {
   scheduledAt?: string | null;
   /** ISO 8601 moment the latest interview finished; null until completed. */
   completedAt?: string | null;
+  /** ISO 8601 moment the latest interview link stops working; null when open-ended. */
+  latestExpiresAt?: string | null;
   latestStatus: InterviewStatus;
+  /** The five-step pipeline: applied, shortlisted, advanced, on hold or rejected. */
+  status: CandidateStatus;
+  /** Where the latest interview really is, kept apart from the status above. */
+  interviewState: InterviewState;
   /** Overall score of that candidate's latest scored interview; null when unscored. */
   overallScore: number | null;
   suggestion: ScoreSuggestion | null;

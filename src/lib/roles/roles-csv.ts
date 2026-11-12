@@ -1,4 +1,5 @@
-import type { RoleCandidateSummary } from "@/lib/roles/role.types";
+import type { RoleCandidateSummary } from "./role.types";
+import { CANDIDATE_STATUS_LABELS, INTERVIEW_STATE_LABELS } from "./candidate-status.ts";
 
 /**
  * CSV building for the role candidates export. Pure functions so they are
@@ -31,8 +32,9 @@ const EXPORT_HEADERS = [
   "Role Status",
   "Candidate Name",
   "Candidate Email",
+  "Candidate Status",
   "Interview ID",
-  "Interview Status",
+  "Interview State",
   "Interview Date",
   "Overall Score",
   "Evaluation",
@@ -51,15 +53,6 @@ export function roleSlug(title: string): string {
       .slice(0, 60) || "role"
   );
 }
-
-const STATUS_LABELS: Record<string, string> = {
-  scheduled: "Not started",
-  waiting: "Waiting",
-  active: "In progress",
-  completed: "Completed",
-  expired: "Link expired",
-  cancelled: "Cancelled",
-};
 
 const DECISION_LABELS: Record<string, string> = {
   advance: "Advanced",
@@ -90,8 +83,9 @@ export function buildRoleCandidatesCsv(
         role.roleStatus === "completed" ? "Completed" : "Open",
         candidate.candidateName,
         candidate.candidateEmail,
+        CANDIDATE_STATUS_LABELS[candidate.status] ?? candidate.status,
         candidate.latestInterviewId,
-        STATUS_LABELS[candidate.latestStatus] ?? candidate.latestStatus,
+        INTERVIEW_STATE_LABELS[candidate.interviewState] ?? candidate.interviewState,
         candidate.latestInterviewAt.slice(0, 10),
         candidate.overallScore ?? "",
         candidate.suggestion

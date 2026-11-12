@@ -4,6 +4,8 @@ import { recordDecision } from "@/lib/interviews/interview.service";
 import { ROOM_ID_PATTERN } from "@/lib/interviews/interview.validation";
 import { sanitizeWeights, screeningTotal } from "@/lib/screening/score";
 import { shortlistStatusFor } from "@/lib/roles/shortlist";
+import { deriveCandidateStatus, interviewStateFor } from "@/lib/roles/candidate-status";
+import { sanitizeAutoFilterRule, type AutoFilterRule } from "@/lib/roles/auto-filter";
 import type { Role, RoleCandidateSummary, RoleSummary } from "@/lib/roles/role.types";
 import { createRoleSchema, updateRoleSchema } from "@/lib/roles/role.validation";
 import {
@@ -112,8 +114,38 @@ export async function deleteRoles(
   return repository().deleteRoles(unique);
 }
 
-/** Validates pagination the way the dashboard list does. */
-export function parsePaging(
+/** How many candidates one delete request may carry. */
+export const DELETE_MAX_CANDIDATES = 200;
+
+/**
+ * Removes candidates from a role for good. Both sides go: the interviews with
+ * their turns, events and scorecards, and the application with its resume and
+ * screening. Leaving the application behind would put the person straight back
+ * in the list on the next load.
+ */
+export async function deleteRoleCandidates(
+  roleId: string,
+  candidateIds: readonly string[],
+): Promise<{
+  roleTitle: string;
+  requested: number;
+  interviews: number;
+  applications: number;
+  screenings: number;
+} | null> {
+  const role = await repository().getRole(roleId);
+  if (!role) return null;
+  const emails = [...new Set(candidateIds.map((id) => id.trim().toLowerCase()))]
+    .filter((id) => id.length > 2 && id.length <= 320 && id.includes("@"))
+    .slice(0, DELETE_MAX_CANDIDATES);
+  if (emails.length === 0) {
+    return { roleTitle: role.title, requested: 0, interviews: 0, applications: 0, screenings: 0 };
+  }
+  const removed = await repository().deleteRoleCandidates(roleId, role.title, emails);
+  return { roleTitle: role.title, requested: emails.length, ...removed };
+}
+
+/** Validates pagination the way the dashboard list does. */export function parsePaging(
   limitRaw: string | null,
   offsetRaw: string | null,
 ): { limit: number; offset: number } {
@@ -159,38 +191,54 @@ export async function listRoleCandidates(
     const totals = screeningTotal(entry.sections, weights);
     return { score: totals.score === null ? null : Math.round(totals.score), status: entry.status };
   };
-  const candidates: RoleCandidateSummary[] = page.candidates.map((row) => ({
-    candidateId: row.candidateId,
-    candidateEmail: row.candidateEmail,
-    candidateName: row.candidateName,
-    interviews: row.interviews,
-    completed: row.completed,
-    pending: row.interviews - row.completed,
-    latestInterviewId: row.roomId,
-    latestInterviewAt: row.latestInterviewAt,
-    scheduledAt: row.scheduledAt ?? null,
-    completedAt: row.completedAt ?? null,
-    latestStatus: row.latestStatus,
-    overallScore: row.overallScore,
-    suggestion: row.suggestion,
-    decision: row.decision,
-    applicationId: row.applicationId ?? null,
-    applicationStatus: row.applicationStatus ?? null,
-    appliedAt: row.appliedAt ?? null,
-    candidatePhone: row.candidatePhone ?? null,
-    candidateCollegeId: row.candidateCollegeId ?? null,
-    candidateEducation: row.candidateEducation ?? null,
-    candidateCgpa: row.candidateCgpa ?? null,
-    shortlisted: row.shortlisted ?? null,
-    answers: row.answers ?? null,
-    screeningScore: screeningFor(row.applicationId, row.candidateEmail).score,
-    screeningStatus: screeningFor(row.applicationId, row.candidateEmail).status,
-    shortlistStatus: shortlistStatusFor(
-      row.shortlisted ?? null,
-      screeningFor(row.applicationId, row.candidateEmail).score,
-      cutoff,
-    ),
-  }));
+  const candidates: RoleCandidateSummary[] = page.candidates.map((row) => {
+    const screening = screeningFor(row.applicationId, row.candidateEmail);
+    const shortlistStatus = shortlistStatusFor(row.shortlisted ?? null, screening.score, cutoff);
+    const interviewState = interviewStateFor({
+      interviews: row.interviews,
+      status: row.latestStatus,
+      expiresAt: row.latestExpiresAt ?? null,
+      completedAt: row.completedAt ?? null,
+      overallScore: row.overallScore,
+    });
+    return {
+      candidateId: row.candidateId,
+      candidateEmail: row.candidateEmail,
+      candidateName: row.candidateName,
+      interviews: row.interviews,
+      completed: row.completed,
+      pending: row.interviews - row.completed,
+      latestInterviewId: row.roomId,
+      latestInterviewAt: row.latestInterviewAt,
+      scheduledAt: row.scheduledAt ?? null,
+      completedAt: row.completedAt ?? null,
+      latestExpiresAt: row.latestExpiresAt ?? null,
+      latestStatus: row.latestStatus,
+      status: deriveCandidateStatus({
+        decision: row.decision?.outcome ?? null,
+        applicationStatus: row.applicationStatus ?? null,
+        screeningScore: screening.score,
+        manualShortlist: row.shortlisted ?? null,
+        interviewState,
+      }),
+      interviewState,
+      overallScore: row.overallScore,
+      suggestion: row.suggestion,
+      decision: row.decision,
+      applicationId: row.applicationId ?? null,
+      applicationStatus: row.applicationStatus ?? null,
+      appliedAt: row.appliedAt ?? null,
+      candidatePhone: row.candidatePhone ?? null,
+      candidateCollegeId: row.candidateCollegeId ?? null,
+      candidateEducation: row.candidateEducation ?? null,
+      candidateCgpa: row.candidateCgpa ?? null,
+      shortlisted: row.shortlisted ?? null,
+      answers: row.answers ?? null,
+      screeningScore: screening.score,
+      screeningStatus: screening.status,
+      shortlistStatus,
+    };
+  });
   return { candidates, total: page.total, counts };
 }
 
@@ -215,6 +263,23 @@ export async function getCandidateDetail(roleId: string, candidateId: string) {
   };
 }
 
+/** The role's automatic filtration rule (Match below X, CGPA below Y). */
+export async function getRoleAutoFilterRule(roleId: string): Promise<AutoFilterRule | null> {
+  const role = await repository().getRole(roleId);
+  if (!role) return null;
+  return repository().getAutoFilterRule(roleId);
+}
+
+/** Saves the role's automatic filtration rule; values are clamped to usable ones. */
+export async function setRoleAutoFilterRule(
+  roleId: string,
+  input: unknown,
+): Promise<AutoFilterRule | null> {
+  const role = await repository().getRole(roleId);
+  if (!role) return null;
+  return repository().setAutoFilterRule(roleId, sanitizeAutoFilterRule(input));
+}
+
 /** The candidate's stored resume text, for the download endpoint. */
 export async function getCandidateResume(roleId: string, candidateId: string) {
   const role = await repository().getRole(roleId);
@@ -226,14 +291,10 @@ export async function getCandidateResume(roleId: string, candidateId: string) {
 
 /** Everything needed for the CSV export: all candidates, not just one page. */
 export async function exportRoleCandidates(roleId: string) {
+  const page = await listRoleCandidates(roleId, EXPORT_MAX_CANDIDATES, 0);
+  if (!page) return null;
   const role = await repository().getRole(roleId);
   if (!role) return null;
-  const page = await repository().listRoleCandidates(
-    roleId,
-    role.title,
-    EXPORT_MAX_CANDIDATES,
-    0,
-  );
   return { role, candidates: page.candidates };
 }
 /** Max candidates a single bulk decision may touch. */

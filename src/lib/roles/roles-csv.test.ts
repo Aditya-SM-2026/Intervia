@@ -21,6 +21,8 @@ function candidate(overrides: Partial<RoleCandidateSummary> = {}): RoleCandidate
     latestInterviewId: "abc12345",
     latestInterviewAt: "2026-10-13T10:00:00.000Z",
     latestStatus: "completed",
+    status: "applied",
+    interviewState: "evaluated",
     overallScore: 78,
     suggestion: "strong",
     decision: null,
@@ -63,11 +65,11 @@ test("buildRoleCandidatesCsv has the expected headers and rows", () => {
   assert.equal(lines.length, 2);
   assert.equal(
     lines[0],
-    "Role ID,Role Title,Role Status,Candidate Name,Candidate Email,Interview ID,Interview Status,Interview Date,Overall Score,Evaluation,Decision,Interviews,Completed",
+    "Role ID,Role Title,Role Status,Candidate Name,Candidate Email,Candidate Status,Interview ID,Interview State,Interview Date,Overall Score,Evaluation,Decision,Interviews,Completed",
   );
   assert.equal(
     lines[1],
-    "role_x,Senior Engineer,Open,Priya Sharma,priya@example.com,abc12345,Completed,2026-10-13,78,Strong,,1,1",
+    "role_x,Senior Engineer,Open,Priya Sharma,priya@example.com,Applied,abc12345,Evaluated,2026-10-13,78,Strong,,1,1",
   );
 });
 
@@ -75,8 +77,22 @@ test("buildRoleCandidatesCsv represents missing scores and pending interviews ho
   const csv = buildRoleCandidatesCsv(
     { roleId: "role_x", roleTitle: "Q&A", roleStatus: "open" },
     [
-      candidate({ overallScore: null, suggestion: null, latestStatus: "active", completed: 0, pending: 1 }),
-      candidate({ candidateEmail: "n@example.com", candidateId: "n@example.com", overallScore: null, suggestion: null, candidateName: null }),
+      candidate({
+        overallScore: null,
+        suggestion: null,
+        latestStatus: "active",
+        interviewState: "in-progress",
+        completed: 0,
+        pending: 1,
+      }),
+      candidate({
+        candidateEmail: "n@example.com",
+        candidateId: "n@example.com",
+        overallScore: null,
+        suggestion: null,
+        candidateName: null,
+        interviewState: "completed",
+      }),
     ],
   );
   const rows = csv.replace(/^\uFEFF/, "").split("\r\n").filter((line) => line !== "");

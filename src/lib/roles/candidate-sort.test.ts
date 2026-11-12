@@ -10,7 +10,6 @@ import type { RoleCandidateSummary } from "./role.types.ts";
 
 function row(overrides: Partial<RoleCandidateSummary>): SortableCandidateRow {
   return {
-    stage: "completed",
     candidate: {
       candidateId: "candidate",
       candidateEmail: "candidate@example.com",
@@ -22,7 +21,10 @@ function row(overrides: Partial<RoleCandidateSummary>): SortableCandidateRow {
       latestInterviewAt: "2026-01-01T10:00:00.000Z",
       scheduledAt: null,
       completedAt: null,
+      latestExpiresAt: null,
       latestStatus: "scheduled",
+      status: "applied",
+      interviewState: "scheduled",
       overallScore: null,
       suggestion: null,
       decision: null,
@@ -88,18 +90,37 @@ test("dates sort chronologically and fall back to the interview date", () => {
   assert.deepEqual(sorted(interviews, { key: "interview", direction: "desc" }), ["scheduled", "fallback"]);
 });
 
-test("status follows the interview pipeline order, not the alphabet", () => {
+test("status follows the pipeline order, not the alphabet", () => {
   const rows = [
-    row({ candidateId: "cancelled", latestStatus: "cancelled" }),
-    row({ candidateId: "scheduled", latestStatus: "scheduled" }),
-    row({ candidateId: "completed", latestStatus: "completed" }),
-    row({ candidateId: "waiting", latestStatus: "waiting" }),
+    row({ candidateId: "rejected", status: "rejected" }),
+    row({ candidateId: "applied", status: "applied" }),
+    row({ candidateId: "selected", status: "selected" }),
+    row({ candidateId: "advanced", status: "advanced" }),
+    row({ candidateId: "shortlisted", status: "shortlisted" }),
+    row({ candidateId: "onhold", status: "on-hold" }),
   ];
   assert.deepEqual(sorted(rows, { key: "status", direction: "asc" }), [
+    "applied",
+    "shortlisted",
+    "advanced",
+    "onhold",
+    "selected",
+    "rejected",
+  ]);
+});
+
+test("interview state sorts live first, then finished, then dead", () => {
+  const rows = [
+    row({ candidateId: "expired", interviewState: "expired" }),
+    row({ candidateId: "live", interviewState: "in-progress" }),
+    row({ candidateId: "scheduled", interviewState: "scheduled" }),
+    row({ candidateId: "evaluated", interviewState: "evaluated" }),
+  ];
+  assert.deepEqual(sorted(rows, { key: "interviewState", direction: "asc" }), [
+    "live",
     "scheduled",
-    "waiting",
-    "completed",
-    "cancelled",
+    "evaluated",
+    "expired",
   ]);
 });
 

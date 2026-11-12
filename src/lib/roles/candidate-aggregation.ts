@@ -21,6 +21,8 @@ export interface AggregationInterview {
   createdAt: string;
   completedAt: string | null;
   scheduledAt?: string | null;
+  /** When the link stops working; null when it has no window. */
+  expiresAt?: string | null;
   decision: HumanDecision | null;
   resumeFileName: string | null;
   resumeText: string | null;
@@ -73,6 +75,8 @@ export interface AggregatedCandidate {
   scheduledAt?: string | null;
   /** When the latest interview actually ended; null until completed. */
   completedAt?: string | null;
+  /** When the latest interview link stops working; null when open-ended. */
+  latestExpiresAt?: string | null;
   overallScore: number | null;
   suggestion: ScoreSuggestion | null;
   decision: HumanDecision | null;
@@ -153,6 +157,7 @@ export function aggregateCandidates(
       latestInterviewAt: interview.createdAt,
       scheduledAt: interview.scheduledAt ?? null,
       completedAt: interview.completedAt,
+      latestExpiresAt: interview.expiresAt ?? null,
       overallScore: scorecard?.overallScore ?? null,
       suggestion: parseSuggestion(scorecard?.suggestion ?? null),
       decision: interview.decision,
