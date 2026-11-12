@@ -224,6 +224,7 @@ export function InterviewDetailView({
   const [resumeOpen, setResumeOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [citedTurn, setCitedTurn] = useState<{ seq: number; nonce: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const router = useRouter();
 
@@ -368,30 +369,30 @@ export function InterviewDetailView({
 
   /** Scrolls to the transcript turn cited by the assistant and flashes it. */
   function jumpToCitedTurn(seq: number) {
-    const row = document.querySelector<HTMLButtonElement>(`button[data-seq="${seq}"]`);
-    if (!row) return;
-    row.scrollIntoView({ behavior: "smooth", block: "center" });
-    // Clicking the transcript row jumps the recording and marks the turn
-    // active; a disabled row (no recording) simply stays put.
-    row.click();
+    setCitedTurn({ seq, nonce: Date.now() });
     // On a phone the panel covers the whole report, so step out of the way.
     if (window.innerWidth < 640) setAssistantOpen(false);
-    row.classList.add("ring-2", "ring-blue-400", "ring-offset-1");
-    window.setTimeout(() => {
-      row.classList.remove("ring-2", "ring-blue-400", "ring-offset-1");
-    }, 1800);
+  }
+
+  /** Compares report text without being thrown off by punctuation or wrapping. */
+  function normalizeReportText(value: string): string {
+    return value
+      .replace(/[\u2018\u2019\u201A\u201B\u2032]/g, "'")
+      .replace(/[\u201C\u201D\u201E]/g, '"')
+      .replace(/[^a-z0-9]+/gi, "")
+      .toLowerCase();
   }
 
   /** Finds the smallest rendered element that contains the cited report quote. */
   function findReportQuoteElement(root: HTMLElement, quote: string): HTMLElement | null {
-    const needle = quote.replace(/\s+/g, " ").trim().toLowerCase();
+    const needle = normalizeReportText(quote);
     if (needle.length < 8) return null;
     let best: HTMLElement | null = null;
     let bestLength = Number.POSITIVE_INFINITY;
     for (const element of root.querySelectorAll<HTMLElement>(
       "p, li, td, th, span, strong, em, div",
     )) {
-      const text = (element.textContent ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+      const text = normalizeReportText(element.textContent ?? "");
       if (!text.includes(needle)) continue;
       if (text.length < bestLength) {
         best = element;
@@ -401,21 +402,37 @@ export function InterviewDetailView({
     return best;
   }
 
+  /** Opens any collapsed "Details" block that contains the cited evidence. */
+  function openCollapsedEvidence(target: HTMLElement) {
+    let node: HTMLElement | null = target;
+    while (node) {
+      if (node instanceof HTMLDetailsElement && !node.open) node.open = true;
+      node = node.parentElement;
+    }
+  }
+
   /** Scrolls to the exact report evidence cited by the assistant and flashes it. */
   function jumpToReportSection(sectionId: string, quote?: string) {
     const section = document.getElementById(sectionId);
     if (!section) return;
     const exact = quote ? findReportQuoteElement(section, quote) : null;
-    const target = exact ?? section;
-    target.scrollIntoView({
-      behavior: "smooth",
-      block: exact ? "center" : "start",
-    });
+    const candidate = exact ?? section;
+    openCollapsedEvidence(candidate);
+    // A quote inside a closed details element has no layout box until it is
+    // opened, so fall back to the section if the exact line still cannot show.
+    const target = candidate.getClientRects().length > 0 ? candidate : section;
+    const exactTarget = target !== section;
     if (window.innerWidth < 640) setAssistantOpen(false);
-    target.classList.add("ring-2", "ring-blue-400", "ring-offset-2");
-    window.setTimeout(() => {
-      target.classList.remove("ring-2", "ring-blue-400", "ring-offset-2");
-    }, 1800);
+    window.requestAnimationFrame(() => {
+      target.scrollIntoView({
+        behavior: "smooth",
+        block: exactTarget ? "center" : "start",
+      });
+      target.classList.add("ring-2", "ring-blue-400", "ring-offset-2");
+      window.setTimeout(() => {
+        target.classList.remove("ring-2", "ring-blue-400", "ring-offset-2");
+      }, 1800);
+    });
   }
 
   if (error && !detail) {
@@ -489,6 +506,7 @@ export function InterviewDetailView({
       videoRef={videoRef}
       moments={scorecard?.video?.moments ?? []}
       durationSeconds={session.outcome?.elapsedSeconds ?? null}
+      jumpRequest={citedTurn}
     >
       {scorecard?.video && (
         <VideoSection
@@ -2300,6 +2318,7 @@ function RecordingPanel({
   videoRef,
   moments,
   durationSeconds,
+  jumpRequest,
   children,
 }: {
   children?: ReactNode;
@@ -2313,6 +2332,7 @@ function RecordingPanel({
   videoRef: React.RefObject<HTMLVideoElement | null>;
   moments: { atSeconds: number; description: string }[];
   durationSeconds: number | null;
+  jumpRequest: { seq: number; nonce: number } | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -2323,6 +2343,7 @@ function RecordingPanel({
   const [pickedKey, setPickedKey] = useState<string | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
   const [attempt, setVideoAttempt] = useState(0);
+  const [pendingJump, setPendingJump] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const total = duration > 0 ? duration : (durationSeconds ?? 0);
@@ -2332,6 +2353,7 @@ function RecordingPanel({
     speaker: "candidate" | "interviewer" | "hr";
     text: string;
     at: number | null;
+    seq: number | null;
   };
 
   // The candidate's and interviewer's turns, plus what HR said. HR's lines
@@ -2343,12 +2365,14 @@ function RecordingPanel({
       speaker: turn.speaker as PanelLine["speaker"],
       text: turn.text,
       at: offsetFor(turn),
+      seq: turn.seq,
     })),
     ...hrLines.map((line) => ({
       key: `hr-${line.id}`,
       speaker: "hr" as const,
       text: line.text,
       at: line.at,
+      seq: null,
     })),
   ].sort((a, b) => {
     if (a.at === null || b.at === null) return 0;
@@ -2390,6 +2414,33 @@ function RecordingPanel({
     const top = rowTop - container.clientHeight / 2 + row.offsetHeight / 2;
     container.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   }, [activeKey]);
+
+  useEffect(() => {
+    if (!jumpRequest) return;
+    // A cited turn may be hidden by the current filter or search. Show all
+    // lines first, then jump once the row is rendered.
+    const timer = window.setTimeout(() => {
+      setFilter("all");
+      setQuery("");
+      setPendingJump(jumpRequest.seq);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [jumpRequest]);
+
+  useEffect(() => {
+    if (pendingJump === null) return;
+    const row = listRef.current?.querySelector<HTMLElement>(`[data-line="turn-${pendingJump}"]`);
+    if (!row) return;
+    setPickedKey(`turn-${pendingJump}`);
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.click();
+    row.classList.add("ring-2", "ring-blue-400", "ring-offset-1");
+    const timer = window.setTimeout(() => {
+      row.classList.remove("ring-2", "ring-blue-400", "ring-offset-1");
+    }, 1800);
+    setPendingJump(null);
+    return () => window.clearTimeout(timer);
+  }, [pendingJump]);
 
   const needle = query.trim().toLowerCase();
   const visible = lines.filter(
@@ -2646,6 +2697,7 @@ function RecordingPanel({
                         key={line.key}
                         type="button"
                         data-line={line.key}
+                        data-seq={line.seq ?? undefined}
                         onClick={() => jumpTo(line)}
                         disabled={!canJump}
                         aria-current={isActive ? "true" : undefined}

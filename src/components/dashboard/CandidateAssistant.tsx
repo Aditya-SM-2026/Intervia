@@ -9,11 +9,14 @@ import {
   CheckCircle2,
   History,
   Loader2,
+  Mic,
   Plus,
   Sparkles,
+  Square,
   Trash2,
   X,
 } from "lucide-react";
+import { useSpeechInput } from "./useSpeechInput";
 import type {
   AssistantAnswer,
   AssistantCandidateAnswer,
@@ -129,6 +132,8 @@ export function CandidateAssistant({
   const [streamingAnswer, setStreamingAnswer] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const voice = useSpeechInput({ onTranscript: setInput });
+  const cancelVoice = voice.cancel;
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useCallback((node: HTMLTextAreaElement | null) => {
     if (open && node) window.setTimeout(() => node.focus({ preventScroll: true }), 120);
@@ -146,6 +151,10 @@ export function CandidateAssistant({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [historyOpen, onClose]);
+
+  useEffect(() => {
+    if (!open) cancelVoice();
+  }, [open, cancelVoice]);
 
   useEffect(() => {
     if (!open) return;
@@ -205,6 +214,7 @@ export function CandidateAssistant({
   }
 
   function startNewChat() {
+    cancelVoice();
     setConversationId(null);
     setMessages([]);
     setError(null);
@@ -216,6 +226,7 @@ export function CandidateAssistant({
   async function sendQuestion(question: string) {
     const trimmed = question.trim();
     if (!trimmed || loading) return;
+    cancelVoice();
 
     const optimistic: AssistantMessage = {
       id: `pending-${Date.now()}`,
@@ -502,29 +513,77 @@ export function CandidateAssistant({
             <textarea
               ref={inputRef}
               value={input}
-              onChange={(event) => setInput(event.target.value)}
+              onChange={(event) => {
+                setInput(event.target.value);
+                voice.clearError();
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   void sendQuestion(input);
                 }
               }}
+              readOnly={voice.listening}
               rows={2}
               maxLength={600}
-              placeholder="Ask about this candidate, or compare them with someone"
-              className="max-h-32 min-h-11 w-full resize-none bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted"
+              placeholder={
+                voice.listening
+                  ? "Listening... speak your question"
+                  : "Ask about this candidate, or compare them with someone"
+              }
+              className="max-h-32 min-h-11 w-full resize-none bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted read-only:cursor-default"
             />
+            {voice.error && (
+              <p role="alert" className="px-2.5 pb-1 text-[11px] text-rose-600 dark:text-rose-400">
+                {voice.error}
+              </p>
+            )}
             <div className="flex items-center justify-between gap-2 pl-2.5">
-              <span className="text-[11px] text-muted">Enter to send, Shift + Enter for a new line</span>
-              <button
-                type="button"
-                onClick={() => void sendQuestion(input)}
-                disabled={loading || input.trim().length < 2}
-                aria-label="Send"
-                className="grid size-8 place-items-center rounded-xl bg-accent text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-foreground/15"
+              <span
+                aria-live="polite"
+                className="min-w-0 truncate text-[11px] text-muted"
               >
-                {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ArrowUp className="size-4" aria-hidden />}
-              </button>
+                {voice.listening
+                  ? "Listening... speak now"
+                  : voice.supported
+                    ? "Enter to send, Shift + Enter for a new line"
+                    : "Type your question. Voice input is not supported in this browser."}
+              </span>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (voice.listening) voice.stop();
+                    else voice.start(input);
+                  }}
+                  disabled={!voice.supported || loading}
+                  aria-label={voice.listening ? "Stop voice input" : "Ask with your voice"}
+                  aria-pressed={voice.listening}
+                  title={
+                    voice.supported
+                      ? voice.listening
+                        ? "Stop and keep the words"
+                        : "Ask by voice"
+                      : "Voice input is not supported in this browser"
+                  }
+                  className={`grid size-8 shrink-0 place-items-center rounded-xl border transition ${
+                    voice.listening
+                      ? "border-rose-200 bg-rose-500 text-white hover:bg-rose-600 dark:border-rose-500/40"
+                      : "border-border bg-surface text-muted hover:border-accent hover:text-accent"
+                  } disabled:cursor-not-allowed disabled:opacity-40`}
+                >
+                  {voice.listening ? <Square className="size-3" fill="currentColor" aria-hidden /> : <Mic className="size-4" aria-hidden />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void sendQuestion(input)}
+                  disabled={loading || input.trim().length < 2}
+                  aria-label="Send"
+                  className="grid size-8 place-items-center rounded-xl bg-accent text-white transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-foreground/15"
+                >
+                  {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ArrowUp className="size-4" aria-hidden />}
+                </button>
+              </div>
             </div>
           </div>
         </div>

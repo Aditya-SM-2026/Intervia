@@ -179,7 +179,7 @@ const SYSTEM_RULES = [
   "A transcript marked as a relevance-filtered selection is not the full interview. Only judge missing evidence within the shown turns and the report's stated gaps; never claim the rest of the interview lacked a topic.",
   "Do not infer age, gender, ethnicity, nationality, religion, health, disability or any other protected characteristic.",
   "Only discuss job-relevant evidence. Existing numeric scores must come from the supplied report; do not change them.",
-  "When asked for a skill score, first use an official custom parameter or a scored competency from the report. If neither exists, assess the skill from the candidate's actual answers. For behavioural skills such as communication, problem solving, leadership or teamwork, the word does not need to appear: judge clarity, structure, reasoning, relevance and completeness. For a specific tool or technology, use direct or strong indirect evidence, and score 0 only when the candidate was asked and clearly showed none. If there are too few meaningful answers, say there is not enough interview evidence to assess it and do not give 0. In the answer, write the score as `AI 72/100 (working level, evidence-based)` and never call it an estimate or general knowledge. Always return the skill name in estimatedSkill. Use this scale: 0-39 not evident, 40-59 basic, 60-74 working, 75-89 strong, 90-100 expert. Use at least two supporting citations and a short rationale.",
+  "When asked for a skill score, first use an official custom parameter or a scored competency from the report. If neither exists, assess the skill from the candidate's actual answers. For behavioural skills such as communication, problem solving, leadership or teamwork, the word does not need to appear: judge clarity, structure, reasoning, relevance and completeness. For a specific tool or technology, use direct or strong indirect evidence, and score 0 only when the candidate was asked and clearly showed none. If there are too few meaningful answers, say there is not enough interview evidence to assess it and do not give 0. In the answer, write the score as `<the exact skill asked about> <score>/100 (<band>, evidence-based)` and never call it an estimate or general knowledge. Score only the skill the recruiter asked about. Write that score exactly once. Never add a score for a different skill, and never repeat the same skill with a second number. Always return that asked skill name in estimatedSkill. Use this scale: 0-39 not evident, 40-59 basic, 60-74 working, 75-89 strong, 90-100 expert. Use at least two supporting citations and a short rationale.",
   "Quotes must be copied verbatim, character for character, from the supplied report, resume or numbered candidate turn.",
   "Every factual claim drawn from the report, resume or transcript must have a citation. Citation numbers must match the order of the citations array. Put [1], [2] and so on inline in the answer. Each citation must point to the exact sentence or score in the report, or the exact transcript turn or resume line, never just a section. If there is no exact quote, do not use a bracket marker.",
   "Reply with a single JSON object only.",
@@ -205,7 +205,7 @@ const CANDIDATE_ANSWER_SHAPE = [
   '  "missingEvidence": "what was genuinely missing, or null",',
   '  "followUps": ["one useful next question", "another"]',
   "}",
-  "When the question asks for a skill score and no official score exists, estimatedSkill must be: { \"skill\": \"AI\", \"score\": 72, \"rationale\": \"one short sentence\", \"confidence\": \"medium\" }.",
+  "When the question asks for a skill score and no official score exists, estimatedSkill must be: { \"skill\": \"the exact skill asked about\", \"score\": 72, \"rationale\": \"one short sentence\", \"confidence\": \"medium\" }.",
 ].join("\n");
 
 const COMPARISON_ANSWER_SHAPE = [
@@ -368,6 +368,7 @@ async function answerCandidate(
     CITATION_SECTIONS,
     "The report facts above are authoritative. Search them first, then the transcript and resume.",
     "When scoring a skill, check the report's custom parameters and competencies first. If neither exists, derive the score from the candidate's answers. Behavioural skills such as communication, problem solving, leadership and teamwork are judged from how the candidate answered, not from whether the word appears. Do not return 0 merely because the word is absent. For a named tool or technology, score 0 only when the candidate was asked and clearly showed no evidence; otherwise say there is not enough interview evidence.",
+    "Score only the skill the recruiter asked about, use that skill's name in the score line, and write the score exactly once. Do not append a different skill's score or repeat the same skill with another number.",
     "Do not label the answer as estimated, inferred or general knowledge. Those modes are internal only.",
     "For every report citation, copy the exact sentence or score into quote and set the matching sectionId. Never cite a section without the exact report text.",
     "Do not answer general knowledge questions. If the question is unrelated to this candidate, say it is not part of their report.",
@@ -771,12 +772,13 @@ function verifyCandidateAnswer(
   let confidence = raw.confidence;
 
   const wantsSkillScore = asksForSkillScore(question);
-  const requestedSkill =
-    (wantsSkillScore ? raw.estimatedSkill?.skill?.trim() : "") ||
-    (wantsSkillScore
-      ? terms.find((term) => !SKILL_QUERY_NOISE.has(term) && !/^\d+$/.test(term))
-      : "") ||
-    "";
+  const modelSkill = wantsSkillScore ? raw.estimatedSkill?.skill?.trim() || "" : "";
+  const questionSkill = wantsSkillScore ? requestedSkillFromQuestion(question) : "";
+  const termSkill = wantsSkillScore
+    ? terms.find((term) => !SKILL_QUERY_NOISE.has(term) && !/^\d+$/.test(term)) || ""
+    : "";
+  const requestedSkill = questionSkill || modelSkill || termSkill || "";
+  const skillLabel = displaySkillName(requestedSkill || "this skill");
   const official = requestedSkill
     ? findOfficialSkillScore(evidence, requestedSkill)
     : null;
@@ -795,10 +797,8 @@ function verifyCandidateAnswer(
           : "Scored competency from the report."),
     };
     basis = "report";
-    const cleaned = answerText
-      .replace(/^[^.]*\b\d{1,3}\s*\/\s*100\b[^.]*\.\s*/i, "")
-      .trim();
-    answerText = `${official.skill} ${score}/100 (${scoreBand(score).toLowerCase()}, official report score). ${cleaned}`.trim();
+    const cleaned = stripSkillScoreLines(answerText, official.skill);
+    answerText = `${displaySkillName(official.skill)} ${score}/100 (${scoreBand(score).toLowerCase()}, official report score). ${cleaned}`.trim();
     confidence = "high";
     if (!citations.some((citation) => citation.sectionId === official.sectionId)) {
       citations.push({
@@ -817,7 +817,6 @@ function verifyCandidateAnswer(
       (citation) => citation.kind === "transcript" || citation.kind === "resume",
     ).length;
     if (estimateEvidence < 2) {
-      const skillLabel = displaySkillName(raw.estimatedSkill.skill);
       answerText = `There isn't enough interview evidence to assess ${skillLabel}.`;
       missing = null;
       confidence = "low";
@@ -825,7 +824,7 @@ function verifyCandidateAnswer(
     } else {
       const score = roundScore(raw.estimatedSkill.score);
       estimate = {
-        skill: raw.estimatedSkill.skill,
+        skill: skillLabel,
         score,
         band: scoreBand(score),
         official: false,
@@ -852,6 +851,11 @@ function verifyCandidateAnswer(
     basis = "report";
   } else if (raw.basis === "estimate") {
     basis = citations.length > 0 ? "report" : "inferred";
+  }
+
+  if (estimate) {
+    const cleaned = stripUnrequestedScores(answerText, estimate.skill);
+    if (cleaned) answerText = cleaned;
   }
 
   if (dropped > 0) confidence = lowerConfidence(confidence);
@@ -1156,6 +1160,140 @@ function asksForSkillScore(question: string): boolean {
   );
 }
 
+const SKILL_PHRASE_NOISE = new Set([
+  "a",
+  "an",
+  "and",
+  "answer",
+  "answers",
+  "are",
+  "as",
+  "based",
+  "be",
+  "by",
+  "can",
+  "candidate",
+  "candidates",
+  "could",
+  "did",
+  "do",
+  "does",
+  "for",
+  "from",
+  "give",
+  "good",
+  "grade",
+  "her",
+  "his",
+  "how",
+  "in",
+  "interview",
+  "is",
+  "it",
+  "level",
+  "me",
+  "of",
+  "on",
+  "or",
+  "please",
+  "proficiency",
+  "rate",
+  "rating",
+  "response",
+  "responses",
+  "score",
+  "she",
+  "skill",
+  "skills",
+  "strong",
+  "tell",
+  "the",
+  "their",
+  "them",
+  "they",
+  "to",
+  "transcript",
+  "was",
+  "weak",
+  "were",
+  "what",
+  "would",
+  "you",
+]);
+
+/** Pulls "English grammar" out of "rate his English grammar in his answers". */
+function requestedSkillFromQuestion(question: string): string {
+  const text = normalize(question);
+  const patterns = [
+    /\b(?:rate|score|grade|assess|evaluate)\s+(?:his|her|their|the)\s+([a-z0-9+#./ -]{2,48}?)\s+(?:in|for|on|from|based on|when|while)\b/,
+    /\b(?:how (?:good|strong|skilled|proficient|well))\s+(?:is|are)\s+(?:his|her|their)\s+([a-z0-9+#./ -]{2,48}?)(?:\?|$)/,
+    /\b(?:his|her|their)\s+([a-z0-9+#./ -]{2,48}?)\s+(?:score|rating|level|skills?)\b/,
+    /\b(?:score|rating)\s+(?:for|on)\s+([a-z0-9+#./ -]{2,48}?)(?:\?|$)/,
+    /\b(?:score|rate|grade)\s+(?:him|her|them)\s+(?:on|for)\s+([a-z0-9+#./ -]{2,48}?)(?:\?|$)/,
+  ];
+  for (const pattern of patterns) {
+    const phrase = cleanSkillPhrase(text.match(pattern)?.[1] ?? "");
+    if (phrase) return phrase;
+  }
+  return "";
+}
+
+function cleanSkillPhrase(value: string): string {
+  const words = normalize(value).split(" ").filter(Boolean);
+  while (words.length > 0 && SKILL_PHRASE_NOISE.has(words[0])) words.shift();
+  while (words.length > 0 && SKILL_PHRASE_NOISE.has(words[words.length - 1])) words.pop();
+  const phrase = words.slice(0, 4).join(" ");
+  return phrase.length >= 2 ? phrase : "";
+}
+
+/**
+ * The model sometimes follows the old example and adds a second score for
+ * "AI" even when the recruiter asked about grammar. Keep only the score for
+ * the skill that was actually asked about.
+ */
+function stripUnrequestedScores(answer: string, skill: string): string {
+  const allowed = new Set(normalize(skill).split(" ").filter(Boolean));
+  if (allowed.size === 0) return answer;
+  return answer
+    .replace(
+      /\b([a-z][a-z0-9+#./-]*(?:\s+[a-z][a-z0-9+#./-]*){0,2})\s+(\d{1,3})\s*\/\s*100\b(?:\s*\([^)]*\))?\.?/gi,
+      (match, rawName: string) => {
+        const tokens = normalize(rawName)
+          .split(" ")
+          .filter(Boolean)
+          .filter((token) => token !== "and" && token !== "also" && token !== "but");
+        if (tokens.length === 0 || tokens.some((token) => SKILL_QUERY_NOISE.has(token) || token === "is" || token === "the" || token === "a" || token === "an")) {
+          return match;
+        }
+        return tokens.some((token) => allowed.has(token)) ? match : "";
+      },
+    )
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Removes every score line for one skill before the verified score is added. */
+function stripSkillScoreLines(answer: string, skill: string): string {
+  const escaped = escapeRegex(skill.trim());
+  if (!escaped) return answer;
+  const pattern = new RegExp(
+    `(?:\\b(?:his|her|their|the)\\s+)?\\b${escaped}\\b(?:\\s+(?:score|rating|level))?\\s*(?:is|was|are|were|:)?\\s*\\d{1,3}\\s*/\\s*100\\b(?:\\s*\\([^)]*\\))?\\s*[:.]?\\s*`,
+    "gi",
+  );
+  return answer
+    .replace(pattern, "")
+    .replace(/[ \t]+([,.!?;:])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function scoreBand(score: number): string {
   if (score >= 90) return "Expert";
   if (score >= 75) return "Strong";
@@ -1171,15 +1309,17 @@ function withScoreLine(
   band: string,
   official: boolean,
 ): string {
-  const text = answer
+  const cleaned = answer
     .replace(/^there is no official[^.]*[.:]\s*/i, "")
     .replace(/^there is no official[^.]*?estimate:\s*/i, "")
     .replace(/\bthis is an? (?:estimated?|inferred|general[- ]knowledge)(?: score| answer)?:\s*/gi, "")
     .replace(/^(?:estimated?|inferred|general[- ]knowledge)(?: score| answer)?:\s*/i, "")
     .trim();
-  if (new RegExp(`\\b${score}\\s*/\\s*100\\b`).test(text)) return text;
+  const text = stripSkillScoreLines(cleaned, skill);
   const qualifier = official ? "official report score" : "evidence-based";
-  return `${skill} ${score}/100 (${band.toLowerCase()}, ${qualifier}). ${text}`.trim();
+  return text
+    ? `${skill} ${score}/100 (${band.toLowerCase()}, ${qualifier}). ${text}`.trim()
+    : `${skill} ${score}/100 (${band.toLowerCase()}, ${qualifier}).`;
 }
 
 function verifyComparisonAnswer(
