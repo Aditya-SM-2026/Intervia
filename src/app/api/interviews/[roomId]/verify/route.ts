@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
 import {
   activateRoom,
+  attachApplicationResume,
   verifyCandidateEmail,
 } from "@/lib/interviews/interview.service";
 import {
@@ -148,6 +149,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           data: { fileName: resumeFile.name, bytes: resumeFile.size, source: "candidate_join" },
         },
       ]);
+    } else if (!result.room.resume) {
+      // Nothing uploaded for this interview, but the candidate may have given
+      // a resume on the role's application form. This covers rooms created
+      // before the copy existed and applications that arrived later.
+      await attachApplicationResume(result.room);
     }
 
     const credentials = await generateLiveKitToken({

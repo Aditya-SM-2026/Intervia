@@ -20,6 +20,7 @@ import { generateInterviewPlan } from "./plan.service";
 import type { SkillFocus } from "./skill-focus";
 import type { DashboardInterviewSummary } from "./scorecard.types";
 import { getInterviewRepository } from "@/server/repositories";
+import { getRolesRepository } from "@/server/repositories/roles-repository";
 
 const MS_PER_MINUTE = 60_000;
 // The interview length is enforced by the agent's controller; the link itself
@@ -326,6 +327,41 @@ export async function verifyCandidateEmail(
 
   await repository.save({ ...room, consent: { givenAt: consentedAt } });
   return { ok: true, room };
+}
+
+/**
+ * The resume the candidate supplied when applying to this role.
+ *
+ * A recruiter who creates an interview from the roles page usually has no file
+ * at hand: the candidate already gave one on the application form. Copying it
+ * onto the room means the invitation is sent with the resume attached, the
+ * plan is generated around it, and the report can check the resume claims.
+ * Best effort: a lookup failure never blocks an interview.
+ */
+export async function attachApplicationResume(room: InterviewRoom): Promise<InterviewRoom> {
+  if (room.resume || !room.roleId || !room.candidateEmail) return room;
+  try {
+    const roles = getRolesRepository();
+    const application = await roles.getApplicationByEmail(room.roleId, room.candidateEmail);
+    if (!application) return room;
+    const resume = await roles.getApplicationResume(room.roleId, application.id);
+    if (!resume?.fileName) return room;
+    const text = resume.text.trim();
+    const attached: ResumeInfo = {
+      fileName: resume.fileName,
+      text,
+      ...(text ? {} : { unreadable: true }),
+      ...(resume.objectPath ? { objectPath: resume.objectPath } : {}),
+    };
+    const next: InterviewRoom = { ...room, resume: attached };
+    await getInterviewRepository().save(next);
+    return next;
+  } catch (error) {
+    console.error(
+      `[interviews] could not copy the application resume for ${room.id}: ${(error as Error).message}`,
+    );
+    return room;
+  }
 }
 
 /**
