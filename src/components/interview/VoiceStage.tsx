@@ -13,6 +13,12 @@ interface VoiceStageProps {
   /** The candidate's microphone. */
   microphoneTrack: MediaStreamTrack | null;
   muted: boolean;
+  /** Light text for a dark background (the interview window's stage). */
+  onDark?: boolean;
+  /** Show the status line above the bars, for the interview window's stage. */
+  textFirst?: boolean;
+  /** A short waveform, for the interview window's tile. */
+  compact?: boolean;
 }
 
 const BAR_COUNT = 44;
@@ -39,6 +45,9 @@ export function VoiceStage({
   interviewerTrack,
   microphoneTrack,
   muted,
+  onDark = false,
+  textFirst = false,
+  compact = false,
 }: VoiceStageProps) {
   const barsRef = useRef<HTMLDivElement>(null);
   // Read inside the animation loop without restarting it on every change.
@@ -110,20 +119,34 @@ export function VoiceStage({
           ? "problem"
           : "idle";
 
+  const status = (
+    <p
+      role="status"
+      aria-live="polite"
+      className={`text-sm ${onDark ? "text-white/65" : "text-muted"}`}
+    >
+      {state === "error" && detail
+        ? detail
+        : muted && state === "listening"
+          ? "You are muted. Unmute to answer."
+          : STATUS[state]}
+    </p>
+  );
+
   return (
     <div className="flex flex-col items-center gap-5" role="group" aria-label="Interview audio">
-      <div ref={barsRef} data-voice={voice} className="voice-line" aria-hidden="true">
+      {textFirst && status}
+      <div
+        ref={barsRef}
+        data-voice={voice}
+        className={`voice-line${compact ? " voice-line-compact" : ""}`}
+        aria-hidden="true"
+      >
         {Array.from({ length: BAR_COUNT }, (_, index) => (
           <span key={index} />
         ))}
       </div>
-      <p role="status" aria-live="polite" className="text-sm text-muted">
-        {state === "error" && detail
-          ? detail
-          : muted && state === "listening"
-            ? "You are muted. Unmute to answer."
-            : STATUS[state]}
-      </p>
+      {!textFirst && status}
     </div>
   );
 }

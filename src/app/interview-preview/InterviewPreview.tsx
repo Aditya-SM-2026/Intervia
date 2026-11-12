@@ -21,6 +21,7 @@ export function InterviewPreview() {
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
   const [conversation, setConversation] = useState(false);
+  const [hr, setHr] = useState(false);
   const common = { roomId: "preview", roomTitle: "AI Developer", candidateName: "Priya Raman", recruiterName: "Admin", durationMinutes: 30 };
 
   let screen;
@@ -49,6 +50,8 @@ export function InterviewPreview() {
         showConversation={conversation}
         audioBlocked={false}
         hrNotice={false}
+        hrPresent={hr}
+        hrTrack={null}
         onToggleConversation={() => setConversation((value) => !value)}
         onToggleMute={() => setMuted((value) => !value)}
         onToggleCamera={() => setCameraOff((value) => !value)}
@@ -74,6 +77,9 @@ export function InterviewPreview() {
             ai: {item}
           </button>
         ))}
+        <button type="button" onClick={() => setHr((value) => !value)} className={`rounded px-2 py-1 text-left ${hr ? "bg-white/30" : ""}`}>
+          hr: {hr ? "on" : "off"}
+        </button>
       </div>
     </>
   );

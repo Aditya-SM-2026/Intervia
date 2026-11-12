@@ -8,9 +8,11 @@ interface CandidateVideoProps {
   /** Mirror the image (natural for a self-view). */
   mirrored?: boolean;
   label: string;
+  /** Fill the parent's height instead of keeping a 16:9 box. */
+  fill?: boolean;
 }
 
-export function CandidateVideo({ track, mirrored = false, label }: CandidateVideoProps) {
+export function CandidateVideo({ track, mirrored = false, label, fill = false }: CandidateVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -34,7 +36,9 @@ export function CandidateVideo({ track, mirrored = false, label }: CandidateVide
 
   return (
     <div
-      className="relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0f1b45] shadow-lg shadow-black/30"
+      className={`relative w-full overflow-hidden rounded-2xl bg-[#0f1b45] ${
+        fill ? "h-full" : "aspect-video border border-white/10 shadow-lg shadow-black/30"
+      }`}
     >
       <video
         ref={videoRef}
