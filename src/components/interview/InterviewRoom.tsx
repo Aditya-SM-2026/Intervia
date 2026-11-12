@@ -84,6 +84,9 @@ export function InterviewRoom({
   const [startedAtMs, setStartedAtMs] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [hrNotice, setHrNotice] = useState(false);
+  /** HR is in the call (they are shown as a second camera tile). */
+  const [hrPresent, setHrPresent] = useState(false);
+  const [hrTrack, setHrTrack] = useState<MediaStreamTrack | null>(null);
 
   const roomRef = useRef<Room | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -221,10 +224,17 @@ export function InterviewRoom({
     room.on(RoomEvent.ParticipantConnected, (participant) => {
       if (isAgent(participant)) onAgentPresent(participant);
       // HR joining is quiet: a small notice and a chime, never a pause.
-      else if (participant.identity.startsWith("hr-")) announceHr();
+      else if (participant.identity.startsWith("hr-")) {
+        setHrPresent(true);
+        announceHr();
+      }
     });
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
       if (isAgent(participant)) setAiState("disconnected");
+      if (participant.identity.startsWith("hr-")) {
+        setHrPresent(false);
+        setHrTrack(null);
+      }
     });
     room.on(RoomEvent.ParticipantAttributesChanged, (changed, participant) => {
       if (participant.isLocal || !(AGENT_STATE_ATTRIBUTE in changed)) return;
@@ -233,7 +243,11 @@ export function InterviewRoom({
       if (next === "speaking") setStartedAtMs((current) => current ?? Date.now());
     });
 
-    room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
+    room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication, participant) => {
+      if (track.kind === Track.Kind.Video && participant.identity.startsWith("hr-")) {
+        setHrTrack(track.mediaStreamTrack);
+        return;
+      }
       if (track.kind !== Track.Kind.Audio) return;
       const element = track.attach();
       element.style.display = "none";
@@ -241,7 +255,10 @@ export function InterviewRoom({
       audioElementsRef.current.push(element);
       setInterviewerTrack(track.mediaStreamTrack);
     });
-    room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+    room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _publication, participant) => {
+      if (track.kind === Track.Kind.Video && participant.identity.startsWith("hr-")) {
+        setHrTrack(null);
+      }
       track.detach().forEach((element) => {
         element.remove();
         audioElementsRef.current = audioElementsRef.current.filter((item) => item !== element);
@@ -365,6 +382,7 @@ export function InterviewRoom({
       }
       // HR may already be waiting in the room before the candidate arrives.
       if ([...room.remoteParticipants.values()].some((participant) => participant.identity.startsWith("hr-"))) {
+        setHrPresent(true);
         announceHr();
       }
 
@@ -476,6 +494,8 @@ export function InterviewRoom({
         transcript={transcript}
         showConversation={showConversation}
         hrNotice={hrNotice}
+        hrPresent={hrPresent}
+        hrTrack={hrTrack}
         audioBlocked={audioBlocked}
         onToggleConversation={() => setShowConversation((shown) => !shown)}
         onToggleMute={handleToggleMute}

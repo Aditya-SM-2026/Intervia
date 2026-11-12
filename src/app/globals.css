@@ -130,6 +130,12 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visib
 .voice-line[data-voice="problem"] {
   color: #f08a8a;
 }
+/* The short waveform inside the interview window's interviewer tile. */
+.voice-line.voice-line-compact {
+  height: 3.25rem;
+  width: min(100%, 22rem);
+  gap: 3px;
+}
 .voice-line > span {
   flex: 1 1 0;
   max-width: 8px;
