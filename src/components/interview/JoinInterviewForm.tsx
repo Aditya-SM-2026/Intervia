@@ -1,9 +1,11 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { verifyEndpoint, type LiveKitJoinCredentials } from "@/lib/livekit/client";
-import { ArrowRight, Check, FileText, Mic, Upload, Video } from "lucide-react";
+import { requestFullscreen } from "@/lib/browser/fullscreen";
+import { ArrowRight, Check, FileText, Maximize2, Mic, Upload, Video } from "lucide-react";
 import { MicCheck } from "./MicCheck";
+import { useFullscreen } from "./useFullscreen";
 
 interface JoinInterviewFormProps {
   roomId: string;
@@ -68,6 +70,12 @@ export function JoinInterviewForm({
   const videoRef = useRef<HTMLVideoElement>(null);
   // Once the stream is handed over to the room, unmount cleanup must not stop it.
   const handedOffRef = useRef(false);
+
+  // Third permission, asked beside camera and microphone: the interview runs
+  // full screen, and only after the candidate allows it does the call take
+  // over the screen. Browsers that cannot do it never see the ask.
+  const { supported: fullscreenSupported } = useFullscreen();
+  const [fullscreenAllowed, setFullscreenAllowed] = useState(false);
 
   // Email gate state: the link only proceeds after the email matches and
   // consent is given.
@@ -171,14 +179,26 @@ export function JoinInterviewForm({
   function handleJoin() {
     if (!preview) return;
     handedOffRef.current = true;
+    // This click is the gesture the Fullscreen API needs, so allowing it here
+    // means the call opens on the whole screen by itself.
+    if (fullscreenAllowed) void requestFullscreen();
     onProceed(preview);
   }
 
+  const stepLabels = fullscreenSupported
+    ? ["Confirm it's you", "Camera and mic", "Full screen"]
+    : ["Confirm it's you", "Camera and microphone"];
+  const stepDone = [verified, Boolean(preview), fullscreenAllowed];
+  const currentStep = stepDone.findIndex((done) => !done);
+
   const steps = (
-    <ol className="mb-6 grid grid-cols-2 gap-2 text-xs font-medium" aria-label="Steps to join">
-      {["Confirm it's you", "Camera and microphone"].map((label, index) => {
-        const done = index === 0 && verified;
-        const current = (index === 0 && !verified) || (index === 1 && verified);
+    <ol
+      className={`mb-6 grid gap-2 text-xs font-medium ${stepLabels.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}
+      aria-label="Steps to join"
+    >
+      {stepLabels.map((label, index) => {
+        const done = stepDone[index];
+        const current = index === currentStep;
         return (
           <li key={label} className="grid gap-2">
             <span className={`h-1 rounded-full ${done || current ? "bg-accent" : "bg-foreground/10"}`} />
@@ -271,7 +291,7 @@ export function JoinInterviewForm({
           disabled={isVerifying}
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isVerifying ? "Checking…" : "Continue"}
+          {isVerifying ? "CheckingΓÇª" : "Continue"}
           {!isVerifying && <ArrowRight className="size-4" aria-hidden />}
         </button>
       </form>
@@ -315,7 +335,7 @@ export function JoinInterviewForm({
               disabled={isRequesting}
               className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-white/90 disabled:opacity-60"
             >
-              {isRequesting ? "Waiting for permission…" : "Turn on camera and microphone"}
+              {isRequesting ? "Waiting for permissionΓÇª" : "Turn on camera and microphone"}
             </button>
             <span className="text-xs text-white/60">Your browser will ask for permission.</span>
           </div>
@@ -328,16 +348,54 @@ export function JoinInterviewForm({
         </p>
       )}
 
+      {fullscreenSupported && (
+        <label
+          className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3.5 transition ${
+            fullscreenAllowed
+              ? "border-emerald-500/40 bg-emerald-500/[0.06]"
+              : "border-border hover:border-accent/60 hover:bg-accent-soft/40"
+          }`}
+        >
+          <span
+            className={`grid size-9 shrink-0 place-items-center rounded-lg ${
+              fullscreenAllowed ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-accent/10 text-accent"
+            }`}
+          >
+            <Maximize2 className="size-4" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5 text-sm font-medium">
+              Full screen
+              {fullscreenAllowed && <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />}
+            </span>
+            <span className="block text-xs leading-relaxed text-muted">
+              {fullscreenAllowed
+                ? "Allowed. The interview fills your screen when you join."
+                : "Allow the interview to fill your whole screen. It leaves full screen by itself when the interview ends."}
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={fullscreenAllowed}
+            onChange={(event) => setFullscreenAllowed(event.target.checked)}
+            aria-label="Allow full screen for this interview"
+            className="size-4 shrink-0 accent-accent"
+          />
+        </label>
+      )}
+
       <button
         type="button"
         onClick={handleJoin}
-        disabled={!preview}
+        disabled={!preview || (fullscreenSupported && !fullscreenAllowed)}
         className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
       >
         Join the interview
         <ArrowRight className="size-4" aria-hidden />
       </button>
-      <p className="-mt-2 text-center text-xs text-muted">Recording starts when you join.</p>
+      <p className="-mt-2 text-center text-xs text-muted">
+        {fullscreenSupported && !fullscreenAllowed ? "Allow full screen to join." : "Recording starts when you join."}
+      </p>
     </div>
   );
 }

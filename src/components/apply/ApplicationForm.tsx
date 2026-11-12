@@ -107,18 +107,16 @@ function FieldShell({
 function RolePanel({
   roleTitle,
   roleDescription,
-  fieldCount,
   preview,
 }: {
   roleTitle: string;
   roleDescription: string;
-  fieldCount: number;
   preview: boolean;
 }) {
   return (
     <aside
       className={`relative isolate overflow-hidden rounded-[28px] bg-[#081a3d] text-white shadow-[0_24px_80px_-40px_rgba(8,26,61,0.65)] ring-1 ring-white/10 ${
-        preview ? "" : "lg:sticky lg:top-8 lg:self-start lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto"
+        preview ? "" : "lg:min-h-0"
       }`}
     >
       <div
@@ -143,7 +141,9 @@ function RolePanel({
 
       <div
         className={`relative flex flex-col px-6 py-7 sm:px-8 sm:py-9 ${
-          preview ? "" : "lg:px-9 lg:py-10"
+          preview
+            ? ""
+            : "lg:absolute lg:inset-0 lg:overflow-y-auto lg:overscroll-contain lg:px-9 lg:py-10"
         }`}
       >
         <div className="flex flex-wrap items-center gap-2">
@@ -161,18 +161,13 @@ function RolePanel({
           {roleTitle}
         </h1>
 
-        <p className="mt-3 max-w-[36ch] text-sm leading-6 text-white/65">
-          {fieldCount} {fieldCount === 1 ? "question" : "questions"}, one resume. Take your time and
-          tell us what matters.
-        </p>
-
         {roleDescription.trim() !== "" && (
           <div className="mt-8 border-t border-white/10 pt-7">
             <p className="text-[11px] font-medium tracking-[0.14em] text-white/45 uppercase">
               About the role
             </p>
             <div className="mt-4">
-              <DocumentText text={roleDescription} onDark collapsedHeight={360} />
+              <DocumentText text={roleDescription} onDark />
             </div>
           </div>
         )}
@@ -479,15 +474,10 @@ export function ApplicationForm({
   return (
     <div
       className={`grid items-start gap-5 ${
-        preview ? "" : "lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-6"
+        preview ? "" : "lg:items-stretch lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-6"
       }`}
     >
-      <RolePanel
-        roleTitle={roleTitle}
-        roleDescription={roleDescription}
-        fieldCount={questionCount}
-        preview={preview}
-      />
+      <RolePanel roleTitle={roleTitle} roleDescription={roleDescription} preview={preview} />
 
       {done ? (
         <section className="rounded-[28px] border border-border bg-surface p-6 shadow-[0_20px_60px_-35px_rgba(8,26,61,0.3)] sm:p-9 lg:p-12">

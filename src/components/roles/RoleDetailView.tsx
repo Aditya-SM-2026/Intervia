@@ -13,6 +13,8 @@ import {
   ChevronRight,
   Download,
   FileText,
+  Funnel,
+  Trash2,
   Users,
   MoreHorizontal,
   Pencil,
@@ -29,9 +31,15 @@ import type {
   RoleResponse,
   RoleSummary,
 } from "@/lib/roles/role.types";
-import { compareByHirePriority, deriveApplicationStage, deriveHireStage, type HireStage } from "@/lib/roles/hire-stage";
 import { compareCandidateRows, type CandidateSortKey, type SortState } from "@/lib/roles/candidate-sort";
-import { countPipeline, PIPELINE_STEPS, pipelineStep, scoreTone, type PipelineStep } from "@/lib/roles/pipeline";
+import { countPipeline, PIPELINE_STEPS, scoreTone, type PipelineStep } from "@/lib/roles/pipeline";
+import {
+  CANDIDATE_STATUS_LABELS,
+  CANDIDATE_STATUS_STYLES,
+  INTERVIEW_STATE_LABELS,
+  INTERVIEW_STATE_STYLES,
+  compareByCandidateStatus,
+} from "@/lib/roles/candidate-status";
 import type { ApplicationField } from "@/lib/roles/application.types";
 import { documentFacts } from "@/lib/text/document-blocks";
 import { ApplicationFormSettings } from "@/components/roles/ApplicationFormSettings";
@@ -43,10 +51,12 @@ import { Pagination } from "@/components/dashboard/Pagination";
 import { Menu } from "@/components/dashboard/menu";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { FilterMenu } from "@/components/dashboard/Toolbar";
-import { ShortlistCell } from "@/components/roles/ShortlistCell";
 import { BulkScheduleDialog } from "@/components/roles/BulkScheduleDialog";
-import { educationLabel, passesCgpaFilter, passesShortlistFilter } from "@/lib/roles/shortlist";
-import { Avatar, StatusBadge } from "@/components/dashboard/primitives";
+import { AutoFilterDialog } from "@/components/roles/AutoFilterDialog";
+import { ShortlistCell } from "@/components/roles/ShortlistCell";
+import { isAutoFiltered, DEFAULT_AUTO_FILTER_RULE, type AutoFilterRule } from "@/lib/roles/auto-filter";
+import { educationLabel } from "@/lib/roles/shortlist";
+import { Avatar } from "@/components/dashboard/primitives";
 import { DocumentText } from "@/components/ui/DocumentText";
 import { Sheet } from "@/components/ui/Sheet";
 import { EASE_OUT } from "@/components/ui/animated";
@@ -87,14 +97,13 @@ const PAGE_SIZE = 25;
 
 type StageTab = "candidates" | "description";
 type StageFilter = PipelineStep | "all";
-type StatusFilter = "all" | "scheduled" | "in-progress" | "completed" | "cancelled";
+type StatusFilter = "all" | "not-scheduled" | "scheduled" | "completed";
 
 const STATUS_FILTERS = [
   { value: "all", label: "Any status" },
+  { value: "not-scheduled", label: "Not scheduled" },
   { value: "scheduled", label: "Scheduled" },
-  { value: "in-progress", label: "In progress" },
   { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Expired or cancelled" },
 ];
 
 function formatDate(iso: string): string {
@@ -111,7 +120,6 @@ function formatDay(iso: string): { day: string; time: string } {
 
 interface LeaderRow {
   candidate: RoleCandidateSummary;
-  stage: HireStage;
 }
 
 const ghostButton =
@@ -209,7 +217,7 @@ function StageTabs({
   );
 }
 
-/** One tile per stage. Each tile filters the list below to that stage. */
+/** One tile per status. Each tile filters the list below to that status. */
 function StageStrip({
   counts,
   total,
@@ -222,35 +230,34 @@ function StageStrip({
   onChange: (stage: StageFilter) => void;
 }) {
   const reduce = useReducedMotion();
-  const tiles: { id: StageFilter; label: string; count: number; tile: string; bar: string }[] = [
-    { id: "all", label: "Everyone", count: total, tile: "bg-foreground/[0.04] text-foreground", bar: "bg-foreground/40" },
-    ...PIPELINE_STEPS.map(({ step, label, tile, bar }) => ({
+  const tiles: { id: StageFilter; label: string; count: number; tile: string; bar: string }[] =
+    PIPELINE_STEPS.map(({ step, label, tile, bar }) => ({
       id: step as StageFilter,
-      label: step === "closed" ? "Rejected" : label,
-      count: counts?.[step] ?? 0,
+      label,
+      // Applied is everyone who applied for this role.
+      count: step === "applied" ? total : (counts?.[step] ?? 0),
       tile,
       bar,
-    })),
-  ];
+    }));
   return (
-    <div role="group" aria-label="Filter by stage" className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+    <div role="group" aria-label="Filter by status" className="grid grid-cols-3 gap-2 sm:grid-cols-6">
       {tiles.map((item) => {
-        const active = item.id === value;
+        const active = item.id === value || (item.id === "applied" && value === "all");
         return (
           <button
             key={item.id}
             type="button"
             aria-pressed={active}
-            onClick={() => onChange(active && item.id !== "all" ? "all" : item.id)}
+            onClick={() => onChange(item.id === "applied" ? "all" : active ? "all" : item.id)}
             className={`relative overflow-hidden rounded-xl px-3.5 py-3 text-left transition ${
-              item.count > 0 || item.id === "all" ? item.tile : "bg-foreground/[0.03] text-muted"
+              item.count > 0 ? item.tile : "bg-foreground/[0.03] text-muted"
             } ${active ? "ring-2 ring-accent ring-offset-2 ring-offset-background" : "hover:brightness-[0.97]"}`}
           >
             <span className="block text-2xl font-semibold leading-none tracking-[-0.02em] tabular-nums">
-              {counts === null ? "–" : item.count}
+              {counts === null ? "â€“" : item.count}
             </span>
             <span className="mt-1.5 block truncate text-xs font-medium">{item.label}</span>
-            {item.id !== "all" && total > 0 && item.count > 0 && (
+            {total > 0 && item.count > 0 && (
               <span className="absolute inset-x-3.5 bottom-1.5 h-0.5 overflow-hidden rounded-full bg-current/10">
                 <motion.span
                   className={`block h-full rounded-full ${item.bar}`}
@@ -285,6 +292,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
+  const [autoFilterOpen, setAutoFilterOpen] = useState(false);
+  const [autoFilterRule, setAutoFilterRule] = useState<AutoFilterRule>(DEFAULT_AUTO_FILTER_RULE);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingDecision, setConfirmingDecision] = useState<HumanDecision["outcome"] | null>(null);
   const [formFields, setFormFields] = useState<ApplicationField[]>([]);
   const [openApplication, setOpenApplication] = useState<string | null>(null);
@@ -294,8 +304,6 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const [stageFilter, setStageFilter] = useState<StageFilter>("all");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [shortlistedOnly, setShortlistedOnly] = useState(false);
-  const [minCgpa, setMinCgpa] = useState(0);
   const [sort, setSort] = useState<SortState | null>(null);
   const [page, setPage] = useState(1);
   const dismissToast = useCallback(() => setToast(null), []);
@@ -370,6 +378,18 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       .catch(() => setFormFields([]));
   }, [roleId]);
 
+  /** The role's own automatic filtration rule, editable in the dialog. */
+  useEffect(() => {
+    fetch(`/api/roles/${roleId}/auto-filter`)
+      .then(async (response) =>
+        response.ok ? ((await response.json()) as { rule?: AutoFilterRule }) : null,
+      )
+      .then((body) => {
+        if (body?.rule) setAutoFilterRule(body.rule);
+      })
+      .catch(() => undefined);
+  }, [roleId]);
+
   async function setApplicationStage(applicationId: string, action: "reject" | "restore") {
     if (actionBusy) return;
     setActionBusy(true);
@@ -391,34 +411,28 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     }
   }
 
-  /** Ranked rows: recruiter decisions first, then ready to advance, then by score. */
+  /** Ranked rows: shortlisted first, then advanced, then applied, closed last. */
   const rows = useMemo<LeaderRow[] | null>(() => {
     if (candidates === null) return null;
-    const ranked = candidates
-      .map((candidate) => ({
-        candidate,
-        stage:
-          candidate.applicationStatus && candidate.interviews === 0
-            ? deriveApplicationStage(candidate.applicationStatus)
-            : deriveHireStage({
-                status: candidate.latestStatus,
-                overallScore: candidate.overallScore,
-                decision: candidate.decision?.outcome ?? null,
-                cutoff: null,
-              }),
-      }))
-      .sort((a, b) =>
-        compareByHirePriority(
-          { stage: a.stage, overallScore: a.candidate.overallScore },
-          { stage: b.stage, overallScore: b.candidate.overallScore },
-        ),
-      );
+    const ranked = [...candidates]
+      .sort(
+        (a, b) =>
+          compareByCandidateStatus(a.status, b.status) ||
+          (b.overallScore ?? -1) - (a.overallScore ?? -1),
+      )
+      .map((candidate) => ({ candidate }));
     return ranked;
   }, [candidates]);
 
   const stageCounts = useMemo(
     () =>
-      rows ? countPipeline(rows.map((row) => ({ stage: row.stage, interviewed: row.candidate.interviews > 0 }))) : null,
+      rows
+        ? {
+            ...countPipeline(rows.map((row) => ({ status: row.candidate.status }))),
+            // Applied is the whole list: everyone who applied for the role.
+            applied: rows.length,
+          }
+        : null,
     [rows],
   );
 
@@ -426,7 +440,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     const needle = query.trim().toLowerCase();
     const filtered = (rows ?? []).filter((row) => {
       const candidate = row.candidate;
-      if (stageFilter !== "all" && pipelineStep(row.stage, candidate.interviews > 0) !== stageFilter) return false;
+      if (stageFilter !== "all" && stageFilter !== "applied" && candidate.status !== stageFilter) return false;
       if (needle) {
         const haystack = [
           candidate.candidateName ?? "",
@@ -439,15 +453,18 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         if (!haystack.includes(needle)) return false;
       }
       if (statusFilter !== "all") {
-        if (candidate.interviews === 0) return false;
-        const status = candidate.latestStatus;
-        if (statusFilter === "scheduled" && status !== "scheduled") return false;
-        if (statusFilter === "in-progress" && status !== "waiting" && status !== "active") return false;
-        if (statusFilter === "completed" && status !== "completed") return false;
-        if (statusFilter === "cancelled" && status !== "cancelled" && status !== "expired") return false;
+        const state = candidate.interviewState;
+        if (statusFilter === "not-scheduled" && state !== "not-scheduled") return false;
+        if (
+          statusFilter === "scheduled" &&
+          state !== "scheduled" &&
+          state !== "link-opened" &&
+          state !== "in-progress"
+        )
+          return false;
+        if (statusFilter === "completed" && state !== "completed" && state !== "evaluated")
+          return false;
       }
-      if (!passesShortlistFilter(candidate.shortlistStatus, shortlistedOnly)) return false;
-      if (!passesCgpaFilter(candidate.candidateCgpa, minCgpa)) return false;
       return true;
     });
     if (sort === null) return filtered;
@@ -458,7 +475,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       }
       return compareCandidateRows(a, b, sort);
     });
-  }, [rows, query, stageFilter, statusFilter, sort, shortlistedOnly, minCgpa]);
+  }, [rows, query, stageFilter, statusFilter, sort]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -489,8 +506,6 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     setStageFilter("all");
     setQuery("");
     setStatusFilter("all");
-    setShortlistedOnly(false);
-    setMinCgpa(0);
     setPage(1);
   }
 
@@ -566,6 +581,40 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const selectedRows = (rows ?? []).filter((row) => selected.has(row.candidate.candidateId));
   const selectedAllInterviewed =
     selectedRows.length > 0 && selectedRows.every((row) => row.candidate.interviews > 0);
+
+  /** Everyone the automatic filter would sweep up, across the whole role. */
+  const autoFilteredCandidates = useMemo(
+    () => (candidates ?? []).filter((candidate) => isAutoFiltered(candidate, autoFilterRule)),
+    [candidates, autoFilterRule],
+  );
+
+  async function deleteSelected() {
+    if (actionBusy || selected.size === 0) return;
+    setActionBusy(true);
+    try {
+      const response = await fetch(`/api/roles/${roleId}/candidates`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidateIds: [...selected] }),
+      });
+      const body = (await response.json()) as { requested?: number; error?: { message?: string } };
+      if (!response.ok || typeof body.requested !== "number") {
+        throw new Error(body.error?.message ?? "Could not remove the candidates.");
+      }
+      const removed = body.requested;
+      setToast({
+        tone: "success",
+        message: `${removed} candidate${removed === 1 ? "" : "s"} removed from this role.`,
+      });
+      setSelected(new Set());
+      setConfirmingDelete(false);
+      await loadCandidates();
+    } catch (cause) {
+      fail(cause, "Could not remove the candidates.");
+    } finally {
+      setActionBusy(false);
+    }
+  }
 
   function exportCsv() {
     const link = document.createElement("a");
@@ -777,7 +826,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                 />
               </div>
               <FilterMenu
-                label="Interview status"
+                label="Any status"
                 icon={<span aria-hidden className="block size-2 rounded-full bg-current" />}
                 value={statusFilter}
                 options={STATUS_FILTERS}
@@ -786,36 +835,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                   setPage(1);
                 }}
               />
-              <label className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-2.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={shortlistedOnly}
-                  onChange={(event) => {
-                    setShortlistedOnly(event.target.checked);
-                    setPage(1);
-                  }}
-                  className="size-4 cursor-pointer accent-[var(--accent)]"
-                />
-                Shortlisted
-              </label>
-              <label className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-2.5 text-sm text-muted">
-                CGPA ≥
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  value={minCgpa === 0 ? "" : minCgpa}
-                  onChange={(event) => {
-                    setMinCgpa(Number(event.target.value) || 0);
-                    setPage(1);
-                  }}
-                  placeholder="any"
-                  aria-label="Minimum CGPA"
-                  className="w-16 bg-transparent text-sm text-foreground outline-none"
-                />
-              </label>
-              {(query !== "" || statusFilter !== "all" || stageFilter !== "all" || shortlistedOnly || minCgpa > 0) && (
+              {(query !== "" || statusFilter !== "all" || stageFilter !== "all") && (
                 <button
                   type="button"
                   onClick={clearFilters}
@@ -826,9 +846,25 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                 </button>
               )}
               <span className="grow" />
+              <button
+                type="button"
+                onClick={() => setAutoFilterOpen(true)}
+                title={`Candidates with Match below ${autoFilterRule.matchBelow} and CGPA below ${autoFilterRule.cgpaBelow}`}
+                className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-sm transition ${
+                  autoFilteredCandidates.length > 0
+                    ? "border-rose-300 bg-rose-500/[0.07] text-rose-700 hover:bg-rose-500/[0.12] dark:border-rose-500/30 dark:text-rose-300"
+                    : "border-border text-muted hover:bg-foreground/[0.05] hover:text-foreground"
+                }`}
+              >
+                <Funnel className="size-3.5" aria-hidden />
+                Automatic filtration
+                <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs font-semibold tabular-nums">
+                  {autoFilteredCandidates.length}
+                </span>
+              </button>
               <span className="text-sm tabular-nums text-muted">
                 {visibleRows.length} {visibleRows.length === 1 ? "person" : "people"}
-                {totalPages > 1 && ` · page ${currentPage} of ${totalPages}`}
+                {totalPages > 1 && ` Â· page ${currentPage} of ${totalPages}`}
               </span>
             </div>
 
@@ -885,10 +921,10 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                           />
                         </th>
                         <SortableHeader label="Candidate" column="candidate" sort={sort} onSort={toggleSort} />
-                        <th scope="col" className="px-3 py-2.5 font-medium">Stage</th>
+                        <SortableHeader label="Status" column="status" sort={sort} onSort={toggleSort} />
+                        <SortableHeader label="Interview" column="interviewState" sort={sort} onSort={toggleSort} />
                         <SortableHeader label="Match" column="match" sort={sort} onSort={toggleSort} />
                         <th scope="col" className="px-3 py-2.5 font-medium">Education</th>
-                        <th scope="col" className="px-3 py-2.5 font-medium">Shortlist</th>
                         <SortableHeader label="Score" column="score" sort={sort} onSort={toggleSort} />
                         <SortableHeader label="Date" column="applied" sort={sort} onSort={toggleSort} />
                         <th scope="col" className="px-3 py-2.5 font-medium">Outcome</th>
@@ -896,10 +932,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {pageRows.map(({ candidate, stage }) => {
+                      {pageRows.map(({ candidate }) => {
                         const interviewed = candidate.interviews > 0;
                         const isSelected = selected.has(candidate.candidateId);
-                        const step = PIPELINE_STEPS.find((item) => item.step === pipelineStep(stage, interviewed))!;
                         const when = formatDay(rowDate(candidate));
                         const score = candidate.overallScore;
                         const open = () =>
@@ -934,14 +969,22 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                               </div>
                             </td>
                             <td className="px-3 py-3">
-                              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${step.tile}`}>
-                                <span aria-hidden className={`size-1.5 rounded-full ${step.dot}`} />
-                                {step.step === "closed" ? "Rejected" : step.label}
+                              <span
+                                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${CANDIDATE_STATUS_STYLES[candidate.status]}`}
+                              >
+                                {CANDIDATE_STATUS_LABELS[candidate.status]}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span
+                                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${INTERVIEW_STATE_STYLES[candidate.interviewState]}`}
+                              >
+                                {INTERVIEW_STATE_LABELS[candidate.interviewState]}
                               </span>
                             </td>
                             <td className="px-3 py-3">
                               {candidate.screeningScore === null || candidate.screeningScore === undefined ? (
-                                <span className="text-muted">—</span>
+                                <span className="text-muted">â€”</span>
                               ) : (
                                 <span className={`inline-flex min-w-9 justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${scoreTone(candidate.screeningScore).text} bg-foreground/[0.04]`}>
                                   {Math.round(candidate.screeningScore)}
@@ -950,7 +993,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                             </td>
                             <td className="px-3 py-3">
                               {educationLabel(candidate.candidateEducation, candidate.candidateCgpa) === null ? (
-                                <span className="text-muted">—</span>
+                                <span className="text-muted">â€”</span>
                               ) : (
                                 <span className="block max-w-40 truncate text-xs text-muted">
                                   {educationLabel(candidate.candidateEducation, candidate.candidateCgpa)}
@@ -958,15 +1001,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                               )}
                             </td>
                             <td className="px-3 py-3">
-                              <ShortlistCell
-                                roleId={role.id}
-                                candidate={candidate}
-                                onChange={() => void loadCandidates()}
-                              />
-                            </td>
-                            <td className="px-3 py-3">
                               {score === null ? (
-                                <span className="text-muted">—</span>
+                                <span className="text-muted">â€”</span>
                               ) : (
                                 <div className="flex items-center gap-2.5">
                                   <span className={`w-7 text-[15px] font-semibold tabular-nums ${scoreTone(score).text}`}>{score}</span>
@@ -991,7 +1027,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                                     {candidate.suggestion ? SUGGESTION_LABELS[candidate.suggestion] : "Not decided"}
                                   </span>
                                 ) : (
-                                  <StatusBadge status={candidate.latestStatus} />
+                                  <span className="text-muted">Interview not finished</span>
                                 )
                               ) : candidate.applicationStatus === "rejected" ? (
                                 <span className="font-medium text-rose-600 dark:text-rose-400">Rejected</span>
@@ -1065,12 +1101,29 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
               <dt className="text-muted">Email</dt>
               <dd className="break-all font-medium">{application.candidateEmail}</dd>
               <dt className="text-muted">Phone</dt>
-              <dd className="font-medium tabular-nums">{application.candidatePhone ?? "—"}</dd>
+              <dd className="font-medium tabular-nums">{application.candidatePhone ?? "â€”"}</dd>
               <dt className="text-muted">College roll no.</dt>
-              <dd className="font-medium">{application.candidateCollegeId ?? "—"}</dd>
+              <dd className="font-medium">{application.candidateCollegeId ?? "â€”"}</dd>
               <dt className="text-muted">Status</dt>
-              <dd className="font-medium">{application.applicationStatus === "rejected" ? "Rejected" : "Waiting for review"}</dd>
+              <dd className="font-medium">{CANDIDATE_STATUS_LABELS[application.status]}</dd>
+              <dt className="text-muted">Interview</dt>
+              <dd className="font-medium">{INTERVIEW_STATE_LABELS[application.interviewState]}</dd>
             </dl>
+
+            <div className="border-t border-border pt-5">
+              <h3 className="text-sm font-semibold">Shortlist</h3>
+              <p className="mt-1 text-xs text-muted">
+                A Match at or above the role&apos;s cutoff shortlists automatically. Click the chip
+                to override it by hand, in either direction.
+              </p>
+              <div className="mt-3">
+                <ShortlistCell
+                  roleId={role.id}
+                  candidate={application}
+                  onChange={() => void loadCandidates()}
+                />
+              </div>
+            </div>
 
             {Object.keys(application.answers ?? {}).length > 0 && (
               <div className="border-t border-border pt-5">
@@ -1079,7 +1132,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                   {Object.entries(application.answers ?? {}).map(([fieldId, value]) => (
                     <div key={fieldId}>
                       <dt className="text-sm text-muted">{formFields.find((field) => field.id === fieldId)?.label ?? fieldId}</dt>
-                      <dd className="mt-1 whitespace-pre-line text-[15px] leading-6">{value || "—"}</dd>
+                      <dd className="mt-1 whitespace-pre-line text-[15px] leading-6">{value || "â€”"}</dd>
                     </div>
                   ))}
                 </dl>
@@ -1121,6 +1174,26 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
           candidateIds={[...selected]}
           onClose={() => setBulkScheduleOpen(false)}
           onDone={() => void loadCandidates()}
+        />
+      )}
+
+      {/* --------------------------------------------------- automatic filter */}
+      {autoFilterOpen && (
+        <AutoFilterDialog
+          roleId={roleId}
+          candidates={candidates ?? []}
+          rule={autoFilterRule}
+          onRuleSaved={setAutoFilterRule}
+          onClose={() => setAutoFilterOpen(false)}
+          onDeleted={(removed) => {
+            setAutoFilterOpen(false);
+            setSelected(new Set());
+            setToast({
+              tone: "success",
+              message: `${removed} candidate${removed === 1 ? "" : "s"} removed from this role.`,
+            });
+            void loadCandidates();
+          }}
         />
       )}
 
@@ -1176,6 +1249,14 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
             <span aria-hidden className="mx-1 h-5 w-px bg-border" />
             <button
               type="button"
+              onClick={() => setConfirmingDelete(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-rose-600 transition hover:bg-rose-500/10 dark:text-rose-400"
+            >
+              <Trash2 className="size-3.5" aria-hidden />
+              Delete
+            </button>
+            <button
+              type="button"
               onClick={() => setSelected(new Set())}
               className="h-8 rounded-lg px-3 text-sm text-muted transition hover:bg-foreground/[0.06] hover:text-foreground"
             >
@@ -1186,13 +1267,25 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       </AnimatePresence>
 
       <ConfirmDialog
+        open={confirmingDelete}
+        title={`Remove ${selected.size} candidate${selected.size === 1 ? "" : "s"} from this role?`}
+        body="Their interviews, reports and applications for this role are deleted with them. This cannot be undone, and the same person's other roles are untouched."
+        confirmLabel="Delete for good"
+        busyLabel="Deletingâ€¦"
+        tone="danger"
+        busy={actionBusy}
+        onConfirm={() => void deleteSelected()}
+        onCancel={() => setConfirmingDelete(false)}
+      />
+
+      <ConfirmDialog
         open={confirmingDecision !== null}
         title={`${confirmingDecision === "advance" ? "Advance" : confirmingDecision === "hold" ? "Put on hold" : "Reject"} ${
           selected.size
         } candidate${selected.size === 1 ? "" : "s"}?`}
         body="The decision is saved on each person's latest interview. You can change it later from their report."
         confirmLabel="Confirm"
-        busyLabel="Saving…"
+        busyLabel="Savingâ€¦"
         tone={confirmingDecision === "reject" ? "danger" : "default"}
         busy={actionBusy}
         onConfirm={() => confirmingDecision && applyDecision(confirmingDecision)}
@@ -1204,7 +1297,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         title="Close this role?"
         body="It moves to Closed. Candidates and reports stay, and you can make it active again at any time."
         confirmLabel="Close role"
-        busyLabel="Saving…"
+        busyLabel="Savingâ€¦"
         tone="default"
         busy={actionBusy}
         onConfirm={() => setRoleStatus("completed")}

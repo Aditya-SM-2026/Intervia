@@ -1,10 +1,11 @@
-import type { HireStage } from "./hire-stage";
+import type { CandidateStatus } from "./candidate-status";
 
 /**
- * The five steps a recruiter scans for a role, folded from the detailed
- * hire stages. Used for the pipeline bars on the roles pages.
+ * The pipeline a recruiter scans for a role. It is the five candidate
+ * statuses and nothing else: interview progress lives in its own column, so
+ * there is no "interviewing" or "scored" step to confuse it with.
  */
-export type PipelineStep = "applied" | "interviewing" | "scored" | "advanced" | "closed";
+export type PipelineStep = CandidateStatus;
 
 export const PIPELINE_STEPS: {
   step: PipelineStep;
@@ -22,48 +23,57 @@ export const PIPELINE_STEPS: {
     tile: "bg-slate-500/[0.07] text-slate-700 dark:text-slate-300",
   },
   {
-    step: "interviewing",
-    label: "Interviewing",
-    bar: "bg-sky-500",
-    dot: "bg-sky-500",
-    tile: "bg-sky-500/[0.08] text-sky-700 dark:text-sky-300",
-  },
-  {
-    step: "scored",
-    label: "Scored",
-    bar: "bg-accent",
-    dot: "bg-accent",
-    tile: "bg-accent/[0.08] text-accent",
-  },
-  {
-    step: "advanced",
-    label: "Advanced",
+    step: "shortlisted",
+    label: "Shortlisted",
     bar: "bg-emerald-500",
     dot: "bg-emerald-500",
     tile: "bg-emerald-500/[0.09] text-emerald-700 dark:text-emerald-300",
   },
   {
-    step: "closed",
-    label: "Rejected or dropped",
+    step: "advanced",
+    label: "Advanced",
+    bar: "bg-sky-500",
+    dot: "bg-sky-500",
+    tile: "bg-sky-500/[0.09] text-sky-700 dark:text-sky-300",
+  },
+  {
+    step: "on-hold",
+    label: "On hold",
+    bar: "bg-amber-500",
+    dot: "bg-amber-500",
+    tile: "bg-amber-500/[0.09] text-amber-800 dark:text-amber-300",
+  },
+  {
+    step: "selected",
+    label: "Selected",
+    bar: "bg-emerald-600",
+    dot: "bg-emerald-600",
+    tile: "bg-emerald-600 text-white dark:bg-emerald-500",
+  },
+  {
+    step: "rejected",
+    label: "Rejected",
     bar: "bg-rose-400",
     dot: "bg-rose-400",
     tile: "bg-rose-500/[0.07] text-rose-700 dark:text-rose-300",
   },
 ];
 
-export function pipelineStep(stage: HireStage, interviewed: boolean): PipelineStep {
-  if (stage === "advanced") return "advanced";
-  if (stage === "rejected" || stage === "dropped-out") return "closed";
-  if (!interviewed) return "applied";
-  if (stage === "completed" || stage === "ready-to-advance" || stage === "on-hold") return "scored";
-  return "interviewing";
+/** The step a candidate sits in: their status, in pipeline vocabulary. */
+export function pipelineStep(status: CandidateStatus): PipelineStep {
+  return status;
 }
 
-export function countPipeline(
-  rows: { stage: HireStage; interviewed: boolean }[],
-): Record<PipelineStep, number> {
-  const counts: Record<PipelineStep, number> = { applied: 0, interviewing: 0, scored: 0, advanced: 0, closed: 0 };
-  for (const row of rows) counts[pipelineStep(row.stage, row.interviewed)] += 1;
+export function countPipeline(rows: { status: CandidateStatus }[]): Record<PipelineStep, number> {
+  const counts: Record<PipelineStep, number> = {
+    applied: 0,
+    shortlisted: 0,
+    advanced: 0,
+    "on-hold": 0,
+    selected: 0,
+    rejected: 0,
+  };
+  for (const row of rows) counts[pipelineStep(row.status)] += 1;
   return counts;
 }
 

@@ -15,7 +15,7 @@ import {
   resolveApplicationFormFields,
   suggestFieldId,
 } from "./application.types.ts";
-import { deriveApplicationStage } from "./hire-stage.ts";
+import { deriveCandidateStatus } from "./candidate-status.ts";
 
 const field = {
   id: "cgpa",
@@ -94,10 +94,12 @@ test("suggestFieldId makes readable, unique ids", () => {
   assert.equal(suggestFieldId("???"), "field");
 });
 
-test("application stage starts Waiting and only Rejected is final", () => {
-  assert.equal(deriveApplicationStage("new"), "waiting");
-  assert.equal(deriveApplicationStage("scheduled"), "waiting");
-  assert.equal(deriveApplicationStage("rejected"), "rejected");
+test("a rejected application is Rejected; anything else is Applied", () => {
+  assert.equal(
+    deriveCandidateStatus({ decision: null, applicationStatus: "new", screeningScore: null }),
+    "applied",
+  );
+  assert.equal(deriveCandidateStatus({ decision: null, applicationStatus: "rejected" }), "rejected");
 });
 
 test("a role with no saved form still shows the built-in fields", () => {

@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
+  Maximize2,
   MessageSquareText,
   Mic,
   MicOff,
@@ -13,10 +15,12 @@ import {
   X,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand/BrandMark";
+import { isFullscreen, onFullscreenChange } from "@/lib/browser/fullscreen";
 import type { AiUiState } from "./AiStatus";
 import { CandidateVideo } from "./CandidateVideo";
 import type { ConnectionStage } from "./ConnectionStatus";
 import { TranscriptPanel, type TranscriptEntry } from "./TranscriptPanel";
+import { useFullscreen } from "./useFullscreen";
 import { VoiceStage } from "./VoiceStage";
 
 interface LiveRoomProps {
@@ -149,9 +153,26 @@ export function LiveRoom(props: LiveRoomProps) {
   const lastInterviewerLine = transcript.findLast((entry) => entry.role === "interviewer")?.text ?? null;
   const shortName = candidateName?.split(" ")[0] || "You";
 
+  // The interview runs on the whole screen, once the candidate has allowed it
+  // on the join form. Leaving is handled where the call ends, not here.
+  const fullscreen = useFullscreen();
+  // If they leave full screen any other way (Esc, the browser's own shortcut)
+  // one control brings the interview back. There is no way to leave it here.
+  const [leftFullscreen, setLeftFullscreen] = useState(false);
+  useEffect(() => onFullscreenChange(() => setLeftFullscreen(!isFullscreen())), []);
+
   return (
-    <main className="interview-stage flex min-h-dvh items-center justify-center bg-[#050b1c] p-3 sm:p-6">
-      <div className="relative w-full max-w-6xl overflow-hidden rounded-2xl border border-white/[0.09] bg-[#0a132b] shadow-[0_30px_90px_-30px_rgba(0,0,0,0.9)]">
+    <main
+      data-fullscreen={fullscreen.active || undefined}
+      className={`interview-stage flex items-center justify-center bg-[#050b1c] p-3 sm:p-6 ${
+        fullscreen.active ? "h-dvh" : "min-h-dvh"
+      }`}
+    >
+      <div
+        className={`relative w-full overflow-hidden rounded-2xl border border-white/[0.09] bg-[#0a132b] shadow-[0_30px_90px_-30px_rgba(0,0,0,0.9)] ${
+          fullscreen.active ? "flex h-full max-w-none flex-col" : "max-w-6xl"
+        }`}
+      >
         {/* Window bar: brand, role, status and the clock. */}
         <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -199,8 +220,12 @@ export function LiveRoom(props: LiveRoomProps) {
           </div>
         )}
 
-        <div className="p-3 sm:p-4">
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+        <div className={`p-3 sm:p-4 ${fullscreen.active ? "flex min-h-0 flex-1 flex-col" : ""}`}>
+          <div
+            className={`grid gap-3 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] ${
+              fullscreen.active ? "min-h-0 flex-1" : ""
+            }`}
+          >
             {/* The interviewer's stage. */}
             <section className="relative flex min-h-[320px] flex-col items-center justify-center gap-4 overflow-hidden rounded-xl border border-indigo-400/20 bg-[radial-gradient(120%_120%_at_50%_-10%,#34327a_0%,#211f54_45%,#12122f_100%)] px-6 py-8 text-center sm:min-h-[420px]">
               <span
@@ -311,6 +336,19 @@ export function LiveRoom(props: LiveRoomProps) {
               <span className="ml-2 text-sm font-semibold">Leave</span>
             </ControlButton>
           </div>
+
+          {leftFullscreen && (
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                onClick={() => void fullscreen.enter()}
+                className="animate-pop-in inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-4 py-2 text-xs font-medium text-white transition hover:bg-white/[0.12]"
+              >
+                <Maximize2 className="size-3.5" aria-hidden />
+                Return to full screen
+              </button>
+            </div>
+          )}
         </div>
 
         {showConversation && (

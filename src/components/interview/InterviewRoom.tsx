@@ -12,6 +12,7 @@ import {
   type RemoteTrack,
 } from "livekit-client";
 import type { LiveKitJoinCredentials } from "@/lib/livekit/client";
+import { exitFullscreen } from "@/lib/browser/fullscreen";
 import { startCandidateRecorder, type CandidateRecorder } from "@/lib/recordings/candidate-recorder";
 import type { ConnectionStage } from "./ConnectionStatus";
 import type { AiUiState } from "./AiStatus";
@@ -138,6 +139,15 @@ export function InterviewRoom({
       releaseMedia();
     };
   }, []);
+
+  // The interview runs on the whole screen once the candidate allows it; the
+  // moment it stops being on screen (left, ended, or failed) they get their
+  // browser back. No cleanup function: React runs effect cleanups twice in
+  // development, and the second run would exit the fullscreen just opened.
+  useEffect(() => {
+    if (stage === "prejoin" || stage === "connecting" || stage === "connected") return;
+    void exitFullscreen();
+  }, [stage]);
 
   // Interview clock, started when the interviewer first speaks.
   useEffect(() => {

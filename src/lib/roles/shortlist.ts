@@ -12,6 +12,12 @@
 
 export type ShortlistStatus = "shortlisted" | "below_cutoff" | "not_scored";
 
+/**
+ * What a role starts at: a 70% Match score shortlists. HR edits the number on
+ * the role page, and 0 still means "do not shortlist automatically".
+ */
+export const DEFAULT_SHORTLIST_CUTOFF = 70;
+
 /** Cutoffs live between 0 and 100; 0 means "no cutoff set". */
 export function clampCutoff(value: number): number {
   if (!Number.isFinite(value)) return 0;
