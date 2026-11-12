@@ -222,6 +222,24 @@ export const applicationIdentitySchema = z.object({
     .trim()
     .max(MAX_COLLEGE_ID_LENGTH, "This roll number is too long.")
     .optional(),
+  /** Qualification chosen from the built-in dropdown. */
+  education: z.string().trim().max(120, "This qualification is too long.").optional(),
+  /**
+   * CGPA or percentage as typed, kept as a number so it can be filtered. Both
+   * scales are accepted (8.4 out of 10, 78 as a percentage) because colleges
+   * differ; the raw value is shown beside the qualification.
+   */
+  cgpa: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((value) => (value === undefined ? undefined : String(value).trim()))
+    .refine((value) => value === undefined || value === "" || /^\d+(\.\d+)?$/.test(value), {
+      message: "Enter the CGPA as a number, for example 8.4 or 78.",
+    })
+    .refine(
+      (value) => value === undefined || value === "" || Number(value) <= 100,
+      { message: "Enter a CGPA or percentage between 0 and 100." },
+    ),
 });
 
 export type ApplicationIdentity = z.infer<typeof applicationIdentitySchema>;

@@ -33,7 +33,39 @@ export function sanitizeWeights(input: unknown): ScreeningWeights {
       clean[id] = Math.round(clamp(value));
     }
   }
+  // Weights saved while Education was still a section add up to 100 with it
+  // included, so without it they fall short. Spread the rest back over 100
+  // rather than refusing to score a role that was set up before the change.
+  const hadEducation =
+    typeof source["education"] === "number" && Number.isFinite(source["education"] as number);
+  if (hadEducation && weightsTotal(clean) !== 100 && weightsTotal(clean) > 0) {
+    return rescaleTo100(clean);
+  }
   return clean;
+}
+
+/** Scales weights so they total exactly 100, without inventing a section. */
+function rescaleTo100(weights: ScreeningWeights): ScreeningWeights {
+  const total = weightsTotal(weights);
+  if (total <= 0 || total === 100) return weights;
+  const scaled = RESUME_SECTION_IDS.map((id) => ({
+    id,
+    exact: ((weights[id] ?? 0) / total) * 100,
+  }));
+  const out = { ...weights };
+  let sum = 0;
+  for (const item of scaled) {
+    out[item.id] = Math.floor(item.exact);
+    sum += out[item.id];
+  }
+  let leftover = 100 - sum;
+  const order = [...scaled].sort(
+    (a, b) => (b.exact - Math.floor(b.exact)) - (a.exact - Math.floor(a.exact)),
+  );
+  for (let index = 0; leftover > 0; index += 1, leftover -= 1) {
+    out[order[index % order.length].id] += 1;
+  }
+  return out;
 }
 
 export function weightsTotal(weights: ScreeningWeights): number {

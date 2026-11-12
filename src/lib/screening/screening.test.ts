@@ -39,7 +39,6 @@ const FRESHER = [
   section("skills", 60),
   section("experience", null),
   section("projects", 80),
-  section("education", 65),
   section("certifications", null),
 ];
 
@@ -48,12 +47,12 @@ function weights(patch: Partial<ScreeningWeights> = {}): ScreeningWeights {
 }
 
 test("a fresher is scored on the sections that exist, not marked down for missing ones", () => {
-  // 70*20 + 60*20 + 80*20 + 65*10 = 4850 over the 70 weight that was scored.
+  // 70*20 + 60*20 + 80*25 = 4600 over the 65 weight that was scored.
   const totals = screeningTotal(FRESHER, weights());
-  assert.equal(totals.score, 4850 / 70);
-  assert.equal(totals.scoredSections, 4);
-  assert.equal(totals.weightedSections, 6);
-  assert.equal(sectionCoverage(totals), "scored on 4 of 6 sections");
+  assert.equal(totals.score, 4600 / 65);
+  assert.equal(totals.scoredSections, 3);
+  assert.equal(totals.weightedSections, 5);
+  assert.equal(sectionCoverage(totals), "scored on 3 of 5 sections");
 });
 
 test("counting missing sections as zero would score the same resume lower", () => {
@@ -63,14 +62,14 @@ test("counting missing sections as zero would score the same resume lower", () =
     ),
   ];
   const totals = screeningTotal(asZero, weights());
-  assert.equal(totals.score, 48.5);
-  assert.ok((screeningTotal(FRESHER, weights()).score ?? 0) > 48.5);
+  assert.equal(totals.score, 46);
+  assert.ok((screeningTotal(FRESHER, weights()).score ?? 0) > 46);
 });
 
 test("a section weighted zero is ignored for everyone", () => {
-  const totals = screeningTotal(FRESHER, weights({ certifications: 0, education: 0 }));
-  // 70*20 + 60*20 + 80*20 = 4200 over 60.
-  assert.equal(totals.score, 70);
+  const totals = screeningTotal(FRESHER, weights({ projects: 0 }));
+  // 70*20 + 60*20 = 2600 over 40.
+  assert.equal(totals.score, 65);
   assert.equal(totals.weightedSections, 4);
 });
 
@@ -78,7 +77,7 @@ test("centring the weight on projects lifts a project-heavy resume", () => {
   const even = screeningTotal(FRESHER, weights()) as { score: number };
   const projects = screeningTotal(
     FRESHER,
-    weights({ projects: 50, summary: 10, skills: 20, experience: 10, education: 5, certifications: 5 }),
+    weights({ projects: 50, summary: 10, skills: 20, experience: 10, certifications: 10 }),
   ) as { score: number };
   assert.ok(projects.score > even.score);
 });
@@ -95,22 +94,40 @@ test("no scored section gives null, never a zero", () => {
 test("if every remaining weight is zero, an equal mean is used", () => {
   const totals = screeningTotal(
     [section("summary", 40), section("skills", 80)],
-    weights({ summary: 0, skills: 0, experience: 0, projects: 0, education: 0, certifications: 0 }),
+    weights({ summary: 0, skills: 0, experience: 0, projects: 0, certifications: 0 }),
   );
   assert.equal(totals.score, 60);
+});
+
+test("weights out of an older six-section role are spread back over 100", () => {
+  const legacy = sanitizeWeights({
+    summary: 20,
+    skills: 20,
+    experience: 20,
+    projects: 20,
+    education: 10,
+    certifications: 10,
+  });
+  assert.deepEqual(legacy, {
+    summary: 23,
+    skills: 22,
+    experience: 22,
+    projects: 22,
+    certifications: 11,
+  });
+  assert.equal(weightsAreValid(legacy), true);
 });
 
 test("weights are whole, clamped percentages and the total must reach 100", () => {
   assert.deepEqual(sanitizeWeights({ summary: 30.6, skills: -5, projects: "x" }), {
     summary: 31,
     skills: 0,
-    experience: 20,
-    projects: 20,
-    education: 10,
+    experience: 25,
+    projects: 25,
     certifications: 10,
   });
   assert.equal(weightsAreValid(DEFAULT_SCREENING_WEIGHTS), true);
-  assert.equal(weightsAreValid({ ...DEFAULT_SCREENING_WEIGHTS, projects: 30 }), false);
+  assert.equal(weightsAreValid({ ...DEFAULT_SCREENING_WEIGHTS, projects: 40 }), false);
 });
 
 test("an invented quote is dropped and the section is no longer trusted", () => {
@@ -170,12 +187,12 @@ test("a duplicate quote is counted once", () => {
 
 test("missing sections are filled in as not found, in display order", () => {
   const completed = completeSections([section("projects", 80)], RESUME_SECTION_IDS);
-  assert.equal(completed.length, 6);
+  assert.equal(completed.length, 5);
   assert.deepEqual(
     completed.map((item) => item.id),
     [...RESUME_SECTION_IDS],
   );
-  assert.equal(completed.find((item) => item.id === "education")?.status, "not_found");
+  assert.equal(completed.find((item) => item.id === "certifications")?.status, "not_found");
 });
 
 test("AWS on the resume matches Amazon Web Services in the role, both ways", () => {

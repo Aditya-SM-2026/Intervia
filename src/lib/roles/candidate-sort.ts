@@ -2,7 +2,13 @@ import type { InterviewStatus } from "@/lib/interviews/interview.types";
 import type { HireStage } from "@/lib/roles/hire-stage";
 import type { RoleCandidateSummary } from "@/lib/roles/role.types";
 
-export type CandidateSortKey = "candidate" | "applied" | "interview" | "status" | "score";
+export type CandidateSortKey =
+  | "candidate"
+  | "applied"
+  | "interview"
+  | "status"
+  | "score"
+  | "match";
 export type SortDirection = "asc" | "desc";
 
 export interface SortState {
@@ -49,6 +55,8 @@ export function candidateSortValue(
     }
     case "score":
       return candidate.overallScore;
+    case "match":
+      return candidate.screeningScore ?? null;
   }
 }
 

@@ -1,6 +1,7 @@
 import type { HumanDecision, InterviewStatus } from "@/lib/interviews/interview.types";
 import type { ScoreSuggestion } from "@/lib/interviews/scorecard.types";
 import type { ScreeningWeights } from "@/lib/screening/types";
+import type { ShortlistStatus } from "@/lib/roles/shortlist";
 
 /** Lifecycle of a hiring role. */
 export type RoleStatus = "open" | "completed";
@@ -73,6 +74,14 @@ export interface RoleCandidateSummary {
   appliedAt?: string | null;
   candidatePhone?: string | null;
   candidateCollegeId?: string | null;
+  /** Qualification picked on the built-in education field, e.g. "B.Tech". */
+  candidateEducation?: string | null;
+  /** CGPA or percentage the candidate gave, or null. */
+  candidateCgpa?: number | null;
+  /** A recruiter's manual shortlist tick; null when nobody has decided. */
+  shortlisted?: boolean | null;
+  /** Derived from the tick, the score and the role's cutoff. */
+  shortlistStatus?: ShortlistStatus;
   /** Answers to the role's extra form fields, keyed by field id. */
   answers?: Record<string, string> | null;
   /** Resume screening total for the application, when it has been screened. */

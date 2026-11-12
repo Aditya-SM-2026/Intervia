@@ -111,15 +111,15 @@ test("a role with no saved form still shows the built-in fields", () => {
 
 test("legacy extra questions keep their order after the built-in fields", () => {
   const fields = resolveApplicationFormFields([
-    { id: "cgpa", label: "CGPA", type: "number", required: true },
+    { id: "portfolio", label: "Portfolio", type: "text", required: false },
   ]);
   assert.equal(fields.length, BASE_APPLICATION_FIELDS.length + 1);
-  assert.equal(fields.at(-1)?.id, "cgpa");
+  assert.equal(fields.at(-1)?.id, "portfolio");
 });
 
 test("a full form keeps built-in and custom questions in the saved order", () => {
   const fields = defaultApplicationFormFields();
-  const custom = { id: "cgpa", label: "CGPA", type: "number" as const, required: true };
+  const custom = { id: "portfolio", label: "Portfolio", type: "text" as const, required: false };
   const reordered = [fields[0], custom, ...fields.slice(1)];
   const parsed = applicationFormFieldsSchema.parse(reordered);
   assert.deepEqual(parsed.map((field) => field.id), reordered.map((field) => field.id));

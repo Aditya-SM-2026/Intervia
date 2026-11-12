@@ -3,6 +3,7 @@ import type { HumanDecision } from "@/lib/interviews/interview.types";
 import { recordDecision } from "@/lib/interviews/interview.service";
 import { ROOM_ID_PATTERN } from "@/lib/interviews/interview.validation";
 import { sanitizeWeights, screeningTotal } from "@/lib/screening/score";
+import { shortlistStatusFor } from "@/lib/roles/shortlist";
 import type { Role, RoleCandidateSummary, RoleSummary } from "@/lib/roles/role.types";
 import { createRoleSchema, updateRoleSchema } from "@/lib/roles/role.validation";
 import {
@@ -144,10 +145,15 @@ export async function listRoleCandidates(
   const counts = await repository().getRoleCandidateCounts(roleId, role.title);
   const screeningScores = await repository().getApplicationScreeningScores(roleId);
   const weights = sanitizeWeights(role.screeningWeights);
+  const cutoff = await repository().getRoleShortlistCutoff(roleId);
+  const invitedScreenings = await repository().getInvitedCandidateScreenings(roleId);
   /** The stored section scores re-weighted with the role's current setting. */
-  const screeningFor = (applicationId: string | null | undefined) => {
-    if (!applicationId) return { score: null as number | null, status: null as string | null };
-    const entry = screeningScores.get(applicationId);
+  const screeningFor = (applicationId: string | null | undefined, email?: string) => {
+    const entry = applicationId
+      ? screeningScores.get(applicationId)
+      : email
+        ? invitedScreenings.get(email.toLowerCase())
+        : undefined;
     if (!entry) return { score: null as number | null, status: null as string | null };
     if (entry.status !== "scored") return { score: null as number | null, status: entry.status };
     const totals = screeningTotal(entry.sections, weights);
@@ -173,9 +179,17 @@ export async function listRoleCandidates(
     appliedAt: row.appliedAt ?? null,
     candidatePhone: row.candidatePhone ?? null,
     candidateCollegeId: row.candidateCollegeId ?? null,
+    candidateEducation: row.candidateEducation ?? null,
+    candidateCgpa: row.candidateCgpa ?? null,
+    shortlisted: row.shortlisted ?? null,
     answers: row.answers ?? null,
-    screeningScore: screeningFor(row.applicationId).score,
-    screeningStatus: screeningFor(row.applicationId).status,
+    screeningScore: screeningFor(row.applicationId, row.candidateEmail).score,
+    screeningStatus: screeningFor(row.applicationId, row.candidateEmail).status,
+    shortlistStatus: shortlistStatusFor(
+      row.shortlisted ?? null,
+      screeningFor(row.applicationId, row.candidateEmail).score,
+      cutoff,
+    ),
   }));
   return { candidates, total: page.total, counts };
 }

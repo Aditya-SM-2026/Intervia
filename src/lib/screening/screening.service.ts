@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { generateStructured, isStructuredLlmAvailable } from "@/lib/ai/structured";
+import { screenInvitedCandidate } from "./invited.ts";
 import { getRolesRepository } from "@/server/repositories/roles-repository";
 import { completeSections, verifySectionEvidence } from "./evidence.ts";
 import { keywordMatch } from "./keywords.ts";
@@ -122,7 +123,6 @@ export async function screenApplication(
   if (!role) return { ok: false, code: "not_found", message: "This role no longer exists." };
   const settings = await getScreeningSettings(roleId);
   const weights = settings?.weights ?? DEFAULT_SCREENING_WEIGHTS;
-
   const source = await repository().getApplicationResumeText(roleId, applicationId);
   if (!source) return { ok: false, code: "not_found", message: "This application no longer exists." };
 
@@ -257,9 +257,10 @@ export async function screeningEstimate(roleId: string): Promise<{
   const role = await repository().getRole(roleId);
   if (!role) return null;
   const rows = await repository().listUnscreenedApplications(roleId, 200);
-  const withText = rows.filter((row) => row.hasText).length;
+  const invited = await repository().listUnscreenedInvitedCandidates(roleId, role.title, 200);
+  const withText = rows.filter((row) => row.hasText).length + invited.filter((row) => row.hasText).length;
   return {
-    pending: rows.length,
+    pending: rows.length + invited.length,
     withText,
     estimatedUsd: Number((withText * ESTIMATE_USD_PER_RESUME).toFixed(4)),
   };
@@ -281,8 +282,21 @@ export async function screenPendingBatch(
     else if (result.ok && result.snapshot.status === "failed") failed += 1;
     else if (result.ok) screened += 1;
   }
+
+  // Candidates invited straight to an interview have no application, so their
+  // resume comes from the interview and their result is stored per email.
+  const invited = await repository().listUnscreenedInvitedCandidates(roleId, role.title, limit);
+  const invitedWeights = (await getScreeningSettings(roleId))?.weights ?? DEFAULT_SCREENING_WEIGHTS;
+  for (const candidate of invited) {
+    if (!candidate.hasText) continue;
+    const snapshot = await screenInvitedCandidate(role, candidate.email, { weights: invitedWeights });
+    if (snapshot?.status === "scored") screened += 1;
+    else if (snapshot?.status === "failed") failed += 1;
+  }
+
   const remaining = await repository().listUnscreenedApplications(roleId, 200);
-  return { screened, failed, pending: remaining.length };
+  const remainingInvited = await repository().listUnscreenedInvitedCandidates(roleId, role.title, 200);
+  return { screened, failed, pending: remaining.length + remainingInvited.length };
 }
 
 /** The stored screening result for one application, or null. */

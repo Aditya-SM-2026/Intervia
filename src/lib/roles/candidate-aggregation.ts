@@ -82,6 +82,11 @@ export interface AggregatedCandidate {
   appliedAt?: string | null;
   candidatePhone?: string | null;
   candidateCollegeId?: string | null;
+  /** Qualification and CGPA captured by the built-in form fields. */
+  candidateEducation?: string | null;
+  candidateCgpa?: number | null;
+  /** Recruiter's manual shortlist decision; null when nobody has decided. */
+  shortlisted?: boolean | null;
   answers?: Record<string, string> | null;
 }
 

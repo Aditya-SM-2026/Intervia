@@ -8,13 +8,12 @@
  * a stored result, so a changed weight is applied without re-running anything.
  */
 
-/** The six parts every resume is read in. Order is fixed for display. */
+/** The five parts every resume is read in. Order is fixed for display. */
 export const RESUME_SECTION_IDS = [
   "summary",
   "skills",
   "experience",
   "projects",
-  "education",
   "certifications",
 ] as const;
 
@@ -25,7 +24,6 @@ export const RESUME_SECTION_LABELS: Record<ResumeSectionId, string> = {
   skills: "Technical skills",
   experience: "Experience",
   projects: "Projects",
-  education: "Education",
   certifications: "Certifications",
 };
 
@@ -35,7 +33,6 @@ export const RESUME_SECTION_HINTS: Record<ResumeSectionId, string> = {
   skills: "Coverage of the role's skills, including implied ones",
   experience: "Internships and jobs: relevance, duration, responsibility",
   projects: "What they actually built, and how relevant it is",
-  education: "Degree, institute, year",
   certifications: "Relevant certifications only",
 };
 
@@ -69,9 +66,8 @@ export type ScreeningWeights = Record<ResumeSectionId, number>;
 export const DEFAULT_SCREENING_WEIGHTS: ScreeningWeights = {
   summary: 20,
   skills: 20,
-  experience: 20,
-  projects: 20,
-  education: 10,
+  experience: 25,
+  projects: 25,
   certifications: 10,
 };
 

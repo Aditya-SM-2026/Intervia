@@ -9,6 +9,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   CalendarClock,
+  CalendarPlus,
   ChevronRight,
   Download,
   FileText,
@@ -42,6 +43,9 @@ import { Pagination } from "@/components/dashboard/Pagination";
 import { Menu } from "@/components/dashboard/menu";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { FilterMenu } from "@/components/dashboard/Toolbar";
+import { ShortlistCell } from "@/components/roles/ShortlistCell";
+import { BulkScheduleDialog } from "@/components/roles/BulkScheduleDialog";
+import { educationLabel, passesCgpaFilter, passesShortlistFilter } from "@/lib/roles/shortlist";
 import { Avatar, StatusBadge } from "@/components/dashboard/primitives";
 import { DocumentText } from "@/components/ui/DocumentText";
 import { Sheet } from "@/components/ui/Sheet";
@@ -280,6 +284,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const [editing, setEditing] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
   const [confirmingDecision, setConfirmingDecision] = useState<HumanDecision["outcome"] | null>(null);
   const [formFields, setFormFields] = useState<ApplicationField[]>([]);
   const [openApplication, setOpenApplication] = useState<string | null>(null);
@@ -289,6 +294,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const [stageFilter, setStageFilter] = useState<StageFilter>("all");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [shortlistedOnly, setShortlistedOnly] = useState(false);
+  const [minCgpa, setMinCgpa] = useState(0);
   const [sort, setSort] = useState<SortState | null>(null);
   const [page, setPage] = useState(1);
   const dismissToast = useCallback(() => setToast(null), []);
@@ -439,6 +446,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         if (statusFilter === "completed" && status !== "completed") return false;
         if (statusFilter === "cancelled" && status !== "cancelled" && status !== "expired") return false;
       }
+      if (!passesShortlistFilter(candidate.shortlistStatus, shortlistedOnly)) return false;
+      if (!passesCgpaFilter(candidate.candidateCgpa, minCgpa)) return false;
       return true;
     });
     if (sort === null) return filtered;
@@ -449,7 +458,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       }
       return compareCandidateRows(a, b, sort);
     });
-  }, [rows, query, stageFilter, statusFilter, sort]);
+  }, [rows, query, stageFilter, statusFilter, sort, shortlistedOnly, minCgpa]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -480,6 +489,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     setStageFilter("all");
     setQuery("");
     setStatusFilter("all");
+    setShortlistedOnly(false);
+    setMinCgpa(0);
     setPage(1);
   }
 
@@ -547,9 +558,14 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     });
   }
 
-  const selectableRows = pageRows.filter((row) => row.candidate.interviews > 0);
+  // Every row can be selected now: an applicant with no interview yet is
+  // exactly who bulk scheduling is for.
+  const selectableRows = pageRows;
   const allSelected =
     selectableRows.length > 0 && selectableRows.every((row) => selected.has(row.candidate.candidateId));
+  const selectedRows = (rows ?? []).filter((row) => selected.has(row.candidate.candidateId));
+  const selectedAllInterviewed =
+    selectedRows.length > 0 && selectedRows.every((row) => row.candidate.interviews > 0);
 
   function exportCsv() {
     const link = document.createElement("a");
@@ -770,7 +786,36 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                   setPage(1);
                 }}
               />
-              {(query !== "" || statusFilter !== "all" || stageFilter !== "all") && (
+              <label className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-2.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={shortlistedOnly}
+                  onChange={(event) => {
+                    setShortlistedOnly(event.target.checked);
+                    setPage(1);
+                  }}
+                  className="size-4 cursor-pointer accent-[var(--accent)]"
+                />
+                Shortlisted
+              </label>
+              <label className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-2.5 text-sm text-muted">
+                CGPA ≥
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  value={minCgpa === 0 ? "" : minCgpa}
+                  onChange={(event) => {
+                    setMinCgpa(Number(event.target.value) || 0);
+                    setPage(1);
+                  }}
+                  placeholder="any"
+                  aria-label="Minimum CGPA"
+                  className="w-16 bg-transparent text-sm text-foreground outline-none"
+                />
+              </label>
+              {(query !== "" || statusFilter !== "all" || stageFilter !== "all" || shortlistedOnly || minCgpa > 0) && (
                 <button
                   type="button"
                   onClick={clearFilters}
@@ -828,7 +873,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                         <th scope="col" className="w-10 py-2.5 pl-5">
                           <input
                             type="checkbox"
-                            aria-label="Select every interviewed candidate on this page"
+                            aria-label="Select every candidate on this page"
                             checked={allSelected}
                             disabled={selectableRows.length === 0}
                             onChange={() =>
@@ -841,7 +886,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                         </th>
                         <SortableHeader label="Candidate" column="candidate" sort={sort} onSort={toggleSort} />
                         <th scope="col" className="px-3 py-2.5 font-medium">Stage</th>
-                        <th scope="col" className="px-3 py-2.5 font-medium">Match</th>
+                        <SortableHeader label="Match" column="match" sort={sort} onSort={toggleSort} />
+                        <th scope="col" className="px-3 py-2.5 font-medium">Education</th>
+                        <th scope="col" className="px-3 py-2.5 font-medium">Shortlist</th>
                         <SortableHeader label="Score" column="score" sort={sort} onSort={toggleSort} />
                         <SortableHeader label="Date" column="applied" sort={sort} onSort={toggleSort} />
                         <th scope="col" className="px-3 py-2.5 font-medium">Outcome</th>
@@ -869,15 +916,13 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                             className={`cursor-pointer transition-colors ${isSelected ? "bg-accent-soft/60" : "hover:bg-foreground/[0.02]"}`}
                           >
                             <td className="py-3 pl-5">
-                              {interviewed && (
-                                <input
-                                  type="checkbox"
-                                  aria-label={`Select ${candidate.candidateName ?? candidate.candidateEmail}`}
-                                  checked={isSelected}
-                                  onChange={() => toggle(candidate.candidateId)}
-                                  className="size-4 cursor-pointer accent-[var(--accent)]"
-                                />
-                              )}
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${candidate.candidateName ?? candidate.candidateEmail}`}
+                                checked={isSelected}
+                                onChange={() => toggle(candidate.candidateId)}
+                                className="size-4 cursor-pointer accent-[var(--accent)]"
+                              />
                             </td>
                             <td className="px-3 py-3">
                               <div className="flex min-w-0 items-center gap-3">
@@ -902,6 +947,22 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                                   {Math.round(candidate.screeningScore)}
                                 </span>
                               )}
+                            </td>
+                            <td className="px-3 py-3">
+                              {educationLabel(candidate.candidateEducation, candidate.candidateCgpa) === null ? (
+                                <span className="text-muted">—</span>
+                              ) : (
+                                <span className="block max-w-40 truncate text-xs text-muted">
+                                  {educationLabel(candidate.candidateEducation, candidate.candidateCgpa)}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3">
+                              <ShortlistCell
+                                roleId={role.id}
+                                candidate={candidate}
+                                onChange={() => void loadCandidates()}
+                              />
                             </td>
                             <td className="px-3 py-3">
                               {score === null ? (
@@ -1053,6 +1114,16 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         )}
       </Sheet>
 
+      {/* --------------------------------------------------- bulk interviews */}
+      {bulkScheduleOpen && (
+        <BulkScheduleDialog
+          roleId={roleId}
+          candidateIds={[...selected]}
+          onClose={() => setBulkScheduleOpen(false)}
+          onDone={() => void loadCandidates()}
+        />
+      )}
+
       {/* ------------------------------------------------------- bulk decide */}
       <AnimatePresence>
         {selected.size > 0 && tab === "candidates" && (
@@ -1068,22 +1139,37 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
             <p className="pr-3 text-sm font-medium tabular-nums">{selected.size} selected</p>
             <button
               type="button"
+              onClick={() => setBulkScheduleOpen(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-3 text-sm font-medium text-background transition hover:opacity-90"
+            >
+              <CalendarPlus className="size-3.5" aria-hidden />
+              Schedule interviews
+            </button>
+            <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+            <button
+              type="button"
               onClick={() => setConfirmingDecision("advance")}
-              className="h-8 rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white transition hover:bg-emerald-700"
+              disabled={!selectedAllInterviewed}
+              title={selectedAllInterviewed ? "Advance the selected candidates" : "Only interviewed candidates can be advanced"}
+              className="h-8 rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-40"
             >
               Advance
             </button>
             <button
               type="button"
               onClick={() => setConfirmingDecision("hold")}
-              className="h-8 rounded-lg px-3 text-sm font-medium text-amber-700 transition hover:bg-amber-500/10 dark:text-amber-300"
+              disabled={!selectedAllInterviewed}
+              title={selectedAllInterviewed ? "Put the selected candidates on hold" : "Only interviewed candidates can be put on hold"}
+              className="h-8 rounded-lg px-3 text-sm font-medium text-amber-700 transition hover:bg-amber-500/10 disabled:opacity-40 dark:text-amber-300"
             >
               Hold
             </button>
             <button
               type="button"
               onClick={() => setConfirmingDecision("reject")}
-              className="h-8 rounded-lg px-3 text-sm font-medium text-rose-600 transition hover:bg-rose-500/10 dark:text-rose-400"
+              disabled={!selectedAllInterviewed}
+              title={selectedAllInterviewed ? "Reject the selected candidates" : "Only interviewed candidates can be rejected here"}
+              className="h-8 rounded-lg px-3 text-sm font-medium text-rose-600 transition hover:bg-rose-500/10 disabled:opacity-40 dark:text-rose-400"
             >
               Reject
             </button>

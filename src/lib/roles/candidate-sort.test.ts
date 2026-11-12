@@ -111,3 +111,13 @@ test("a candidate with no application date sinks below dated rows", () => {
   assert.deepEqual(sorted(rows, { key: "applied", direction: "asc" }), ["dated", "undated"]);
   assert.deepEqual(sorted(rows, { key: "applied", direction: "desc" }), ["dated", "undated"]);
 });
+
+test("the resume match sorts numerically and unscored rows sink", () => {
+  const rows = [
+    row({ candidateId: "high", screeningScore: 88 }),
+    row({ candidateId: "none" }),
+    row({ candidateId: "low", screeningScore: 41 }),
+  ];
+  assert.deepEqual(sorted(rows, { key: "match", direction: "desc" }), ["high", "low", "none"]);
+  assert.deepEqual(sorted(rows, { key: "match", direction: "asc" }), ["low", "high", "none"]);
+});

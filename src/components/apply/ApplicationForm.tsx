@@ -89,6 +89,8 @@ export function ApplicationForm({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [collegeId, setCollegeId] = useState("");
+  const [education, setEducation] = useState("");
+  const [cgpa, setCgpa] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [resume, setResume] = useState<File | null>(null);
   const [consent, setConsent] = useState(false);
@@ -107,6 +109,8 @@ export function ApplicationForm({
   const phoneField = byId("phone");
   const emailField = byId("email");
   const collegeField = byId("collegeId");
+  const educationField = byId("education");
+  const cgpaField = byId("cgpa");
   const customFields = fields.filter((field) => !field.system);
 
   function setAnswer(id: string, value: string) {
@@ -133,6 +137,18 @@ export function ApplicationForm({
       setError(`${collegeField.label} is required.`);
       return;
     }
+    if (educationField?.required && !education.trim()) {
+      setError(`${educationField.label} is required.`);
+      return;
+    }
+    if (cgpaField?.required && !cgpa.trim()) {
+      setError(`${cgpaField.label} is required.`);
+      return;
+    }
+    if (cgpaField && cgpa.trim() && !/^\d+(\.\d+)?$/.test(cgpa.trim())) {
+      setError("Enter the CGPA as a number, for example 8.4 or 78.");
+      return;
+    }
     if (!resume) {
       setError("Attach your resume.");
       return;
@@ -155,6 +171,8 @@ export function ApplicationForm({
     body.set("phone", phone.trim());
     body.set("email", email.trim());
     if (collegeField && collegeId.trim()) body.set("collegeId", collegeId.trim());
+    if (educationField && education.trim()) body.set("education", education.trim());
+    if (cgpaField && cgpa.trim()) body.set("cgpa", cgpa.trim());
     body.set("answers", JSON.stringify(answers));
     body.set("resume", resume);
 
@@ -358,6 +376,52 @@ export function ApplicationForm({
                       value={collegeId}
                       onChange={(event) => setCollegeId(event.target.value)}
                       placeholder="e.g. 21A91A0501"
+                      required={field.required}
+                    />
+                  </FieldShell>
+                );
+              case "education":
+                return (
+                  <FieldShell
+                    key={field.id}
+                    htmlFor={`${formId}-education`}
+                    label={field.label}
+                    required={field.required}
+                    hint={field.hint}
+                  >
+                    <select
+                      id={`${formId}-education`}
+                      className={inputClasses}
+                      value={education}
+                      onChange={(event) => setEducation(event.target.value)}
+                      required={field.required}
+                    >
+                      <option value="">Choose…</option>
+                      {(field.options ?? []).map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </FieldShell>
+                );
+              case "cgpa":
+                return (
+                  <FieldShell
+                    key={field.id}
+                    htmlFor={`${formId}-cgpa`}
+                    label={field.label}
+                    required={field.required}
+                    hint={field.hint}
+                  >
+                    <input
+                      id={`${formId}-cgpa`}
+                      type="text"
+                      inputMode="decimal"
+                      className={inputClasses}
+                      value={cgpa}
+                      onChange={(event) => setCgpa(event.target.value)}
+                      placeholder="e.g. 8.4"
                       required={field.required}
                     />
                   </FieldShell>

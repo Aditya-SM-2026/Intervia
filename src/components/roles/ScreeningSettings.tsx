@@ -42,13 +42,13 @@ const PRESETS: Preset[] = [
     id: "experienced",
     label: "Experienced hires",
     hint: "Leans on work history and projects",
-    weights: { summary: 10, skills: 20, experience: 35, projects: 20, education: 10, certifications: 5 },
+    weights: { summary: 10, skills: 20, experience: 40, projects: 25, certifications: 5 },
   },
   {
     id: "freshers",
     label: "Freshers",
     hint: "Leans on projects, coursework and skills",
-    weights: { summary: 10, skills: 30, experience: 10, projects: 30, education: 15, certifications: 5 },
+    weights: { summary: 10, skills: 30, experience: 10, projects: 45, certifications: 5 },
   },
 ];
 
@@ -59,10 +59,12 @@ function total(weights: ScreeningWeights): number {
 export function ScreeningSettings({ roleId }: { roleId: string }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [enabled, setEnabled] = useState(true);
+  const [enabled, setEnabled] = useState(false);
   const [weights, setWeights] = useState<ScreeningWeights>({ ...DEFAULT_SCREENING_WEIGHTS });
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  const [cutoff, setCutoff] = useState(0);
+  const [cutoffSaved, setCutoffSaved] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
@@ -97,6 +99,51 @@ export function ScreeningSettings({ roleId }: { roleId: string }) {
       cancelled = true;
     };
   }, [url]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/roles/${encodeURIComponent(roleId)}/shortlist`)
+      .then(async (response) => {
+        const body = (await response.json()) as { cutoff?: number; error?: { message?: string } };
+        if (!response.ok || typeof body.cutoff !== "number") return;
+        if (cancelled) return;
+        setCutoff(body.cutoff);
+        setCutoffSaved(body.cutoff);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [roleId]);
+
+  async function saveCutoff() {
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/roles/${encodeURIComponent(roleId)}/shortlist`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cutoff }),
+      });
+      const body = (await response.json()) as { cutoff?: number; error?: { message?: string } };
+      if (!response.ok || typeof body.cutoff !== "number") {
+        throw new Error(body.error?.message ?? "Could not save the shortlist cutoff.");
+      }
+      setCutoff(body.cutoff);
+      setCutoffSaved(body.cutoff);
+      setError(null);
+      setToast({
+        tone: "success",
+        message:
+          body.cutoff === 0
+            ? "Cutoff cleared: nothing is shortlisted automatically."
+            : `Shortlisted at ${body.cutoff} and above.`,
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save the shortlist cutoff.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function save(patch: { enabled?: boolean; weights?: ScreeningWeights }) {
     setSaving(true);
@@ -209,7 +256,7 @@ export function ScreeningSettings({ roleId }: { roleId: string }) {
             className="inline-flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium transition hover:bg-foreground/[0.03] disabled:opacity-50"
           >
             {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Wand2 className="size-4" aria-hidden />}
-            Score waiting
+            Score Generator
           </button>
           <button
             type="button"
@@ -292,6 +339,35 @@ export function ScreeningSettings({ roleId }: { roleId: string }) {
               </label>
             ))}
           </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-border px-3 py-2.5">
+            <span className="text-sm font-medium">Shortlist at a Match score of</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={5}
+              value={cutoff}
+              onChange={(event) => setCutoff(Math.max(0, Math.min(100, Number(event.target.value) || 0)))}
+              aria-label="Shortlist cutoff"
+              className="w-16 rounded-lg border border-border bg-background px-2 py-1 text-right tabular-nums outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
+            />
+            <span className="text-sm text-muted">or above · 0 turns it off</span>
+            <span className="grow" />
+            <button
+              type="button"
+              onClick={() => void saveCutoff()}
+              disabled={saving || cutoff === cutoffSaved}
+              className="inline-flex h-8 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium transition hover:bg-foreground/[0.03] disabled:opacity-40"
+            >
+              {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
+              Save cutoff
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-muted">
+            The cutoff only decides what the Shortlist column shows. A manual tick on a candidate always wins, and
+            nobody is ever rejected automatically.
+          </p>
 
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <span className={`text-sm tabular-nums ${sum === 100 ? "text-muted" : "font-medium text-rose-600 dark:text-rose-400"}`}>

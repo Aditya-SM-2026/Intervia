@@ -26,6 +26,7 @@ import {
   type SectionResult,
 } from "@/lib/screening/types";
 import { sanitizeWeights } from "@/lib/screening/score";
+import { clampCutoff } from "@/lib/roles/shortlist";
 import {
   aggregateCandidates,
   computeRoleStats,
@@ -74,6 +75,10 @@ export interface CreateApplicationRow {
   phone: string;
   email: string;
   collegeId: string | null;
+  /** Qualification picked on the built-in education field, e.g. "B.Tech". */
+  education: string | null;
+  /** CGPA or percentage as typed, or null when the candidate left it blank. */
+  cgpa: number | null;
   answers: Record<string, string>;
   resumeFileName: string | null;
   resumeText: string;
@@ -132,11 +137,37 @@ export interface RoleRepository {
     roleId: string,
     settings: { enabled: boolean; weights: ScreeningWeights },
   ): Promise<{ enabled: boolean; weights: ScreeningWeights } | null>;
+  /** Minimum Match score that shortlists automatically; 0 means no cutoff. */
+  getRoleShortlistCutoff(roleId: string): Promise<number>;
+  setRoleShortlistCutoff(roleId: string, cutoff: number): Promise<number>;
+  /** A recruiter's manual shortlist decision on one application; null clears it. */
+  setApplicationShortlisted(
+    roleId: string,
+    applicationId: string,
+    shortlisted: boolean | null,
+  ): Promise<boolean>;
   /** Resume text and the hash of the last screening, for one application. */
   getApplicationResumeText(
     roleId: string,
     applicationId: string,
   ): Promise<{ fileName: string | null; text: string; inputHash: string | null } | null>;
+  /**
+   * Screening results for candidates who never filled the form and were invited
+   * straight to an interview, keyed by lowercased email. Their score comes from
+   * the resume uploaded for the interview.
+   */
+  getInvitedCandidateScreenings(roleId: string): Promise<Map<string, ScreeningSnapshot>>;
+  saveInvitedCandidateScreening(
+    roleId: string,
+    email: string,
+    snapshot: ScreeningSnapshot,
+  ): Promise<void>;
+  /** Invited candidates with an interview resume and no result yet. */
+  listUnscreenedInvitedCandidates(
+    roleId: string,
+    roleTitle: string,
+    limit: number,
+  ): Promise<{ email: string; hasText: boolean }[]>;
   saveApplicationScreening(applicationId: string, snapshot: ScreeningSnapshot): Promise<void>;
   /** Applications without a result yet, oldest first, for the backfill job. */
   listUnscreenedApplications(
@@ -202,6 +233,8 @@ export interface RoleRepository {
     patch: {
       name: string;
       collegeId: string | null;
+      education: string | null;
+      cgpa: number | null;
       answers: Record<string, string>;
       fileName: string;
       text: string;
@@ -290,6 +323,8 @@ CREATE TABLE IF NOT EXISTS role_applications (
   phone TEXT NOT NULL,
   email TEXT NOT NULL,
   college_id TEXT,
+  education TEXT,
+  cgpa NUMERIC,
   answers JSONB NOT NULL DEFAULT '{}'::jsonb,
   resume_file_name TEXT,
   resume_text TEXT,
@@ -302,6 +337,25 @@ CREATE TABLE IF NOT EXISTS role_applications (
 );
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS resume_update_token TEXT;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS resume_updated_at TIMESTAMPTZ;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS education TEXT;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS cgpa NUMERIC;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS shortlisted BOOLEAN;
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS shortlist_cutoff INT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS role_candidate_screenings (
+  role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  candidate_email TEXT NOT NULL,
+  status TEXT NOT NULL,
+  score INT,
+  sections JSONB,
+  keywords JSONB,
+  summary TEXT,
+  reason TEXT,
+  model TEXT,
+  cost_usd NUMERIC,
+  screened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  input_hash TEXT,
+  PRIMARY KEY (role_id, candidate_email)
+);
 CREATE UNIQUE INDEX IF NOT EXISTS role_applications_resume_update_token_idx
   ON role_applications (resume_update_token);
 CREATE UNIQUE INDEX IF NOT EXISTS role_applications_role_email_idx
@@ -309,6 +363,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS role_applications_role_email_idx
 CREATE INDEX IF NOT EXISTS role_applications_role_created_idx
   ON role_applications (role_id, created_at DESC);
 ALTER TABLE roles ADD COLUMN IF NOT EXISTS screening_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE roles ALTER COLUMN screening_enabled SET DEFAULT FALSE;
 ALTER TABLE roles ADD COLUMN IF NOT EXISTS screening_weights JSONB;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_status TEXT;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_score INT;
@@ -409,6 +464,9 @@ interface ApplicationPgRow {
   phone: string;
   email: string;
   college_id: string | null;
+  education: string | null;
+  cgpa: string | number | null;
+  shortlisted: boolean | null;
   answers: unknown;
   resume_file_name: string | null;
   resume_text: string | null;
@@ -468,6 +526,9 @@ function rowToApplication(row: ApplicationPgRow): RoleApplication {
     phone: row.phone,
     email: row.email,
     collegeId: row.college_id,
+    education: row.education ?? null,
+    cgpa: row.cgpa === null || row.cgpa === undefined ? null : Number(row.cgpa),
+    shortlisted: row.shortlisted ?? null,
     answers:
       row.answers && typeof row.answers === "object" && !Array.isArray(row.answers)
         ? (row.answers as Record<string, string>)
@@ -483,7 +544,8 @@ function rowToApplication(row: ApplicationPgRow): RoleApplication {
   };
 }
 
-const APPLICATION_COLUMNS = `id, role_id, name, phone, email, college_id, answers,
+const APPLICATION_COLUMNS = `id, role_id, name, phone, email, college_id, education, cgpa,
+  shortlisted, answers,
   resume_file_name, resume_text, resume_object_path, resume_updated_at, status, interview_id,
   screening_status, screening_score, screening_sections, screening_keywords, screening_summary,
   screening_model, screening_cost_usd, screening_at, screening_input_hash, created_at`;
@@ -724,6 +786,9 @@ export function getPostgresRolesRepository(): RoleRepository {
              ra.status AS application_status,
              ra.phone AS application_phone,
              ra.college_id AS application_college_id,
+             ra.education AS application_education,
+             ra.cgpa AS application_cgpa,
+             ra.shortlisted AS application_shortlisted,
              ra.answers AS application_answers
            FROM latest l
            LEFT JOIN scorecards s ON s.room_id = l.id
@@ -749,6 +814,9 @@ export function getPostgresRolesRepository(): RoleRepository {
              a.status AS application_status,
              a.phone AS application_phone,
              a.college_id AS application_college_id,
+             a.education AS application_education,
+             a.cgpa AS application_cgpa,
+             a.shortlisted AS application_shortlisted,
              a.answers AS application_answers
            FROM role_applications a
            WHERE a.role_id = $1
@@ -778,6 +846,9 @@ export function getPostgresRolesRepository(): RoleRepository {
         application_status: string | null;
         application_phone: string | null;
         application_college_id: string | null;
+        application_education: string | null;
+        application_cgpa: string | number | null;
+        application_shortlisted: boolean | null;
         application_answers: unknown;
         total: number;
       }[];
@@ -807,6 +878,12 @@ export function getPostgresRolesRepository(): RoleRepository {
         appliedAt: row.applied_at ? row.applied_at.toISOString() : null,
         candidatePhone: row.application_phone,
         candidateCollegeId: row.application_college_id,
+        candidateEducation: row.application_education ?? null,
+        candidateCgpa:
+          row.application_cgpa === null || row.application_cgpa === undefined
+            ? null
+            : Number(row.application_cgpa),
+        shortlisted: row.application_shortlisted ?? null,
         answers:
           row.application_answers &&
           typeof row.application_answers === "object" &&
@@ -1054,9 +1131,9 @@ export function getPostgresRolesRepository(): RoleRepository {
       try {
         const result = await getPool().query(
           `INSERT INTO role_applications
-             (id, role_id, name, phone, email, college_id, answers,
+             (id, role_id, name, phone, email, college_id, education, cgpa, answers,
               resume_file_name, resume_text, resume_object_path, resume_update_token)
-           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13)
            RETURNING ${APPLICATION_COLUMNS}`,
           [
             input.id,
@@ -1065,6 +1142,8 @@ export function getPostgresRolesRepository(): RoleRepository {
             input.phone,
             input.email,
             input.collegeId,
+            input.education,
+            input.cgpa,
             JSON.stringify(input.answers),
             input.resumeFileName,
             input.resumeText,
@@ -1190,6 +1269,42 @@ export function getPostgresRolesRepository(): RoleRepository {
       };
     },
 
+    async getRoleShortlistCutoff(roleId: string): Promise<number> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT shortlist_cutoff FROM roles WHERE id = $1`,
+        [roleId],
+      );
+      const row = result.rows[0] as { shortlist_cutoff: number | null } | undefined;
+      return clampCutoff(row?.shortlist_cutoff ?? 0);
+    },
+
+    async setRoleShortlistCutoff(roleId: string, cutoff: number): Promise<number> {
+      await ensureSchema();
+      const value = clampCutoff(cutoff);
+      const result = await getPool().query(
+        `UPDATE roles SET shortlist_cutoff = $2, updated_at = now()
+         WHERE id = $1 RETURNING shortlist_cutoff`,
+        [roleId, value],
+      );
+      const row = result.rows[0] as { shortlist_cutoff: number | null } | undefined;
+      return clampCutoff(row?.shortlist_cutoff ?? value);
+    },
+
+    async setApplicationShortlisted(
+      roleId: string,
+      applicationId: string,
+      shortlisted: boolean | null,
+    ): Promise<boolean> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `UPDATE role_applications SET shortlisted = $3
+         WHERE role_id = $1 AND id = $2 RETURNING id`,
+        [roleId, applicationId, shortlisted],
+      );
+      return result.rowCount !== null && result.rowCount > 0;
+    },
+
     async getApplicationResumeText(
       roleId: string,
       applicationId: string,
@@ -1241,6 +1356,128 @@ export function getPostgresRolesRepository(): RoleRepository {
           snapshot.inputHash,
         ],
       );
+    },
+
+    async getInvitedCandidateScreenings(
+      roleId: string,
+    ): Promise<Map<string, ScreeningSnapshot>> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT candidate_email, status, score, sections, keywords, summary, reason, model,
+                cost_usd, screened_at, input_hash
+         FROM role_candidate_screenings WHERE role_id = $1`,
+        [roleId],
+      );
+      const rows = result.rows as {
+        candidate_email: string;
+        status: string;
+        score: number | null;
+        sections: unknown;
+        keywords: unknown;
+        summary: string | null;
+        reason: string | null;
+        model: string | null;
+        cost_usd: number | string | null;
+        screened_at: Date;
+        input_hash: string | null;
+      }[];
+      return new Map(
+        rows.map((row) => {
+          const sections = Array.isArray(row.sections)
+            ? (row.sections as ScreeningSnapshot["sections"])
+            : [];
+          const keywords = Array.isArray(row.keywords)
+            ? (row.keywords as unknown as ScreeningSnapshot["keywords"])
+            : ([] as unknown as ScreeningSnapshot["keywords"]);
+          const snapshot: ScreeningSnapshot = {
+            status:
+              row.status === "scored" || row.status === "failed" || row.status === "not_screened"
+                ? row.status
+                : "not_screened",
+            score: row.score === null ? null : Number(row.score),
+            sections,
+            keywords,
+            summary: row.summary ?? "",
+            reason: row.reason ?? null,
+            model: row.model,
+            costUsd: row.cost_usd === null ? null : Number(row.cost_usd),
+            createdAt: row.screened_at.toISOString(),
+            inputHash: row.input_hash ?? "",
+            scoredSections: sections.filter((item) => item.score !== null).length,
+            weightedSections: sections.length,
+          };
+          return [row.candidate_email.toLowerCase(), snapshot] as const;
+        }),
+      );
+    },
+
+    async saveInvitedCandidateScreening(
+      roleId: string,
+      email: string,
+      snapshot: ScreeningSnapshot,
+    ): Promise<void> {
+      await ensureSchema();
+      await getPool().query(
+        `INSERT INTO role_candidate_screenings
+           (role_id, candidate_email, status, score, sections, keywords, summary, reason,
+            model, cost_usd, screened_at, input_hash)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11::timestamptz, $12)
+         ON CONFLICT (role_id, candidate_email) DO UPDATE SET
+           status = EXCLUDED.status,
+           score = EXCLUDED.score,
+           sections = EXCLUDED.sections,
+           keywords = EXCLUDED.keywords,
+           summary = EXCLUDED.summary,
+           reason = EXCLUDED.reason,
+           model = EXCLUDED.model,
+           cost_usd = EXCLUDED.cost_usd,
+           screened_at = EXCLUDED.screened_at,
+           input_hash = EXCLUDED.input_hash`,
+        [
+          roleId,
+          email.toLowerCase(),
+          snapshot.status,
+          snapshot.score === null ? null : Math.round(snapshot.score),
+          JSON.stringify(snapshot.sections),
+          JSON.stringify(snapshot.keywords),
+          snapshot.summary,
+          snapshot.reason,
+          snapshot.model,
+          snapshot.costUsd,
+          snapshot.createdAt,
+          snapshot.inputHash,
+        ],
+      );
+    },
+
+    async listUnscreenedInvitedCandidates(
+      roleId: string,
+      roleTitle: string,
+      limit: number,
+    ): Promise<{ email: string; hasText: boolean }[]> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT DISTINCT ON (lower(i.candidate_email))
+                lower(i.candidate_email) AS email,
+                (i.resume_text IS NOT NULL AND length(trim(i.resume_text)) > 0) AS has_text
+         FROM interviews i
+         LEFT JOIN role_candidate_screenings s
+           ON s.role_id = $1 AND s.candidate_email = lower(i.candidate_email)
+         WHERE (i.role_id = $1 OR (i.role_id IS NULL AND lower(i.role_title) = lower($2)))
+           AND i.candidate_email IS NOT NULL AND i.candidate_email <> ''
+           AND s.candidate_email IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM role_applications a
+             WHERE a.role_id = $1 AND lower(a.email) = lower(i.candidate_email)
+           )
+         ORDER BY lower(i.candidate_email), i.created_at DESC
+         LIMIT $3`,
+        [roleId, roleTitle, Math.min(Math.max(limit, 1), 200)],
+      );
+      return (result.rows as { email: string; has_text: boolean }[]).map((row) => ({
+        email: row.email,
+        hasText: Boolean(row.has_text),
+      }));
     },
 
     async listUnscreenedApplications(
@@ -1321,6 +1558,8 @@ export function getPostgresRolesRepository(): RoleRepository {
       patch: {
         name: string;
         collegeId: string | null;
+        education: string | null;
+        cgpa: number | null;
         answers: Record<string, string>;
         fileName: string;
         text: string;
@@ -1333,11 +1572,13 @@ export function getPostgresRolesRepository(): RoleRepository {
         `UPDATE role_applications
          SET name = $2,
              college_id = $3,
-             answers = $4::jsonb,
-             resume_file_name = $5,
-             resume_text = $6,
-             resume_object_path = $7,
-             resume_updated_at = $8::timestamptz,
+             education = $4,
+             cgpa = $5,
+             answers = $6::jsonb,
+             resume_file_name = $7,
+             resume_text = $8,
+             resume_object_path = $9,
+             resume_updated_at = $10::timestamptz,
              screening_status = NULL,
              screening_score = NULL,
              screening_sections = NULL,
@@ -1353,6 +1594,8 @@ export function getPostgresRolesRepository(): RoleRepository {
           applicationId,
           patch.name,
           patch.collegeId,
+          patch.education,
+          patch.cgpa,
           JSON.stringify(patch.answers),
           patch.fileName,
           patch.text,
@@ -1411,6 +1654,10 @@ interface InMemoryRoleStore {
   resumeTokens: Map<string, string>;
   /** Extracted resume text per application, used only by resume screening. */
   resumeTexts: Map<string, string>;
+  /** Per-role Match score that shortlists automatically; absent means none. */
+  shortlistCutoffs: Map<string, number>;
+  /** Screening results for invited candidates, keyed `roleId:email`. */
+  invitedScreenings: Map<string, ScreeningSnapshot>;
 }
 
 const globalStore = globalThis as unknown as { __rolesStoreV2?: InMemoryRoleStore };
@@ -1423,6 +1670,8 @@ function getStore(): InMemoryRoleStore {
       applications: new Map(),
       resumeTokens: new Map(),
       resumeTexts: new Map(),
+      shortlistCutoffs: new Map(),
+      invitedScreenings: new Map(),
     };
   }
   return globalStore.__rolesStoreV2;
@@ -1487,6 +1736,9 @@ function applicationToCandidate(application: RoleApplication): CandidateRow {
     appliedAt: application.createdAt,
     candidatePhone: application.phone,
     candidateCollegeId: application.collegeId,
+    candidateEducation: application.education,
+    candidateCgpa: application.cgpa,
+    shortlisted: application.shortlisted,
     answers: application.answers,
   };
 }
@@ -1504,7 +1756,7 @@ export function getInMemoryRolesRepository(): RoleRepository {
         skills: [...input.skills],
         deadline: input.deadline,
         status: "open",
-        screeningEnabled: true,
+        screeningEnabled: false,
         screeningWeights: { ...DEFAULT_SCREENING_WEIGHTS },
         createdAt: now,
         updatedAt: now,
@@ -1599,14 +1851,36 @@ export function getInMemoryRolesRepository(): RoleRepository {
         scorecards.set(roomId, toAggregationScorecard(scorecard));
       }
       const all = aggregateCandidates(roleId, roleTitle, interviews, scorecards);
+      // An applicant who later interviewed still keeps their application, so the
+      // resume score follows them. Postgres joins it the same way in SQL; this
+      // path used to drop it, which is why Match showed a dash locally.
+      const applications = [...getStore().applications.values()].filter(
+        (application) => application.roleId === roleId,
+      );
+      const applicationByEmail = new Map(
+        applications.map((application) => [application.email.toLowerCase(), application]),
+      );
+      const withApplications = all.map((candidate) => {
+        const application = applicationByEmail.get(candidate.candidateEmail);
+        if (!application) return candidate;
+        return {
+          ...candidate,
+          applicationId: application.id,
+          applicationStatus: application.status,
+          appliedAt: application.createdAt,
+          candidatePhone: application.phone,
+          candidateCollegeId: application.collegeId,
+          candidateEducation: application.education,
+          candidateCgpa: application.cgpa,
+          shortlisted: application.shortlisted,
+          answers: application.answers,
+        };
+      });
       const interviewed = new Set(all.map((candidate) => candidate.candidateId));
-      const appRows = [...getStore().applications.values()]
-        .filter(
-          (application) =>
-            application.roleId === roleId && !interviewed.has(application.email.toLowerCase()),
-        )
+      const appRows = applications
+        .filter((application) => !interviewed.has(application.email.toLowerCase()))
         .map(applicationToCandidate);
-      const merged = [...all, ...appRows].sort(
+      const merged = [...withApplications, ...appRows].sort(
         (a, b) => b.latestInterviewAt.localeCompare(a.latestInterviewAt),
       );
       return { candidates: merged.slice(offset, offset + limit), total: merged.length };
@@ -1790,6 +2064,9 @@ export function getInMemoryRolesRepository(): RoleRepository {
         phone: input.phone,
         email: input.email,
         collegeId: input.collegeId,
+        education: input.education,
+        cgpa: input.cgpa,
+        shortlisted: null,
         answers: input.answers,
         resumeFileName: input.resumeFileName,
         resumeObjectPath: input.resumeObjectPath,
@@ -1876,6 +2153,8 @@ export function getInMemoryRolesRepository(): RoleRepository {
       patch: {
         name: string;
         collegeId: string | null;
+        education: string | null;
+        cgpa: number | null;
         answers: Record<string, string>;
         fileName: string;
         text: string;
@@ -1890,6 +2169,8 @@ export function getInMemoryRolesRepository(): RoleRepository {
         ...application,
         name: patch.name,
         collegeId: patch.collegeId,
+        education: patch.education,
+        cgpa: patch.cgpa,
         answers: patch.answers,
         resumeFileName: patch.fileName,
         resumeObjectPath: patch.objectPath,
@@ -1928,6 +2209,28 @@ export function getInMemoryRolesRepository(): RoleRepository {
         updatedAt: new Date().toISOString(),
       });
       return { enabled: settings.enabled, weights };
+    },
+
+    async getRoleShortlistCutoff(roleId: string): Promise<number> {
+      return clampCutoff(getStore().shortlistCutoffs.get(roleId) ?? 0);
+    },
+
+    async setRoleShortlistCutoff(roleId: string, cutoff: number): Promise<number> {
+      const value = clampCutoff(cutoff);
+      getStore().shortlistCutoffs.set(roleId, value);
+      return value;
+    },
+
+    async setApplicationShortlisted(
+      roleId: string,
+      applicationId: string,
+      shortlisted: boolean | null,
+    ): Promise<boolean> {
+      const store = getStore();
+      const application = store.applications.get(applicationId);
+      if (!application || application.roleId !== roleId) return false;
+      store.applications.set(applicationId, { ...application, shortlisted });
+      return true;
     },
 
     async getApplicationResumeText(
@@ -2006,6 +2309,50 @@ export function getInMemoryRolesRepository(): RoleRepository {
       store.applications.set(applicationId, updated);
       store.resumeTexts.set(applicationId, resume.text);
       return updated;
+    },
+
+    async getInvitedCandidateScreenings(
+      roleId: string,
+    ): Promise<Map<string, ScreeningSnapshot>> {
+      const map = new Map<string, ScreeningSnapshot>();
+      for (const [key, snapshot] of getStore().invitedScreenings) {
+        const [storedRole, email] = key.split(":");
+        if (storedRole === roleId) map.set(email, snapshot);
+      }
+      return map;
+    },
+
+    async saveInvitedCandidateScreening(
+      roleId: string,
+      email: string,
+      snapshot: ScreeningSnapshot,
+    ): Promise<void> {
+      getStore().invitedScreenings.set(`${roleId}:${email.toLowerCase()}`, snapshot);
+    },
+
+    async listUnscreenedInvitedCandidates(
+      roleId: string,
+      roleTitle: string,
+      limit: number,
+    ): Promise<{ email: string; hasText: boolean }[]> {
+      const store = getStore();
+      const screened = await this.getInvitedCandidateScreenings(roleId);
+      const withApplication = new Set(
+        [...store.applications.values()]
+          .filter((application) => application.roleId === roleId)
+          .map((application) => application.email.toLowerCase()),
+      );
+      const seen = new Map<string, boolean>();
+      for (const room of getInterviewStore().rooms.values()) {
+        if (!matchesRoleAssociation(roleId, roleTitle, room)) continue;
+        const email = room.candidateEmail?.trim().toLowerCase();
+        if (!email || withApplication.has(email) || screened.has(email)) continue;
+        const hasText = typeof room.resume?.text === "string" && room.resume.text.trim() !== "";
+        seen.set(email, Boolean(hasText) || seen.get(email) === true);
+      }
+      return [...seen.entries()]
+        .slice(0, Math.min(Math.max(limit, 1), 200))
+        .map(([email, hasText]) => ({ email, hasText }));
     },
   };
 }

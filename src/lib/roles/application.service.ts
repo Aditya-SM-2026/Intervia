@@ -284,6 +284,8 @@ export async function submitApplication(
       phone: asText(form.get("phone")),
       email: asText(form.get("email")),
       collegeId: asText(form.get("collegeId")),
+      education: asText(form.get("education")),
+      cgpa: asText(form.get("cgpa")),
     });
   } catch (error) {
     return { ok: false, code: "invalid", message: firstIssue(error, "Check your details and try again.") };
@@ -352,11 +354,16 @@ export async function submitApplication(
   }
 
   const collegeId = identity.collegeId?.trim() ? identity.collegeId.trim() : null;
+  const education = identity.education?.trim() ? identity.education.trim() : null;
+  const cgpa =
+    identity.cgpa === undefined || identity.cgpa === "" ? null : Number(identity.cgpa);
 
   if (existing) {
     const updated = await repository().refreshApplication(existing.id, {
       name: identity.name,
       collegeId,
+      education,
+      cgpa,
       answers,
       fileName: file.name,
       text,
@@ -389,6 +396,8 @@ export async function submitApplication(
     phone: identity.phone,
     email: identity.email,
     collegeId,
+    education,
+    cgpa,
     answers,
     resumeFileName: file.name,
     resumeText: text,

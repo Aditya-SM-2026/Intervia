@@ -37,7 +37,14 @@ export interface ApplicationField {
 }
 
 /** Ids of the built-in fields. */
-export type BaseApplicationFieldId = "name" | "phone" | "email" | "collegeId" | "resume";
+export type BaseApplicationFieldId =
+  | "name"
+  | "phone"
+  | "email"
+  | "collegeId"
+  | "education"
+  | "cgpa"
+  | "resume";
 
 /**
  * Built-in fields that must always be on the form: an application cannot be
@@ -49,13 +56,45 @@ export const MANDATORY_BASE_FIELD_IDS = ["name", "phone", "email", "resume"] as 
 /** Built-in fields a recruiter may remove or mark optional. */
 export const OPTIONAL_BASE_FIELD_IDS = ["collegeId"] as const;
 
+/**
+ * Built-in fields added to every form, including forms saved before they
+ * existed. They are never required, so an applicant who has no CGPA is not
+ * blocked; they can still edit the label and order.
+ */
+export const ALWAYS_ON_BASE_FIELD_IDS = ["education", "cgpa"] as const;
+
 /** Every built-in field id. */
 export const BASE_APPLICATION_FIELD_IDS: readonly BaseApplicationFieldId[] = [
   "name",
   "phone",
   "email",
   "collegeId",
+  "education",
+  "cgpa",
   "resume",
+];
+
+/**
+ * Qualifications offered on the built-in education field. A dropdown keeps the
+ * value filterable: free text would give "B.Tech", "btech" and "B.E" as three
+ * different answers to the same question.
+ */
+export const EDUCATION_OPTIONS: readonly string[] = [
+  "B.Tech",
+  "B.E",
+  "B.Sc",
+  "BCA",
+  "B.Com",
+  "B.A",
+  "M.Tech",
+  "M.E",
+  "M.Sc",
+  "MCA",
+  "MBA",
+  "M.Com",
+  "PhD",
+  "Diploma",
+  "Other",
 ];
 
 /** The built-in fields every role's form starts with, in display order. */
@@ -64,6 +103,22 @@ export const BASE_APPLICATION_FIELDS: readonly ApplicationField[] = [
   { id: "phone", label: "Phone number", type: "text", required: true, system: true },
   { id: "email", label: "Email address", type: "text", required: true, system: true },
   { id: "collegeId", label: "College roll number", type: "text", required: false, system: true },
+  {
+    id: "education",
+    label: "Education qualification",
+    type: "select",
+    required: false,
+    options: [...EDUCATION_OPTIONS],
+    system: true,
+  },
+  {
+    id: "cgpa",
+    label: "CGPA or percentage",
+    type: "number",
+    required: false,
+    hint: "For example 8.4 (out of 10) or 78 (percentage).",
+    system: true,
+  },
   { id: "resume", label: "Resume", type: "file", required: true, system: true },
 ];
 
@@ -97,7 +152,9 @@ export function resolveApplicationFormFields(
   }
   const present = new Set(list.map((field) => field.id));
   for (const field of BASE_APPLICATION_FIELDS) {
-    if ((MANDATORY_BASE_FIELD_IDS as readonly string[]).includes(field.id) && !present.has(field.id)) {
+    const alwaysOn = (ALWAYS_ON_BASE_FIELD_IDS as readonly string[]).includes(field.id);
+    const mandatory = (MANDATORY_BASE_FIELD_IDS as readonly string[]).includes(field.id);
+    if ((mandatory || alwaysOn) && !present.has(field.id)) {
       list.push({ ...field });
     }
   }
@@ -115,6 +172,12 @@ export interface RoleApplication {
   phone: string;
   email: string;
   collegeId: string | null;
+  /** Qualification picked on the built-in education field. */
+  education: string | null;
+  /** CGPA or percentage as typed by the candidate, or null. */
+  cgpa: number | null;
+  /** Recruiter's manual shortlist decision; null when nobody has decided. */
+  shortlisted: boolean | null;
   /** Answers to the recruiter-defined fields, keyed by field id. */
   answers: Record<string, string>;
   resumeFileName: string | null;

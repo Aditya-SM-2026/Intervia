@@ -20,6 +20,7 @@ import type {
   FormLinkStatus,
 } from "@/lib/roles/application.types";
 import {
+  ALWAYS_ON_BASE_FIELD_IDS,
   BASE_APPLICATION_FIELDS,
   OPTIONAL_BASE_FIELD_IDS,
   isMandatoryBaseField,
@@ -502,7 +503,10 @@ export function ApplicationFormSettings({
             </p>
             <ol className="mt-4 space-y-2.5">
               {draft.map((field, index) => {
-                const locked = field.system === true && isMandatoryBaseField(field.id);
+                const locked =
+                  field.system === true &&
+                  (isMandatoryBaseField(field.id) ||
+                    (ALWAYS_ON_BASE_FIELD_IDS as readonly string[]).includes(field.id));
                 return (
                   <li key={`${field.id}-${index}`} className="rounded-xl border border-border bg-surface p-3.5">
                     <div className="flex items-center gap-2">
