@@ -79,7 +79,7 @@ const SUGGESTION_LABELS: Record<string, string> = {
 };
 
 const DECISION_LABELS: Record<HumanDecision["outcome"], string> = {
-  advance: "Advanced",
+  advance: "Selected",
   hold: "On hold",
   reject: "Rejected",
 };
@@ -581,6 +581,14 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const selectedRows = (rows ?? []).filter((row) => selected.has(row.candidate.candidateId));
   const selectedAllInterviewed =
     selectedRows.length > 0 && selectedRows.every((row) => row.candidate.interviews > 0);
+  /** Selecting someone for the role is only meaningful after their interview. */
+  const selectedAllCompleted =
+    selectedRows.length > 0 &&
+    selectedRows.every(
+      (row) =>
+        row.candidate.interviewState === "completed" ||
+        row.candidate.interviewState === "evaluated",
+    );
 
   /** Everyone the automatic filter would sweep up, across the whole role. */
   const autoFilteredCandidates = useMemo(
@@ -1222,11 +1230,11 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
             <button
               type="button"
               onClick={() => setConfirmingDecision("advance")}
-              disabled={!selectedAllInterviewed}
-              title={selectedAllInterviewed ? "Advance the selected candidates" : "Only interviewed candidates can be advanced"}
+              disabled={!selectedAllCompleted}
+              title={selectedAllCompleted ? "Select the chosen candidates for the role" : "Select is available after the interview is completed"}
               className="h-8 rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-40"
             >
-              Advance
+              Select
             </button>
             <button
               type="button"
@@ -1280,7 +1288,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
 
       <ConfirmDialog
         open={confirmingDecision !== null}
-        title={`${confirmingDecision === "advance" ? "Advance" : confirmingDecision === "hold" ? "Put on hold" : "Reject"} ${
+        title={`${confirmingDecision === "advance" ? "Select" : confirmingDecision === "hold" ? "Put on hold" : "Reject"} ${
           selected.size
         } candidate${selected.size === 1 ? "" : "s"}?`}
         body="The decision is saved on each person's latest interview. You can change it later from their report."
