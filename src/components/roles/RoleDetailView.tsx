@@ -52,9 +52,14 @@ import { Menu } from "@/components/dashboard/menu";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { FilterMenu } from "@/components/dashboard/Toolbar";
 import { BulkScheduleDialog } from "@/components/roles/BulkScheduleDialog";
-import { AutoFilterDialog } from "@/components/roles/AutoFilterDialog";
+import { CandidateFilterDialog } from "@/components/roles/CandidateFilterDialog";
 import { ShortlistCell } from "@/components/roles/ShortlistCell";
-import { isAutoFiltered, DEFAULT_AUTO_FILTER_RULE, type AutoFilterRule } from "@/lib/roles/auto-filter";
+import {
+  EMPTY_THRESHOLDS,
+  hasThresholds,
+  meetsThresholds,
+  type MatchThresholds,
+} from "@/lib/roles/match-thresholds";
 import { educationLabel } from "@/lib/roles/shortlist";
 import { Avatar } from "@/components/dashboard/primitives";
 import { DocumentText } from "@/components/ui/DocumentText";
@@ -292,8 +297,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
-  const [autoFilterOpen, setAutoFilterOpen] = useState(false);
-  const [autoFilterRule, setAutoFilterRule] = useState<AutoFilterRule>(DEFAULT_AUTO_FILTER_RULE);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [thresholds, setThresholds] = useState<MatchThresholds>(EMPTY_THRESHOLDS);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingDecision, setConfirmingDecision] = useState<HumanDecision["outcome"] | null>(null);
   const [formFields, setFormFields] = useState<ApplicationField[]>([]);
@@ -378,17 +383,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       .catch(() => setFormFields([]));
   }, [roleId]);
 
-  /** The role's own automatic filtration rule, editable in the dialog. */
-  useEffect(() => {
-    fetch(`/api/roles/${roleId}/auto-filter`)
-      .then(async (response) =>
-        response.ok ? ((await response.json()) as { rule?: AutoFilterRule }) : null,
-      )
-      .then((body) => {
-        if (body?.rule) setAutoFilterRule(body.rule);
-      })
-      .catch(() => undefined);
-  }, [roleId]);
+  // The role page's Match/CGPA bar is session state; the role itself is untouched.
 
   async function setApplicationStage(applicationId: string, action: "reject" | "restore") {
     if (actionBusy) return;
@@ -440,6 +435,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     const needle = query.trim().toLowerCase();
     const filtered = (rows ?? []).filter((row) => {
       const candidate = row.candidate;
+      if (hasThresholds(thresholds) && !meetsThresholds(candidate, thresholds)) return false;
       if (stageFilter !== "all" && stageFilter !== "applied" && candidate.status !== stageFilter) return false;
       if (needle) {
         const haystack = [
@@ -475,7 +471,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       }
       return compareCandidateRows(a, b, sort);
     });
-  }, [rows, query, stageFilter, statusFilter, sort]);
+  }, [rows, query, stageFilter, statusFilter, sort, thresholds]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -506,6 +502,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     setStageFilter("all");
     setQuery("");
     setStatusFilter("all");
+    setThresholds(EMPTY_THRESHOLDS);
     setPage(1);
   }
 
@@ -582,11 +579,29 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const selectedAllInterviewed =
     selectedRows.length > 0 && selectedRows.every((row) => row.candidate.interviews > 0);
 
-  /** Everyone the automatic filter would sweep up, across the whole role. */
-  const autoFilteredCandidates = useMemo(
-    () => (candidates ?? []).filter((candidate) => isAutoFiltered(candidate, autoFilterRule)),
-    [candidates, autoFilterRule],
+  /** Everyone who clears HR's Match/CGPA bar, across the whole role. */
+  const matchingCandidates = useMemo(
+    () => (candidates ?? []).filter((candidate) => meetsThresholds(candidate, thresholds)),
+    [candidates, thresholds],
   );
+
+  function openFilter() {
+    setFilterOpen(true);
+  }
+
+  function scheduleFromFilter(candidateIds: string[]) {
+    if (candidateIds.length === 0) return;
+    setSelected(new Set(candidateIds));
+    setFilterOpen(false);
+    setBulkScheduleOpen(true);
+  }
+
+  function deleteFromFilter(candidateIds: string[]) {
+    if (candidateIds.length === 0) return;
+    setSelected(new Set(candidateIds));
+    setFilterOpen(false);
+    setConfirmingDelete(true);
+  }
 
   async function deleteSelected() {
     if (actionBusy || selected.size === 0) return;
@@ -835,7 +850,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                   setPage(1);
                 }}
               />
-              {(query !== "" || statusFilter !== "all" || stageFilter !== "all") && (
+              {(query !== "" || statusFilter !== "all" || stageFilter !== "all" || hasThresholds(thresholds)) && (
                 <button
                   type="button"
                   onClick={clearFilters}
@@ -848,19 +863,20 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
               <span className="grow" />
               <button
                 type="button"
-                onClick={() => setAutoFilterOpen(true)}
-                title={`Candidates with Match below ${autoFilterRule.matchBelow} and CGPA below ${autoFilterRule.cgpaBelow}`}
+                onClick={openFilter}
                 className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-sm transition ${
-                  autoFilteredCandidates.length > 0
-                    ? "border-rose-300 bg-rose-500/[0.07] text-rose-700 hover:bg-rose-500/[0.12] dark:border-rose-500/30 dark:text-rose-300"
+                  hasThresholds(thresholds)
+                    ? "border-accent/40 bg-accent-soft text-accent hover:bg-accent/10"
                     : "border-border text-muted hover:bg-foreground/[0.05] hover:text-foreground"
                 }`}
               >
                 <Funnel className="size-3.5" aria-hidden />
-                Automatic filtration
-                <span className="rounded-md bg-foreground/[0.06] px-1.5 text-xs font-semibold tabular-nums">
-                  {autoFilteredCandidates.length}
-                </span>
+                Match &amp; CGPA
+                {hasThresholds(thresholds) && (
+                  <span className="rounded-md bg-accent/10 px-1.5 text-xs font-semibold tabular-nums">
+                    {matchingCandidates.length}
+                  </span>
+                )}
               </button>
               <span className="text-sm tabular-nums text-muted">
                 {visibleRows.length} {visibleRows.length === 1 ? "person" : "people"}
@@ -1177,23 +1193,18 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         />
       )}
 
-      {/* --------------------------------------------------- automatic filter */}
-      {autoFilterOpen && (
-        <AutoFilterDialog
-          roleId={roleId}
+      {/* ------------------------------------- minimum Match / CGPA filter */}
+      {filterOpen && (
+        <CandidateFilterDialog
           candidates={candidates ?? []}
-          rule={autoFilterRule}
-          onRuleSaved={setAutoFilterRule}
-          onClose={() => setAutoFilterOpen(false)}
-          onDeleted={(removed) => {
-            setAutoFilterOpen(false);
-            setSelected(new Set());
-            setToast({
-              tone: "success",
-              message: `${removed} candidate${removed === 1 ? "" : "s"} removed from this role.`,
-            });
-            void loadCandidates();
+          thresholds={thresholds}
+          onThresholdsChange={(next) => {
+            setThresholds(next);
+            setPage(1);
           }}
+          onClose={() => setFilterOpen(false)}
+          onSchedule={scheduleFromFilter}
+          onDelete={deleteFromFilter}
         />
       )}
 

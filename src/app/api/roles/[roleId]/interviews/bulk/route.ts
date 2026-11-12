@@ -130,19 +130,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           continue;
         }
 
-        if (!application) {
-          // Invited candidates may already have a live interview; making a
-          // second one is allowed, but say so instead of doing it silently.
-          const existing = await repository.getCandidateInterviews(role.id, role.title, email);
-          if (existing.some((item) => item.status === "scheduled")) {
-            results.push({
-              email,
-              name,
-              status: "skipped",
-              reason: "This candidate already has an interview waiting.",
-            });
-            continue;
-          }
+        // Never create a second interview for someone who already has one
+        // waiting or has finished. This applies to application-backed people
+        // too: their application row alone does not prove they were never
+        // scheduled.
+        const existing = await repository.getCandidateInterviews(role.id, role.title, email);
+        const blocking = existing.find(
+          (item) =>
+            item.status === "scheduled" ||
+            item.status === "waiting" ||
+            item.status === "active" ||
+            item.status === "completed",
+        );
+        if (blocking) {
+          results.push({
+            email,
+            name,
+            status: "skipped",
+            reason:
+              blocking.status === "completed"
+                ? "This candidate has already completed an interview for this role."
+                : "This candidate already has an interview waiting.",
+          });
+          continue;
         }
 
         const resumeText = interviewResume?.text?.trim() ?? "";
