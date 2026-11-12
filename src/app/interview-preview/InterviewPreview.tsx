@@ -48,6 +48,7 @@ export function InterviewPreview() {
         transcript={TRANSCRIPT}
         showConversation={conversation}
         audioBlocked={false}
+        hrNotice={false}
         onToggleConversation={() => setConversation((value) => !value)}
         onToggleMute={() => setMuted((value) => !value)}
         onToggleCamera={() => setCameraOff((value) => !value)}

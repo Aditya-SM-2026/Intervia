@@ -24,6 +24,8 @@ interface LiveRoomProps {
   transcript: TranscriptEntry[];
   showConversation: boolean;
   audioBlocked: boolean;
+  /** True for a few seconds after HR joins the call. */
+  hrNotice: boolean;
   onToggleConversation: () => void;
   onToggleMute: () => void;
   onToggleCamera: () => void;
@@ -104,6 +106,7 @@ export function LiveRoom(props: LiveRoomProps) {
     transcript,
     showConversation,
     audioBlocked,
+    hrNotice,
   } = props;
   const totalSeconds = durationMinutes * 60;
   const progress = Math.min(1, elapsedSeconds / totalSeconds);
@@ -150,6 +153,17 @@ export function LiveRoom(props: LiveRoomProps) {
           </span>
         </div>
       </header>
+
+      {hrNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="animate-pop-in pointer-events-none absolute left-1/2 top-20 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-emerald-400/30 bg-[#0d1838]/95 px-4 py-2 text-sm text-emerald-200 shadow-lg shadow-black/30 backdrop-blur"
+        >
+          <span className="size-2 rounded-full bg-emerald-400" aria-hidden="true" />
+          HR joined the interview
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         <section className="flex min-w-0 flex-1 flex-col items-center justify-center gap-6 px-5 pb-28 sm:px-8">

@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import struct
 import tempfile
 import time
-import wave
 from pathlib import Path
+from typing import Any
 
 from livekit import rtc
 from livekit.agents import AgentSession
@@ -30,6 +31,32 @@ logger = logging.getLogger("intervia.audio")
 STOP_TIMEOUT_SECONDS = 30.0
 # HR's voice is mixed in as a separate mono track; 16 kHz is plenty for speech.
 HR_SAMPLE_RATE = 16_000
+HR_BYTES_PER_SAMPLE = 2
+# Frames are collected and written in one go, off the event loop: writing the
+# WAV on the audio loop (Python's wave module rewrites the header on each call)
+# blocked it for over 200 ms in testing, which stutters the interviewer's voice.
+HR_FLUSH_BYTES = 64_000
+WAV_HEADER_BYTES = 44
+
+
+def _wav_header(data_bytes: int) -> bytes:
+    """A canonical 44-byte mono 16-bit PCM WAV header."""
+    return struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF",
+        36 + data_bytes,
+        b"WAVE",
+        b"fmt ",
+        16,
+        1,
+        1,
+        HR_SAMPLE_RATE,
+        HR_SAMPLE_RATE * HR_BYTES_PER_SAMPLE,
+        HR_BYTES_PER_SAMPLE,
+        16,
+        b"data",
+        data_bytes,
+    )
 
 
 class InterviewAudio:
@@ -107,17 +134,22 @@ class InterviewHrAudio:
     agent, so HR's voice is recorded from their published microphone track
     directly. The web app mixes this file into the report recording alongside
     the other two voices.
+
+    The file's clock starts with HR's first audio frame, not when the file was
+    opened: HR often joins minutes into the interview, and the web app uses
+    ``started_at`` to place their voice on the recording's timeline.
     """
 
     def __init__(self, room: rtc.Room) -> None:
         self._room = room
         self._path: Path | None = None
         self._directory: tempfile.TemporaryDirectory[str] | None = None
-        self._writer: wave.Wave_write | None = None
+        self._file: Any | None = None
+        self._buffer = bytearray()
+        self._bytes_written = 0
         self._tasks: set[asyncio.Task[None]] = set()
         self._started_at: float | None = None
         self._open = False
-        self._frames = 0
 
     @property
     def started_at(self) -> float | None:
@@ -130,14 +162,15 @@ class InterviewHrAudio:
         try:
             directory = tempfile.TemporaryDirectory(prefix="interview-hr-audio-")
             path = Path(directory.name) / "hr-audio.wav"
-            writer = wave.open(str(path), "wb")  # noqa: SIM115 - kept open for the call
-            writer.setnchannels(1)
-            writer.setsampwidth(2)
-            writer.setframerate(HR_SAMPLE_RATE)
+            handle = open(path, "wb")  # noqa: SIM115 - kept open for the call
+            # A placeholder header; the real one is written when the call ends.
+            handle.write(b"\0" * WAV_HEADER_BYTES)
             self._directory = directory
             self._path = path
-            self._writer = writer
-            self._started_at = time.time()
+            self._file = handle
+            self._buffer = bytearray()
+            self._bytes_written = 0
+            self._started_at = None
             self._open = True
             return True
         except Exception as error:  # noqa: BLE001 - recording never breaks the call
@@ -168,17 +201,45 @@ class InterviewHrAudio:
         task.add_done_callback(self._tasks.discard)
 
     async def _drain(self, stream: rtc.AudioStream) -> None:
-        writer = self._writer
-        if writer is None:
+        if self._file is None:
             return
+        first = True
         try:
             async for event in stream:
-                if not self._open or self._writer is None:
+                if not self._open or self._file is None:
                     break
-                self._writer.writeframes(bytes(event.frame.data))
-                self._frames += 1
+                if first:
+                    first = False
+                    if self._started_at is None:
+                        self._started_at = time.time()
+                    else:
+                        # HR dropped and rejoined: keep the file as one
+                        # timeline by filling the silence they were away for.
+                        expected = int(
+                            (time.time() - self._started_at) * HR_SAMPLE_RATE
+                        ) * HR_BYTES_PER_SAMPLE
+                        missing = expected - (self._bytes_written + len(self._buffer))
+                        if missing > HR_SAMPLE_RATE:
+                            self._buffer += b"\0" * missing
+                self._buffer += bytes(event.frame.data)
+                if len(self._buffer) >= HR_FLUSH_BYTES:
+                    await self._flush()
         except Exception as error:  # noqa: BLE001
             logger.debug("HR audio stream ended: %s", error)
+
+    async def _flush(self) -> None:
+        if not self._buffer:
+            return
+        data = bytes(self._buffer)
+        self._buffer.clear()
+        self._bytes_written += len(data)
+        await asyncio.to_thread(self._write, data)
+
+    def _write(self, data: bytes) -> None:
+        handle = self._file
+        if handle is None:
+            return
+        handle.write(data)
 
     async def stop(self) -> Path | None:
         """Closes every stream and returns the file, or None when empty."""
@@ -188,19 +249,20 @@ class InterviewHrAudio:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
             self._tasks.clear()
-        writer, path = self._writer, self._path
-        self._writer = None
-        if writer is not None:
+        await self._flush()
+        handle, path = self._file, self._path
+        self._file = None
+        if handle is not None:
             try:
-                writer.close()
+                handle.seek(0)
+                handle.write(_wav_header(self._bytes_written))
+                handle.close()
             except Exception as error:  # noqa: BLE001
                 logger.warning("HR audio file could not be closed cleanly: %s", error)
-        if path is None:
-            return None
-        if self._frames == 0:
+        if path is None or self._bytes_written == 0:
             return None
         try:
-            return path if path.exists() and path.stat().st_size > 0 else None
+            return path if path.exists() and path.stat().st_size > WAV_HEADER_BYTES else None
         except OSError:
             return None
 
@@ -208,6 +270,13 @@ class InterviewHrAudio:
         self._discard_directory()
 
     def _discard_directory(self) -> None:
+        handle = self._file
+        self._file = None
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception as error:  # noqa: BLE001
+                logger.debug("HR audio file not closed: %s", error)
         if self._directory is not None:
             try:
                 self._directory.cleanup()

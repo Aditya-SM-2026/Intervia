@@ -6,9 +6,14 @@ import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
 import { pickRecording } from "@/lib/interviews/video-analysis.service";
 import { MAX_RESPONSE_BYTES, clampRange, fileResponse, mimeFor, playableRecordingFile } from "@/lib/recordings/store";
 import { fetchStoredObject } from "@/lib/storage/gcs";
+import { findAgentAudio } from "@/lib/recordings/agent-audio";
+import { buildMixedRecording } from "@/lib/recordings/mix";
 import { getInterviewRepository } from "@/server/repositories";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
+
+/** How long the first play may wait for the mix before serving the raw video. */
+const MIX_WAIT_MS = 120_000;
 
 /**
  * Plays back the candidate's recording to a signed-in recruiter. The file is
@@ -24,7 +29,23 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return interviewErrorResponse("INVALID_INPUT", "This interview link is invalid.");
   }
 
-  const recording = await pickRecording(await getInterviewRepository().getEvents(roomId));
+  const repository = getInterviewRepository();
+  let events = await repository.getEvents(roomId);
+
+  // The mixed copy (the candidate's video plus every voice) is built in the
+  // background when the interview ends, but a recruiter often opens the report
+  // straight away and used to get the candidate-only video for the first few
+  // minutes. Build it here when it is missing, so the first play already has
+  // the interviewer and HR.
+  if (!events.some((event) => event.type === "recording_mixed") && findAgentAudio(events)) {
+    await Promise.race([
+      buildMixedRecording(roomId).catch(() => false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), MIX_WAIT_MS)),
+    ]);
+    events = await repository.getEvents(roomId);
+  }
+
+  const recording = await pickRecording(events);
   if (!recording) {
     return interviewErrorResponse("ROOM_NOT_FOUND", "This interview has no recording.");
   }

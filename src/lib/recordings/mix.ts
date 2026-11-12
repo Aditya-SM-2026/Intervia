@@ -24,9 +24,26 @@ import type { RecordingRef } from "@/lib/interviews/recording-refs";
 
 const MIX_LOCKS = new Map<string, Promise<boolean>>();
 
-/** The audio filter chain for one mix: align each source to the video's clock,
- * then fold every speaker into one mono track. */
-function audioFilter(deltaSeconds: number, hrDeltaSeconds: number | null): string {
+/**
+ * The audio filter chain for one mix: align each voice to the video's clock,
+ * even out their levels and fold them into one mono track.
+ *
+ * The candidate is taken from the video's own microphone track whenever the
+ * recording has one. The agent's recorder silences its candidate channel while
+ * HR holds the floor (the input gate is closed so the model cannot hear over
+ * HR), and it can also drop a stretch of audio when the voice session is
+ * swapped, which used to leave silent holes in the report. The candidate's own
+ * audio has neither problem. The agent is the right channel of the recorder's
+ * stereo track, and HR is their own mono file.
+ *
+ * When the video has no audio track at all (an unusual browser/egress
+ * combination) the recorder's two channels are folded together instead.
+ */
+function audioFilter(
+  deltaSeconds: number,
+  hrDeltaSeconds: number | null,
+  videoAudio: boolean,
+): string {
   const offsetFor = (delta: number): string => {
     const ms = Math.round(Math.abs(delta) * 1000);
     if (ms === 0) return "";
@@ -35,16 +52,39 @@ function audioFilter(deltaSeconds: number, hrDeltaSeconds: number | null): strin
       : `atrim=start=${Math.abs(delta).toFixed(3)},asetpts=PTS-STARTPTS,`;
   };
 
-  const twoSpeakers = `[1:a]${offsetFor(deltaSeconds)}pan=mono|c0=0.5*c0+0.5*c1,aresample=48000`;
-  if (hrDeltaSeconds === null) return `${twoSpeakers}[a]`;
+  const parts: string[] = [];
+  const labels: string[] = [];
+  if (videoAudio) {
+    parts.push("[0:a]aresample=48000,pan=mono|c0=c0[candidate]");
+    labels.push("[candidate]");
+    parts.push(
+      `[1:a]${offsetFor(deltaSeconds)}pan=mono|c0=c1,aresample=48000[agent]`,
+    );
+    labels.push("[agent]");
+  } else {
+    parts.push(
+      `[1:a]${offsetFor(deltaSeconds)}pan=mono|c0=0.5*c0+0.5*c1,aresample=48000[candidate]`,
+    );
+    labels.push("[candidate]");
+  }
 
   // HR's microphone is its own mono file, recorded by the agent from the HR
-  // participant's track. Mixing it in gives the report all three voices.
-  return (
-    `${twoSpeakers}[a1];` +
-    `[2:a]${offsetFor(hrDeltaSeconds)}aresample=48000,pan=mono|c0=c0[a2];` +
-    `[a1][a2]amix=inputs=2:duration=longest:normalize=0[a]`
+  // participant's track. A small lift sits them level with the other voices.
+  if (hrDeltaSeconds !== null) {
+    parts.push(
+      `[2:a]${offsetFor(hrDeltaSeconds)}aresample=48000,pan=mono|c0=c0,volume=1.5[hr]`,
+    );
+    labels.push("[hr]");
+  }
+
+  // A final limiter keeps the boosted voices from clipping, and loudnorm makes
+  // the report comfortable to listen to whatever the room's levels were.
+  parts.push(
+    `${labels.join("")}amix=inputs=${labels.length}:duration=longest:normalize=0,` +
+      `alimiter=limit=0.95:level=false,loudnorm=I=-16:TP=-1.5:LRA=11,` +
+      `alimiter=limit=0.8:level=false,aresample=48000[mixed]`,
   );
+  return parts.join(";");
 }
 
 function containerFor(ref: RecordingRef): "mp4" | "webm" {
@@ -71,8 +111,7 @@ async function mixInto(
   audioFile: string,
   hrFile: string | null,
   outputFile: string,
-  deltaSeconds: number,
-  hrDeltaSeconds: number | null,
+  filter: string,
 ): Promise<void> {
   const container = outputFile.endsWith(".mp4") ? "mp4" : "webm";
   const args = [
@@ -83,17 +122,19 @@ async function mixInto(
     audioFile,
     ...(hrFile ? ["-i", hrFile] : []),
     "-filter_complex",
-    audioFilter(deltaSeconds, hrFile ? hrDeltaSeconds : null),
+    filter,
     "-map",
     "0:v",
     "-map",
-    "[a]",
+    "[mixed]",
     "-c:v",
     "copy",
     "-c:a",
     container === "mp4" ? "aac" : "libopus",
     "-b:a",
     "96k",
+    "-ar",
+    "48000",
     ...(container === "mp4" ? ["-movflags", "+faststart"] : []),
     "-shortest",
     outputFile,
@@ -138,7 +179,25 @@ export async function buildMixedRecording(roomId: string): Promise<boolean> {
         : null;
       const container = containerFor(videoRef);
       const mixed = path.join(workDir, `mixed.${container}`);
-      await mixInto(videoFile, audioFile, hrFile, mixed, deltaSeconds, hrDeltaSeconds);
+      // Prefer the candidate's own microphone track, and fall back to the
+      // agent recorder's two channels if the video carries no audio at all.
+      try {
+        await mixInto(
+          videoFile,
+          audioFile,
+          hrFile,
+          mixed,
+          audioFilter(deltaSeconds, hrDeltaSeconds, true),
+        );
+      } catch {
+        await mixInto(
+          videoFile,
+          audioFile,
+          hrFile,
+          mixed,
+          audioFilter(deltaSeconds, hrDeltaSeconds, false),
+        );
+      }
       if ((await sizeOf(mixed)) <= 0) return false;
 
       const recordingId = `mixed-${roomId}`;

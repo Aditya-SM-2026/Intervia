@@ -467,6 +467,16 @@ export function InterviewDetailView({
       ? Math.max(0, (Date.parse(turn.startedAt) - Date.parse(timelineStart)) / 1000)
       : null;
 
+  // What HR said, placed on the recording's clock, for the transcript tab.
+  const hrLines = detail.hrSpeech.map((entry, index) => ({
+    id: String(index),
+    text: entry.text,
+    at:
+      hasRecording && timelineStart && entry.at
+        ? Math.max(0, (Date.parse(entry.at) - Date.parse(timelineStart)) / 1000)
+        : null,
+  }));
+
   // Sits between the originality section and the on-camera analysis.
   const recordingSection = (
     <RecordingPanel
@@ -475,6 +485,7 @@ export function InterviewDetailView({
       turns={turns}
       candidateName={session.candidateName || "Candidate"}
       offsetFor={recordingOffset}
+      hrLines={hrLines}
       videoRef={videoRef}
       moments={scorecard?.video?.moments ?? []}
       durationSeconds={session.outcome?.elapsedSeconds ?? null}
@@ -2285,6 +2296,7 @@ function RecordingPanel({
   turns,
   candidateName,
   offsetFor,
+  hrLines,
   videoRef,
   moments,
   durationSeconds,
@@ -2296,6 +2308,8 @@ function RecordingPanel({
   turns: InterviewTurn[];
   candidateName: string;
   offsetFor: (turn: InterviewTurn) => number | null;
+  /** What HR said, already placed on the recording's clock. */
+  hrLines: { id: string; text: string; at: number | null }[];
   videoRef: React.RefObject<HTMLVideoElement | null>;
   moments: { atSeconds: number; description: string }[];
   durationSeconds: number | null;
@@ -2304,24 +2318,50 @@ function RecordingPanel({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(durationSeconds ?? 0);
   const [playing, setPlaying] = useState(false);
-  const [filter, setFilter] = useState<"all" | "candidate" | "interviewer">("all");
+  const [filter, setFilter] = useState<"all" | "candidate" | "interviewer" | "hr">("all");
   const [query, setQuery] = useState("");
-  const [pickedSeq, setPickedSeq] = useState<number | null>(null);
+  const [pickedKey, setPickedKey] = useState<string | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
   const [attempt, setVideoAttempt] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
   const total = duration > 0 ? duration : (durationSeconds ?? 0);
 
-  // Every turn that has a real recording timestamp, in speaking order.
-  const timed = turns
-    .map((turn) => ({ turn, at: offsetFor(turn) }))
-    .filter((entry): entry is { turn: InterviewTurn; at: number } => entry.at !== null);
+  type PanelLine = {
+    key: string;
+    speaker: "candidate" | "interviewer" | "hr";
+    text: string;
+    at: number | null;
+  };
 
-  // The segment being spoken is the most recently started turn at or before
+  // The candidate's and interviewer's turns, plus what HR said. HR's lines
+  // live in the event log, not in the scored transcript, so they are merged
+  // here in speaking order for reading and for jumping the recording.
+  const lines: PanelLine[] = [
+    ...turns.map((turn) => ({
+      key: `turn-${turn.seq}`,
+      speaker: turn.speaker as PanelLine["speaker"],
+      text: turn.text,
+      at: offsetFor(turn),
+    })),
+    ...hrLines.map((line) => ({
+      key: `hr-${line.id}`,
+      speaker: "hr" as const,
+      text: line.text,
+      at: line.at,
+    })),
+  ].sort((a, b) => {
+    if (a.at === null || b.at === null) return 0;
+    return a.at - b.at;
+  });
+
+  // Every line that has a real recording timestamp, in speaking order.
+  const timed = lines.filter((line): line is PanelLine & { at: number } => line.at !== null);
+
+  // The segment being spoken is the most recently started line at or before
   // the playhead. Real-time transcription can start turns slightly out of
   // order, so every entry is checked instead of stopping at the first gap.
-  let active: { turn: InterviewTurn; at: number } | null = null;
+  let active: (PanelLine & { at: number }) | null = null;
   for (const entry of timed) {
     if (entry.at <= currentTime + 0.05 && (active === null || entry.at >= active.at)) {
       active = entry;
@@ -2329,16 +2369,16 @@ function RecordingPanel({
   }
   // A line the recruiter just clicked wins until the playhead moves on, so
   // two fragments that start on the same second do not steal the highlight.
-  if (pickedSeq !== null) {
-    const picked = timed.find((entry) => entry.turn.seq === pickedSeq);
+  if (pickedKey !== null) {
+    const picked = timed.find((entry) => entry.key === pickedKey);
     if (picked && Math.abs(picked.at - currentTime) <= 0.8) active = picked;
   }
-  const activeSeq = active ? active.turn.seq : null;
+  const activeKey = active ? active.key : null;
 
   useEffect(() => {
-    if (activeSeq === null) return;
+    if (activeKey === null) return;
     const container = listRef.current;
-    const row = container?.querySelector<HTMLElement>(`[data-seq="${activeSeq}"]`);
+    const row = container?.querySelector<HTMLElement>(`[data-line="${activeKey}"]`);
     if (!container || !row) return;
     const rowTop = row.offsetTop;
     const rowBottom = rowTop + row.offsetHeight;
@@ -2349,13 +2389,13 @@ function RecordingPanel({
     if (rowTop >= visibleTop + 8 && rowBottom <= visibleBottom - 8) return;
     const top = rowTop - container.clientHeight / 2 + row.offsetHeight / 2;
     container.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-  }, [activeSeq]);
+  }, [activeKey]);
 
   const needle = query.trim().toLowerCase();
-  const visible = turns.filter(
-    (turn) =>
-      (filter === "all" || turn.speaker === filter) &&
-      (needle === "" || turn.text.toLowerCase().includes(needle)),
+  const visible = lines.filter(
+    (line) =>
+      (filter === "all" || line.speaker === filter) &&
+      (needle === "" || line.text.toLowerCase().includes(needle)),
   );
 
   function seek(seconds: number) {
@@ -2364,12 +2404,10 @@ function RecordingPanel({
     if (video) video.currentTime = seconds;
   }
 
-  function jumpTo(turn: InterviewTurn) {
-    if (!hasRecording || videoFailed) return;
-    const at = offsetFor(turn);
-    if (at === null) return;
-    setPickedSeq(turn.seq);
-    seek(at);
+  function jumpTo(line: PanelLine) {
+    if (!hasRecording || videoFailed || line.at === null) return;
+    setPickedKey(line.key);
+    seek(line.at);
     void videoRef.current?.play().catch(() => {});
   }
 
@@ -2378,7 +2416,13 @@ function RecordingPanel({
     ...timed.map((entry) => ({
       at: entry.at,
       kind: "answer" as const,
-      label: `${entry.turn.speaker === "candidate" ? candidateName : "Interviewer"} at ${formatClock(entry.at)}`,
+      label: `${
+        entry.speaker === "candidate"
+          ? candidateName
+          : entry.speaker === "hr"
+            ? "HR"
+            : "Interviewer"
+      } at ${formatClock(entry.at)}`,
     })),
     ...moments.map((moment) => ({
       at: moment.atSeconds,
@@ -2545,7 +2589,7 @@ function RecordingPanel({
               ) : null}
             </div>
             <div className="flex items-center gap-1">
-              {(["all", "candidate", "interviewer"] as const).map((value) => (
+              {(["all", "candidate", "interviewer", ...(hrLines.length > 0 ? (["hr"] as const) : [])] as const).map((value) => (
                 <button
                   key={value}
                   type="button"
@@ -2557,7 +2601,7 @@ function RecordingPanel({
                       : "text-muted hover:text-foreground"
                   }`}
                 >
-                  {value === "all" ? "All" : value === "candidate" ? "Candidate" : "Interviewer"}
+                  {value === "all" ? "All" : value === "candidate" ? "Candidate" : value === "hr" ? "HR" : "Interviewer"}
                 </button>
               ))}
             </div>
@@ -2591,17 +2635,18 @@ function RecordingPanel({
                 </p>
               ) : (
                 <div className="grid gap-1">
-                  {visible.map((turn) => {
-                    const candidate = turn.speaker === "candidate";
-                    const at = offsetFor(turn);
-                    const isActive = turn.seq === activeSeq;
+                  {visible.map((line) => {
+                    const candidate = line.speaker === "candidate";
+                    const hr = line.speaker === "hr";
+                    const at = line.at;
+                    const isActive = line.key === activeKey;
                     const canJump = hasRecording && !videoFailed && at !== null;
                     return (
                       <button
-                        key={turn.seq}
+                        key={line.key}
                         type="button"
-                        data-seq={turn.seq}
-                        onClick={() => jumpTo(turn)}
+                        data-line={line.key}
+                        onClick={() => jumpTo(line)}
                         disabled={!canJump}
                         aria-current={isActive ? "true" : undefined}
                         className={`relative w-full rounded-lg border px-2.5 py-2 text-left transition ${
@@ -2619,13 +2664,15 @@ function RecordingPanel({
                               className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold uppercase ${
                                 candidate
                                   ? "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300"
-                                  : "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                                  : hr
+                                    ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                    : "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
                               }`}
                             >
-                              {candidate ? initials(candidateName) : "I"}
+                              {candidate ? initials(candidateName) : hr ? "HR" : "I"}
                             </span>
                             <span className="truncate text-xs font-semibold text-foreground">
-                              {candidate ? candidateName : "Interviewer"}
+                              {candidate ? candidateName : hr ? "HR" : "Interviewer"}
                             </span>
                           </span>
                           <span
@@ -2635,7 +2682,7 @@ function RecordingPanel({
                                 : "text-muted"
                             }`}
                           >
-                            {at !== null ? formatClock(at) : `#${turn.seq}`}
+                            {at !== null ? formatClock(at) : ""}
                           </span>
                         </span>
                         <span
@@ -2647,7 +2694,7 @@ function RecordingPanel({
                               : "text-foreground/80"
                           }`}
                         >
-                          {turn.text}
+                          {line.text}
                         </span>
                       </button>
                     );
