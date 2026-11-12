@@ -733,6 +733,7 @@ class InterviewRuntime:
         # answer that turn after the goodbye.
         await asyncio.sleep(self.config.turn_silence_ms / 1000 + 0.3)
         self._interrupt_speech()
+        self._clear_output_buffer()
         try:
             handle = self.instruct(
                 f'The interview time is up. Say exactly this, and nothing else: "{CLOSING_SCRIPT}"',
@@ -986,6 +987,11 @@ class InterviewRuntime:
         elif event_type == "hr_unmute":
             self._unmute_after_hr()
         elif event_type == "hr_turn":
+            # Captions come from the browser's own microphone recognition, which
+            # keeps hearing HR even while their LiveKit track is muted. Only a
+            # turn spoken with the floor open belongs in the transcript.
+            if not self._hr_muted:
+                return
             text = payload.get("text")
             if isinstance(text, str) and text.strip():
                 self.backend.add_event(
@@ -1004,12 +1010,49 @@ class InterviewRuntime:
         if self._finished or self.closing or self._hr_muted:
             return
         self._hr_muted = True
-        self.backend.add_event("agent_muted_by_hr")
+        self.backend.add_event(
+            "agent_muted_by_hr",
+            {"agentState": self.session.agent_state if self.session is not None else None},
+        )
         self._interrupt_speech()
+        # Silence is not enough: the model can start a turn a moment after the
+        # interrupt, and its frames pile up in the output while audio is off.
+        # Enabling audio later then plays that stale backlog at once, which is
+        # the broken, stuttering voice heard after HR hands the floor back.
+        self._clear_output_buffer()
         if self.session is not None and self.session.output.audio is not None:
             self.session.output.set_audio_enabled(False)
         if self._gate is not None:
             self._gate.mute()
+        self._spawn(self._hold_agent_quiet())
+
+    def _clear_output_buffer(self) -> None:
+        """Drops anything already generated but not yet played."""
+        if self.session is None:
+            return
+        audio = self.session.output.audio
+        if audio is None:
+            return
+        try:
+            audio.clear_buffer()
+        except Exception as error:  # noqa: BLE001 - nothing buffered is fine
+            logger.debug("could not clear the audio buffer: %s", error)
+
+    async def _hold_agent_quiet(self) -> None:
+        """Keeps the interviewer silent for as long as HR holds the floor.
+
+        The interrupt can land just before a turn starts, so the model keeps
+        generating after the mute. Clearing the buffer on a short loop means at
+        most half a second of stale audio ever exists, and the session is idle
+        again by the time HR hands back the floor.
+        """
+        while self._hr_muted and not self._finished and not self.closing:
+            await asyncio.sleep(0.5)
+            if self.session is None:
+                return
+            self._clear_output_buffer()
+            if self.session.agent_state in ("speaking", "thinking"):
+                self._interrupt_speech()
 
     def _unmute_after_hr(self) -> None:
         """HR pressed Unmute agent: the interviewer takes over again."""
@@ -1019,6 +1062,9 @@ class InterviewRuntime:
         if self._finished or self.closing:
             return
         self.backend.add_event("agent_resumed_after_hr")
+        # Nothing from the paused turn may leak into the resumed one.
+        self._interrupt_speech()
+        self._clear_output_buffer()
         if self.session is not None and self.session.output.audio is not None:
             self.session.output.set_audio_enabled(True)
         if self._gate is not None:

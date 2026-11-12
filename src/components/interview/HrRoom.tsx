@@ -131,6 +131,7 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
   const startedAtRef = useRef<number | null>(null);
   const leftIntentionallyRef = useRef(false);
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
+  const hasFloorRef = useRef(false);
 
   const agentMuted = hasFloor;
 
@@ -172,8 +173,9 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
     });
   }
 
-  /** Local captions for what HR says, sent to the agent as HR turns. */
+  /** Local captions for what HR says, while they hold the floor. */
   function startRecognition() {
+    if (recognitionRef.current) return;
     const SpeechRecognitionCtor =
       (window as unknown as { SpeechRecognition?: SpeechRecognitionCtor }).SpeechRecognition ??
       (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor })
@@ -185,6 +187,9 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
       recognition.interimResults = false;
       recognition.lang = "en-IN";
       recognition.onresult = (event: SpeechRecognitionEventLike) => {
+        // The browser hears the room even when the track is muted, so a caption
+        // is only kept while HR actually has the floor.
+        if (!hasFloorRef.current) return;
         for (let index = event.resultIndex; index < event.results.length; index += 1) {
           const result = event.results[index];
           if (!result.isFinal) continue;
@@ -196,7 +201,7 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
         }
       };
       recognition.onend = () => {
-        if (leftIntentionallyRef.current || !roomRef.current) return;
+        if (leftIntentionallyRef.current || !roomRef.current || !hasFloorRef.current) return;
         // Chrome stops recognition after a quiet spell; keep listening.
         try {
           recognition.start();
@@ -208,6 +213,16 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
       recognitionRef.current = recognition;
     } catch {
       // Captions are a convenience; speaking and muting still work.
+    }
+  }
+
+  function stopRecognition() {
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    try {
+      recognition?.stop();
+    } catch {
+      // Already stopped.
     }
   }
 
@@ -341,7 +356,8 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
         document.addEventListener("pointerdown", () => void room.startAudio().catch(() => {}), {
           once: true,
         });
-        startRecognition();
+        // Captions start only when HR takes the floor; a muted HR must never
+        // write into the transcript.
         // The interview clock is the server's, not this browser's join time:
         // HR sees the same time left as the candidate, however late they join.
         if (typeof credentials.remainingSeconds === "number") {
@@ -388,8 +404,12 @@ export function HrRoom({ roomId, roomTitle, candidateName, durationMinutes, toke
       await publication.unmute().catch(() => {});
       setMuted(false);
       setHasFloor(true);
+      hasFloorRef.current = true;
       send("hr_speaking_start");
+      startRecognition();
     } else {
+      hasFloorRef.current = false;
+      stopRecognition();
       send("hr_unmute");
       setHasFloor(false);
       setMuted(true);
