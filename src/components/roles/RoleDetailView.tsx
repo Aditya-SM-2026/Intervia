@@ -38,6 +38,7 @@ import {
   CANDIDATE_STATUS_STYLES,
   INTERVIEW_STATE_LABELS,
   INTERVIEW_STATE_STYLES,
+  canReceiveInvite,
   compareByCandidateStatus,
 } from "@/lib/roles/candidate-status";
 import type { ApplicationField } from "@/lib/roles/application.types";
@@ -52,10 +53,10 @@ import { Menu } from "@/components/dashboard/menu";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { FilterMenu } from "@/components/dashboard/Toolbar";
 import { BulkScheduleDialog } from "@/components/roles/BulkScheduleDialog";
-import { CandidateFilterDialog } from "@/components/roles/CandidateFilterDialog";
 import { ShortlistCell } from "@/components/roles/ShortlistCell";
 import {
-  EMPTY_THRESHOLDS,
+  clampThreshold,
+  fallsBelowThresholds,
   hasThresholds,
   meetsThresholds,
   type MatchThresholds,
@@ -297,12 +298,38 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [thresholds, setThresholds] = useState<MatchThresholds>(EMPTY_THRESHOLDS);
+  const [matchText, setMatchText] = useState("");
+  const [cgpaText, setCgpaText] = useState("");
+  const [matchView, setMatchView] = useState<"all" | "matching" | "below">("matching");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingDecision, setConfirmingDecision] = useState<HumanDecision["outcome"] | null>(null);
   const [formFields, setFormFields] = useState<ApplicationField[]>([]);
   const [openApplication, setOpenApplication] = useState<string | null>(null);
+
+  /** HR's bar, kept as text locally so a half-typed number is not mangled. */
+  const minMatch =
+    matchText.trim() === "" || !Number.isFinite(Number(matchText))
+      ? null
+      : clampThreshold(Number(matchText), 100);
+  const minCgpa =
+    cgpaText.trim() === "" || !Number.isFinite(Number(cgpaText))
+      ? null
+      : Math.round(clampThreshold(Number(cgpaText), 100) * 10) / 10;
+  const thresholds: MatchThresholds = { minMatch, minCgpa };
+  const barActive = minMatch !== null || minCgpa !== null;
+  /** Without a bar the list is never filtered, whatever view was last picked. */
+  const activeView: "all" | "matching" | "below" = barActive ? matchView : "all";
+
+  /** Everyone the current bar puts in each group, across all candidates. */
+  const matchingCandidates = (candidates ?? []).filter((candidate) =>
+    meetsThresholds(candidate, thresholds),
+  );
+  const invitableMatching = matchingCandidates.filter((candidate) =>
+    canReceiveInvite(candidate.interviewState),
+  );
+  const belowCandidates = (candidates ?? []).filter((candidate) =>
+    fallsBelowThresholds(candidate, thresholds),
+  );
 
   const router = useRouter();
   const [tab, setTab] = useState<StageTab>("candidates");
@@ -431,11 +458,13 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     [rows],
   );
 
-  const visibleRows = useMemo(() => {
+  const visibleRows = (() => {
+    const bar = { minMatch, minCgpa };
     const needle = query.trim().toLowerCase();
     const filtered = (rows ?? []).filter((row) => {
       const candidate = row.candidate;
-      if (hasThresholds(thresholds) && !meetsThresholds(candidate, thresholds)) return false;
+      if (activeView === "matching" && !meetsThresholds(candidate, bar)) return false;
+      if (activeView === "below" && !fallsBelowThresholds(candidate, bar)) return false;
       if (stageFilter !== "all" && stageFilter !== "applied" && candidate.status !== stageFilter) return false;
       if (needle) {
         const haystack = [
@@ -471,7 +500,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       }
       return compareCandidateRows(a, b, sort);
     });
-  }, [rows, query, stageFilter, statusFilter, sort, thresholds]);
+  })();
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -502,7 +531,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
     setStageFilter("all");
     setQuery("");
     setStatusFilter("all");
-    setThresholds(EMPTY_THRESHOLDS);
+    setMatchText("");
+    setCgpaText("");
+    setMatchView("matching");
     setPage(1);
   }
 
@@ -579,28 +610,25 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const selectedAllInterviewed =
     selectedRows.length > 0 && selectedRows.every((row) => row.candidate.interviews > 0);
 
-  /** Everyone who clears HR's Match/CGPA bar, across the whole role. */
-  const matchingCandidates = useMemo(
-    () => (candidates ?? []).filter((candidate) => meetsThresholds(candidate, thresholds)),
-    [candidates, thresholds],
-  );
-
-  function openFilter() {
-    setFilterOpen(true);
+  function editMatch(value: string) {
+    setMatchText(value);
+    setPage(1);
+    setSelected(new Set());
   }
 
-  function scheduleFromFilter(candidateIds: string[]) {
-    if (candidateIds.length === 0) return;
-    setSelected(new Set(candidateIds));
-    setFilterOpen(false);
-    setBulkScheduleOpen(true);
+  function editCgpa(value: string) {
+    setCgpaText(value);
+    setPage(1);
+    setSelected(new Set());
   }
 
-  function deleteFromFilter(candidateIds: string[]) {
-    if (candidateIds.length === 0) return;
-    setSelected(new Set(candidateIds));
-    setFilterOpen(false);
-    setConfirmingDelete(true);
+  /** Selects everyone in the visible group, not only the current page. */
+  function selectAllInView() {
+    const ids =
+      matchView === "matching"
+        ? invitableMatching.map((candidate: RoleCandidateSummary) => candidate.candidateId)
+        : belowCandidates.map((candidate) => candidate.candidateId);
+    setSelected(new Set(ids));
   }
 
   async function deleteSelected() {
@@ -861,27 +889,119 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                 </button>
               )}
               <span className="grow" />
-              <button
-                type="button"
-                onClick={openFilter}
-                className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-sm transition ${
-                  hasThresholds(thresholds)
-                    ? "border-accent/40 bg-accent-soft text-accent hover:bg-accent/10"
-                    : "border-border text-muted hover:bg-foreground/[0.05] hover:text-foreground"
-                }`}
-              >
-                <Funnel className="size-3.5" aria-hidden />
-                Match &amp; CGPA
-                {hasThresholds(thresholds) && (
-                  <span className="rounded-md bg-accent/10 px-1.5 text-xs font-semibold tabular-nums">
-                    {matchingCandidates.length}
-                  </span>
-                )}
-              </button>
-              <span className="text-sm tabular-nums text-muted">
+              <span className="text-sm text-muted tabular-nums">
                 {visibleRows.length} {visibleRows.length === 1 ? "person" : "people"}
-                {totalPages > 1 && ` Â· page ${currentPage} of ${totalPages}`}
+                {totalPages > 1 && ` · page ${currentPage} of ${totalPages}`}
               </span>
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border bg-foreground/[0.015] px-3.5 py-2.5">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-muted">
+                <Funnel className="size-3.5" aria-hidden />
+                Filter
+              </span>
+              <label className="inline-flex items-center gap-1.5 text-sm">
+                Match ≥
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={matchText}
+                  onChange={(event) => editMatch(event.target.value)}
+                  placeholder="any"
+                  aria-label="Minimum Match score"
+                  className="h-8 w-16 rounded-lg border border-border bg-surface px-2 text-sm tabular-nums outline-none transition placeholder:text-muted focus:border-accent focus:ring-4 focus:ring-accent/15"
+                />
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-sm">
+                CGPA ≥
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  value={cgpaText}
+                  onChange={(event) => editCgpa(event.target.value)}
+                  placeholder="any"
+                  aria-label="Minimum CGPA"
+                  className="h-8 w-16 rounded-lg border border-border bg-surface px-2 text-sm tabular-nums outline-none transition placeholder:text-muted focus:border-accent focus:ring-4 focus:ring-accent/15"
+                />
+              </label>
+              {barActive ? (
+                <>
+                  <span aria-hidden className="h-5 w-px bg-border" />
+                  <div
+                    role="group"
+                    aria-label="Which candidates to show"
+                    className="inline-flex rounded-lg bg-foreground/[0.05] p-0.5"
+                  >
+                    {[
+                      { id: "all" as const, label: "All", count: (rows ?? []).length },
+                      { id: "matching" as const, label: "Match", count: matchingCandidates.length },
+                      { id: "below" as const, label: "Below", count: belowCandidates.length },
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        aria-pressed={matchView === tab.id}
+                        onClick={() => {
+                          setMatchView(tab.id);
+                          setPage(1);
+                          setSelected(new Set());
+                        }}
+                        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm font-medium transition ${
+                          matchView === tab.id ? "bg-surface shadow-sm" : "text-muted hover:text-foreground"
+                        }`}
+                      >
+                        {tab.label}
+                        <span className="text-xs tabular-nums text-muted">{tab.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-sm text-muted">
+                    {matchView === "all"
+                      ? "Showing everyone, above and below."
+                      : matchView === "matching"
+                        ? "every number you entered is met"
+                        : "a known number falls short"}
+                  </span>
+                  {matchView === "matching" && matchingCandidates.length > invitableMatching.length && (
+                    <span className="text-sm text-muted">
+                      · {matchingCandidates.length - invitableMatching.length} already booked
+                    </span>
+                  )}
+                  {matchView !== "all" && (
+                    <button
+                      type="button"
+                      onClick={selectAllInView}
+                      disabled={
+                        (matchView === "matching" ? invitableMatching.length : belowCandidates.length) === 0
+                      }
+                      className="ml-auto text-sm font-medium text-accent underline-offset-4 hover:underline disabled:opacity-40"
+                    >
+                      Select all{" "}
+                      {matchView === "matching" ? invitableMatching.length : belowCandidates.length}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMatchText("");
+                      setCgpaText("");
+                      setMatchView("matching");
+                    }}
+                    className={`${matchView === "all" ? "ml-auto" : ""} text-sm text-muted underline-offset-4 hover:text-foreground hover:underline`}
+                  >
+                    Clear
+                  </button>
+                </>
+              ) : (
+                <p className="text-sm text-muted">
+                  Enter a minimum Match or CGPA to filter this list, then select and schedule or
+                  delete.
+                </p>
+              )}
             </div>
 
             <div className="mt-3 overflow-hidden rounded-2xl border border-border bg-surface">
@@ -1190,21 +1310,6 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
           candidateIds={[...selected]}
           onClose={() => setBulkScheduleOpen(false)}
           onDone={() => void loadCandidates()}
-        />
-      )}
-
-      {/* ------------------------------------- minimum Match / CGPA filter */}
-      {filterOpen && (
-        <CandidateFilterDialog
-          candidates={candidates ?? []}
-          thresholds={thresholds}
-          onThresholdsChange={(next) => {
-            setThresholds(next);
-            setPage(1);
-          }}
-          onClose={() => setFilterOpen(false)}
-          onSchedule={scheduleFromFilter}
-          onDelete={deleteFromFilter}
         />
       )}
 

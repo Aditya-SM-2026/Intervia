@@ -192,3 +192,15 @@ export function interviewStateFor(input: InterviewStateInput): InterviewState {
 export function interviewIsLive(state: InterviewState): boolean {
   return state === "in-progress" || state === "link-opened";
 }
+
+/**
+ * Whether a fresh invitation can be sent to this candidate.
+ *
+ * Anyone already booked, mid-interview or finished is left out: a second
+ * interview would duplicate or interrupt the one they already have. An expired
+ * or cancelled link can be replaced.
+ */
+export function canReceiveInvite(state: InterviewState): boolean {
+  return state === "not-scheduled" || state === "expired" || state === "cancelled";
+}
+
