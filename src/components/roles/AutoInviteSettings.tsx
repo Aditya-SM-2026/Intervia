@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, Loader2, Mail, Send, Zap } from "lucide-react";
 import {
   AUTO_INVITE_DIFFICULTIES,
@@ -150,18 +150,39 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
     }
   }
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       const response = await fetch(url);
       const body = (await response.json()) as AutoInviteState & { error?: { message?: string } };
       if (response.ok && body.settings) {
+        // Only the waiting count and activity change in the background; leave
+        // any half-typed settings alone.
+        setState(body);
         return body;
       }
     } catch {
       // A refresh failure leaves the saved values on screen; the next action retries.
     }
     return null;
-  }
+  }, [url]);
+
+  // Automatic invitations happen in the background, so the card has to look
+  // again by itself: otherwise "1 candidate has not been invited yet" stays on
+  // screen long after the email went out.
+  useEffect(() => {
+    if (loading) return;
+    const timer = setInterval(() => {
+      void refresh();
+    }, 30_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [loading, refresh]);
 
   async function runNow() {
     setRunning(true);
