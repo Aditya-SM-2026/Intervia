@@ -33,6 +33,10 @@ import {
   type AutoFilterRule,
 } from "@/lib/roles/auto-filter";
 import {
+  sanitizeAutoInviteSettings,
+  type AutoInviteSettings,
+} from "@/lib/roles/auto-invite";
+import {
   aggregateCandidates,
   computeRoleStats,
   matchesRoleAssociation,
@@ -61,6 +65,24 @@ export interface UpdateRoleRow {
   skills?: string[];
   deadline?: string | null;
   status?: RoleStatus;
+  autoInvite?: AutoInviteSettings;
+}
+
+/** One application eligible for an automatic invitation. */
+export interface AutoInviteApplicationRow {
+  applicationId: string;
+  candidateName: string;
+  candidateEmail: string;
+  /** Stored section scores, re-weighted on read with the role's live weights. */
+  screeningSections: SectionResult[];
+  screeningAt: string | null;
+  /** Someone already has an interview waiting, running or finished. */
+  hasBlockingInterview: boolean;
+  /** Set once an automatic invitation has been attempted. */
+  autoInviteStatus: string | null;
+  autoInviteInterviewId: string | null;
+  autoInviteNote: string | null;
+  autoInvitedAt: string | null;
 }
 
 /** Filter for listRoles. */
@@ -196,6 +218,21 @@ export interface RoleRepository {
   getApplicationScreeningScores(
     roleId: string,
   ): Promise<Map<string, { score: number | null; status: string; sections: SectionResult[] }>>;
+
+  // --- Automatic interview invitations -------------------------------------------
+  /**
+   * Applications that have a screening result, with whether the candidate
+   * already has an interview and whether an automatic invitation was attempted.
+   */
+  listAutoInviteApplications(
+    roleId: string,
+    roleTitle: string,
+  ): Promise<AutoInviteApplicationRow[]>;
+  /** Records the outcome of one automatic invitation attempt. */
+  markAutoInvite(
+    applicationId: string,
+    result: { status: string; interviewId: string | null; note: string | null },
+  ): Promise<void>;
 
   // --- Public application form -------------------------------------------------
   /** The role's form link row (active or revoked), or null when none exists. */
@@ -409,6 +446,13 @@ ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_model TEXT;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_cost_usd NUMERIC;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_at TIMESTAMPTZ;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_input_hash TEXT;
+-- Automatic invitations: the per-role settings live in one JSONB value, and
+-- each application remembers the one attempt made for it.
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS auto_invite JSONB;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS auto_invite_status TEXT;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS auto_invite_interview_id TEXT;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS auto_invite_note TEXT;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS auto_invited_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS role_applications_role_screening_idx
   ON role_applications (role_id, screening_status);
 `;
@@ -446,6 +490,7 @@ interface RolePgRow {
   status: string;
   screening_enabled: boolean | null;
   screening_weights: unknown;
+  auto_invite: unknown;
   created_at: Date;
   updated_at: Date;
 }
@@ -460,6 +505,7 @@ function rowToRole(row: RolePgRow): Role {
     status: row.status === "completed" ? "completed" : "open",
     screeningEnabled: row.screening_enabled ?? true,
     screeningWeights: sanitizeWeights(row.screening_weights),
+    autoInvite: sanitizeAutoInviteSettings(row.auto_invite),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -606,7 +652,7 @@ export function getPostgresRolesRepository(): RoleRepository {
       const result = await getPool().query(
         `INSERT INTO roles (id, title, description, skills, deadline, status)
          VALUES ($1, $2, $3, $4::jsonb, $5, 'open')
-         RETURNING id, title, description, skills, deadline, status, created_at, updated_at`,
+         RETURNING id, title, description, skills, deadline, status, auto_invite, created_at, updated_at`,
         [id, input.title, input.description, JSON.stringify(input.skills), input.deadline],
       );
       return rowToRole(result.rows[0] as RolePgRow);
@@ -615,7 +661,7 @@ export function getPostgresRolesRepository(): RoleRepository {
     async getRole(id: string): Promise<Role | null> {
       await ensureSchema();
       const result = await getPool().query(
-        `SELECT id, title, description, skills, deadline, status, created_at, updated_at
+        `SELECT id, title, description, skills, deadline, status, auto_invite, created_at, updated_at
          FROM roles WHERE id = $1`,
         [id],
       );
@@ -637,7 +683,7 @@ export function getPostgresRolesRepository(): RoleRepository {
       }
       const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
       const result = await getPool().query(
-        `SELECT id, title, description, skills, deadline, status, created_at, updated_at
+        `SELECT id, title, description, skills, deadline, status, auto_invite, created_at, updated_at
          FROM roles ${where} ORDER BY created_at DESC, id DESC`,
         params,
       );
@@ -668,11 +714,15 @@ export function getPostgresRolesRepository(): RoleRepository {
         params.push(patch.status);
         assignments.push(`status = $${params.length}`);
       }
+      if (patch.autoInvite !== undefined) {
+        params.push(JSON.stringify(patch.autoInvite));
+        assignments.push(`auto_invite = $${params.length}::jsonb`);
+      }
       if (assignments.length === 0) return this.getRole(id);
       const result = await getPool().query(
         `UPDATE roles SET ${assignments.join(", ")}, updated_at = now()
          WHERE id = $1
-         RETURNING id, title, description, skills, deadline, status, created_at, updated_at`,
+         RETURNING id, title, description, skills, deadline, status, auto_invite, created_at, updated_at`,
         params,
       );
       const row = result.rows[0] as RolePgRow | undefined;
@@ -1648,6 +1698,74 @@ export function getPostgresRolesRepository(): RoleRepository {
       return map;
     },
 
+    async listAutoInviteApplications(
+      roleId: string,
+      roleTitle: string,
+    ): Promise<AutoInviteApplicationRow[]> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT a.id, a.name, a.email, a.screening_sections, a.screening_at,
+                a.auto_invite_status, a.auto_invite_interview_id, a.auto_invite_note,
+                a.auto_invited_at,
+                EXISTS (
+                  SELECT 1 FROM interviews i
+                  WHERE (i.role_id = a.role_id
+                         OR (i.role_id IS NULL AND lower(i.role_title) = lower($2)))
+                    AND lower(i.candidate_email) = lower(a.email)
+                    AND i.status IN ('scheduled', 'waiting', 'active', 'completed')
+                ) AS has_blocking_interview
+         FROM role_applications a
+         WHERE a.role_id = $1
+           AND a.screening_status = 'scored'
+           AND a.status <> 'rejected'
+         ORDER BY a.screening_at ASC NULLS LAST`,
+        [roleId, roleTitle],
+      );
+      return (
+        result.rows as {
+          id: string;
+          name: string;
+          email: string;
+          screening_sections: unknown;
+          screening_at: Date | null;
+          auto_invite_status: string | null;
+          auto_invite_interview_id: string | null;
+          auto_invite_note: string | null;
+          auto_invited_at: Date | null;
+          has_blocking_interview: boolean;
+        }[]
+      ).map((row) => ({
+        applicationId: row.id,
+        candidateName: row.name,
+        candidateEmail: row.email.toLowerCase(),
+        screeningSections: Array.isArray(row.screening_sections)
+          ? (row.screening_sections as SectionResult[])
+          : [],
+        screeningAt: row.screening_at ? row.screening_at.toISOString() : null,
+        hasBlockingInterview: row.has_blocking_interview === true,
+        autoInviteStatus: row.auto_invite_status,
+        autoInviteInterviewId: row.auto_invite_interview_id,
+        autoInviteNote: row.auto_invite_note,
+        autoInvitedAt: row.auto_invited_at ? row.auto_invited_at.toISOString() : null,
+      }));
+    },
+
+    async markAutoInvite(
+      applicationId: string,
+      result: { status: string; interviewId: string | null; note: string | null },
+    ): Promise<void> {
+      await ensureSchema();
+      await getPool().query(
+        `UPDATE role_applications
+         SET auto_invite_status = $2,
+             auto_invite_interview_id = $3,
+             auto_invite_note = $4,
+             auto_invited_at = now()
+         WHERE id = $1`,
+        [applicationId, result.status, result.interviewId, result.note],
+      );
+    },
+
     async getApplicationByResumeToken(token: string): Promise<RoleApplication | null> {
       await ensureSchema();
       const result = await getPool().query(
@@ -1777,6 +1895,11 @@ interface InMemoryRoleStore {
   autoFilterRules: Map<string, AutoFilterRule>;
   /** Screening results for invited candidates, keyed `roleId:email`. */
   invitedScreenings: Map<string, ScreeningSnapshot>;
+  /** Automatic-invitation outcomes, keyed by application id. */
+  autoInvites: Map<
+    string,
+    { status: string; interviewId: string | null; note: string | null; at: string }
+  >;
 }
 
 const globalStore = globalThis as unknown as { __rolesStoreV2?: InMemoryRoleStore };
@@ -1792,6 +1915,7 @@ function getStore(): InMemoryRoleStore {
       shortlistCutoffs: new Map(),
       autoFilterRules: new Map(),
       invitedScreenings: new Map(),
+      autoInvites: new Map(),
     };
   }
   return globalStore.__rolesStoreV2;
@@ -1880,6 +2004,7 @@ export function getInMemoryRolesRepository(): RoleRepository {
         status: "open",
         screeningEnabled: false,
         screeningWeights: { ...DEFAULT_SCREENING_WEIGHTS },
+        autoInvite: sanitizeAutoInviteSettings(undefined),
         createdAt: now,
         updatedAt: now,
       };
@@ -2456,6 +2581,55 @@ export function getInMemoryRolesRepository(): RoleRepository {
         });
       }
       return map;
+    },
+
+    async listAutoInviteApplications(roleId: string): Promise<AutoInviteApplicationRow[]> {
+      const store = getStore();
+      const roleTitle = store.roles.get(roleId)?.title ?? "";
+      const rooms = [...getInterviewStore().rooms.values()];
+      return [...store.applications.values()]
+        .filter(
+          (application) =>
+            application.roleId === roleId &&
+            application.status !== "rejected" &&
+            application.screening?.status === "scored",
+        )
+        .map((application) => {
+          const email = application.email.toLowerCase();
+          const hasBlockingInterview = rooms.some(
+            (room) =>
+              (room.roleId === roleId ||
+                (!room.roleId && room.roleTitle === roleTitle)) &&
+              room.candidateEmail?.toLowerCase() === email &&
+              (room.status === "scheduled" ||
+                room.status === "waiting" ||
+                room.status === "active" ||
+                room.status === "completed"),
+          );
+          const attempt = store.autoInvites.get(application.id);
+          return {
+            applicationId: application.id,
+            candidateName: application.name,
+            candidateEmail: email,
+            screeningSections: application.screening?.sections ?? [],
+            screeningAt: application.screening?.createdAt ?? null,
+            hasBlockingInterview,
+            autoInviteStatus: attempt?.status ?? null,
+            autoInviteInterviewId: attempt?.interviewId ?? null,
+            autoInviteNote: attempt?.note ?? null,
+            autoInvitedAt: attempt?.at ?? null,
+          };
+        });
+    },
+
+    async markAutoInvite(
+      applicationId: string,
+      result: { status: string; interviewId: string | null; note: string | null },
+    ): Promise<void> {
+      getStore().autoInvites.set(applicationId, {
+        ...result,
+        at: new Date().toISOString(),
+      });
     },
 
     async replaceApplicationResume(

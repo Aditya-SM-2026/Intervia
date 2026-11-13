@@ -3,6 +3,7 @@ import type { ScoreSuggestion } from "@/lib/interviews/scorecard.types";
 import type { ScreeningWeights } from "@/lib/screening/types";
 import type { ShortlistStatus } from "@/lib/roles/shortlist";
 import type { CandidateStatus, InterviewState } from "@/lib/roles/candidate-status";
+import type { AutoInviteSettings } from "@/lib/roles/auto-invite";
 
 /** Lifecycle of a hiring role. */
 export type RoleStatus = "open" | "completed";
@@ -21,6 +22,8 @@ export interface Role {
   screeningEnabled?: boolean;
   /** The six section weights, in percent. Absent means the defaults. */
   screeningWeights?: ScreeningWeights;
+  /** Automatic interview invitations for candidates who clear the bar. */
+  autoInvite?: AutoInviteSettings;
   createdAt: string;
   updatedAt: string;
 }

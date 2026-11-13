@@ -44,6 +44,7 @@ import type { ApplicationField } from "@/lib/roles/application.types";
 import { documentFacts } from "@/lib/text/document-blocks";
 import { ApplicationFormSettings } from "@/components/roles/ApplicationFormSettings";
 import { ScreeningSettings } from "@/components/roles/ScreeningSettings";
+import { AutoInviteSettings } from "@/components/roles/AutoInviteSettings";
 import { ApplicationScreening } from "@/components/roles/ApplicationScreening";
 import { RoleFormSheet } from "@/components/roles/RoleFormSheet";
 import { RoleIcon } from "@/components/roles/RoleIcon";
@@ -789,6 +790,10 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
 
       <div className="mt-4">
         <ScreeningSettings roleId={roleId} />
+      </div>
+
+      <div className="mt-4">
+        <AutoInviteSettings roleId={roleId} />
       </div>
 
       {/* ------------------------------------------------------------ views */}

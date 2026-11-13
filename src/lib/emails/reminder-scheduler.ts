@@ -5,6 +5,7 @@ import {
 } from "@/lib/emails/email.service";
 import { getInterviewRepository } from "@/server/repositories";
 import { runInterviewWatchdogOnce } from "@/lib/interviews/watchdog.service";
+import { runAutoInviteScanOnce } from "@/lib/roles/auto-invite.service";
 
 /** How often the reminder scan runs. */
 const SCAN_INTERVAL_MS = 60_000;
@@ -72,12 +73,18 @@ export function startReminderScheduler(): void {
     runInterviewWatchdogOnce().catch((cause) => {
       console.error("[watchdog] error:", cause);
     });
+    runAutoInviteScanOnce().catch((cause) => {
+      console.error("[auto-invite] scan error:", cause);
+    });
   }, SCAN_INTERVAL_MS);
   timer.unref?.();
 
   setTimeout(() => {
     runReminderScanOnce().catch((cause) => {
       console.error("[reminders] initial scan error:", cause);
+    });
+    runAutoInviteScanOnce().catch((cause) => {
+      console.error("[auto-invite] initial scan error:", cause);
     });
   }, START_DELAY_MS).unref?.();
 
