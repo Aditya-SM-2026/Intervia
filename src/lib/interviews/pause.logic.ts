@@ -12,7 +12,7 @@ import type { InterviewEvent } from "./interview.types";
  */
 
 /** How long a candidate may be away in total, for the whole interview. */
-export const PAUSE_GRACE_SECONDS = 2 * 60;
+export const PAUSE_GRACE_SECONDS = 30;
 const PAUSE_BUDGET_MS = PAUSE_GRACE_SECONDS * 1000;
 
 export interface PauseState {

@@ -53,11 +53,11 @@ const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
 /** If no interviewer has joined after this long, say so instead of waiting silently. */
 const AGENT_JOIN_TIMEOUT_MS = 30_000;
 /** How long a candidate who left the interview may take to come back. */
-const PAUSE_WINDOW_SECONDS = 2 * 60;
+const PAUSE_WINDOW_SECONDS = 30;
 
 /**
  * The pause window, in seconds. Local development can shorten it with
- * `?pauseWindow=15` so a two-minute wait is not needed for every test; the
+ * `?pauseWindow=15` so the full wait is not needed for every test; the
  * production build always uses the real window.
  */
 function pauseWindowSeconds(): number {
@@ -124,8 +124,8 @@ export function InterviewRoom({
   const credentialsRef = useRef<LiveKitJoinCredentials | null>(null);
   const pauseRef = useRef<Pause | null>(null);
   /**
-   * The pause budget for the whole interview: two minutes away in total, not
-   * two minutes every time. Coming back stops the clock but spends what was
+   * The pause budget for the whole interview: 30 seconds away in total, not
+   * 30 seconds every time. Coming back stops the clock but spends what was
    * used; leaving again continues from there.
    */
   const pauseBudgetRef = useRef({ totalSeconds: PAUSE_WINDOW_SECONDS, usedSeconds: 0 });
@@ -236,7 +236,7 @@ export function InterviewRoom({
    * screen. Leaving full screen or hiding the tab leads here, because both
    * mean the candidate is no longer in the interview. The countdown is what is
    * left of one budget for the whole interview, so leaving twice does not
-   * buy another two minutes.
+   * buy another 30 seconds.
    */
   const beginPause = useCallback(
     (reason: PauseReason) => {
@@ -583,7 +583,7 @@ export function InterviewRoom({
     pauseStartedAtRef.current = null;
     setPause(null);
     // The pause budget is for the whole interview: a candidate who reloads
-    // keeps the time they had left, never a fresh two minutes.
+    // keeps the time they had left, never a fresh 30 seconds.
     const serverBudget = credentials.pauseBudgetSeconds;
     const serverLeft = credentials.pauseSecondsLeft;
     const alreadyUsed =

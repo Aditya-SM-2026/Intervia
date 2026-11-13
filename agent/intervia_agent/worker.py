@@ -69,7 +69,7 @@ WATCHDOG_INTERVAL_SECONDS = 2.0
 CANDIDATE_REJOIN_GRACE_SECONDS = 120.0
 # How long a paused candidate may take to come back from leaving full screen,
 # hiding the tab or pressing Leave, before the interview ends as it stands.
-PAUSE_GRACE_SECONDS = 120.0
+PAUSE_GRACE_SECONDS = 30.0
 # A directive waits this long for the candidate to finish a sentence.
 MAX_WAIT_FOR_PAUSE_SECONDS = 15.0
 # Spoken once, word for word, when the time is up. Short enough to finish
@@ -989,7 +989,7 @@ class InterviewRuntime:
             self._pause_task = self._spawn(self._pause_timeout())
 
     async def _pause_timeout(self) -> None:
-        """The two minutes passed without a return: end the interview."""
+        """The pause budget passed without a return: end the interview."""
         await asyncio.sleep(PAUSE_GRACE_SECONDS)
         if self._finished or not self._paused:
             return

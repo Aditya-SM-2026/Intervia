@@ -52,7 +52,7 @@ export async function runInterviewWatchdogOnce(): Promise<number> {
     }
 
     // A candidate who left the full screen and never came back ends the
-    // interview too. The agent normally does this at the two-minute mark; this
+    // interview too. The agent normally does this when the budget is spent; this
     // is the backstop for when the agent is down or never reached.
     const pause = pauseStateFor(events, now);
     if (pause?.expired) {
