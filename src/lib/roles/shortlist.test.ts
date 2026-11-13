@@ -48,7 +48,7 @@ test("a CGPA filter never passes a blank CGPA", () => {
 });
 
 test("the education cell joins the qualification and the CGPA", () => {
-  assert.equal(educationLabel("B.Tech", 8.4), "B.Tech · CGPA 8.4");
+  assert.equal(educationLabel("B.Tech", 8.4), "B.Tech, CGPA 8.4");
   assert.equal(educationLabel("B.Tech", null), "B.Tech");
   assert.equal(educationLabel(null, 78), "CGPA 78");
   assert.equal(educationLabel(null, null), null);

@@ -259,7 +259,7 @@ function StageStrip({
             } ${active ? "ring-2 ring-accent ring-offset-2 ring-offset-background" : "hover:brightness-[0.97]"}`}
           >
             <span className="block text-2xl font-semibold leading-none tracking-[-0.02em] tabular-nums">
-              {counts === null ? "â€“" : item.count}
+              {counts === null ? "–" : item.count}
             </span>
             <span className="mt-1.5 block truncate text-xs font-medium">{item.label}</span>
             {total > 0 && item.count > 0 && (
@@ -1107,7 +1107,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                             </td>
                             <td className="px-3 py-3">
                               {candidate.screeningScore === null || candidate.screeningScore === undefined ? (
-                                <span className="text-muted">â€”</span>
+                                <span className="text-muted">—</span>
                               ) : (
                                 <span className={`inline-flex min-w-9 justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${scoreTone(candidate.screeningScore).text} bg-foreground/[0.04]`}>
                                   {Math.round(candidate.screeningScore)}
@@ -1116,7 +1116,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                             </td>
                             <td className="px-3 py-3">
                               {educationLabel(candidate.candidateEducation, candidate.candidateCgpa) === null ? (
-                                <span className="text-muted">â€”</span>
+                                <span className="text-muted">Not provided</span>
                               ) : (
                                 <span className="block max-w-40 truncate text-xs text-muted">
                                   {educationLabel(candidate.candidateEducation, candidate.candidateCgpa)}
@@ -1125,7 +1125,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                             </td>
                             <td className="px-3 py-3">
                               {score === null ? (
-                                <span className="text-muted">â€”</span>
+                                <span className="text-muted">—</span>
                               ) : (
                                 <div className="flex items-center gap-2.5">
                                   <span className={`w-7 text-[15px] font-semibold tabular-nums ${scoreTone(score).text}`}>{score}</span>
@@ -1224,9 +1224,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
               <dt className="text-muted">Email</dt>
               <dd className="break-all font-medium">{application.candidateEmail}</dd>
               <dt className="text-muted">Phone</dt>
-              <dd className="font-medium tabular-nums">{application.candidatePhone ?? "â€”"}</dd>
+              <dd className="font-medium tabular-nums">{application.candidatePhone ?? "—"}</dd>
               <dt className="text-muted">College roll no.</dt>
-              <dd className="font-medium">{application.candidateCollegeId ?? "â€”"}</dd>
+              <dd className="font-medium">{application.candidateCollegeId ?? "—"}</dd>
               <dt className="text-muted">Status</dt>
               <dd className="font-medium">{CANDIDATE_STATUS_LABELS[application.status]}</dd>
               <dt className="text-muted">Interview</dt>
@@ -1255,7 +1255,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                   {Object.entries(application.answers ?? {}).map(([fieldId, value]) => (
                     <div key={fieldId}>
                       <dt className="text-sm text-muted">{formFields.find((field) => field.id === fieldId)?.label ?? fieldId}</dt>
-                      <dd className="mt-1 whitespace-pre-line text-[15px] leading-6">{value || "â€”"}</dd>
+                      <dd className="mt-1 whitespace-pre-line text-[15px] leading-6">{value || "—"}</dd>
                     </div>
                   ))}
                 </dl>
@@ -1374,7 +1374,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         title={`Remove ${selected.size} candidate${selected.size === 1 ? "" : "s"} from this role?`}
         body="Their interviews, reports and applications for this role are deleted with them. This cannot be undone, and the same person's other roles are untouched."
         confirmLabel="Delete for good"
-        busyLabel="Deletingâ€¦"
+        busyLabel="Deleting…"
         tone="danger"
         busy={actionBusy}
         onConfirm={() => void deleteSelected()}
@@ -1388,7 +1388,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         } candidate${selected.size === 1 ? "" : "s"}?`}
         body="The decision is saved on each person's latest interview. You can change it later from their report."
         confirmLabel="Confirm"
-        busyLabel="Savingâ€¦"
+        busyLabel="Saving…"
         tone={confirmingDecision === "reject" ? "danger" : "default"}
         busy={actionBusy}
         onConfirm={() => confirmingDecision && applyDecision(confirmingDecision)}
@@ -1400,7 +1400,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         title="Close this role?"
         body="It moves to Closed. Candidates and reports stay, and you can make it active again at any time."
         confirmLabel="Close role"
-        busyLabel="Savingâ€¦"
+        busyLabel="Saving…"
         tone="default"
         busy={actionBusy}
         onConfirm={() => setRoleStatus("completed")}

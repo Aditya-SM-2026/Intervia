@@ -65,7 +65,7 @@ export function passesCgpaFilter(cgpa: number | null | undefined, minimum: numbe
   return cgpa >= minimum;
 }
 
-/** "B.Tech · 8.4" for the table cell, or null when the candidate gave nothing. */
+/** "B.Tech, CGPA 8.4" for the table cell, or null when the candidate gave nothing. */
 export function educationLabel(
   education: string | null | undefined,
   cgpa: number | null | undefined,
@@ -74,5 +74,5 @@ export function educationLabel(
     education?.trim() ? education.trim() : null,
     cgpa === null || cgpa === undefined || !Number.isFinite(cgpa) ? null : `CGPA ${cgpa}`,
   ].filter((part): part is string => part !== null);
-  return parts.length === 0 ? null : parts.join(" · ");
+  return parts.length === 0 ? null : parts.join(", ");
 }
