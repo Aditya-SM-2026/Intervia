@@ -17,6 +17,13 @@ export interface LiveKitJoinCredentials {
   remainingSeconds?: number;
   /** How long a dropped candidate may rejoin and resume (server-defined). */
   reconnectGraceSeconds?: number;
+  /**
+   * Seconds left of the whole-interview pause budget. A candidate who reloads
+   * keeps the countdown they had rather than starting a fresh one.
+   */
+  pauseSecondsLeft?: number;
+  /** The whole pause budget, so the client can work out what was spent. */
+  pauseBudgetSeconds?: number;
 }
 
 /** Email gate: issues join credentials only for a verified email + consent. */

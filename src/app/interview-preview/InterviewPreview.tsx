@@ -64,7 +64,6 @@ export function InterviewPreview() {
           setStage("left");
         }}
         onResume={() => setStage("live")}
-        onEndInterview={() => setStage("left")}
         onEnableAudio={() => {}}
       />
     );

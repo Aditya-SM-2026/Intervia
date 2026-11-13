@@ -123,6 +123,13 @@ export function InterviewRoom({
   const roomRef = useRef<Room | null>(null);
   const credentialsRef = useRef<LiveKitJoinCredentials | null>(null);
   const pauseRef = useRef<Pause | null>(null);
+  /**
+   * The pause budget for the whole interview: two minutes away in total, not
+   * two minutes every time. Coming back stops the clock but spends what was
+   * used; leaving again continues from there.
+   */
+  const pauseBudgetRef = useRef({ totalSeconds: PAUSE_WINDOW_SECONDS, usedSeconds: 0 });
+  const pauseStartedAtRef = useRef<number | null>(null);
   /** The microphone was on when the pause started, so it goes back on. */
   const micWasOnRef = useRef(false);
   /** Full screen was really granted at least once: only then can leaving it mean anything. */
@@ -153,6 +160,7 @@ export function InterviewRoom({
     if (hardStopTimerRef.current) clearTimeout(hardStopTimerRef.current);
     hardStopTimerRef.current = null;
     pauseRef.current = null;
+    pauseStartedAtRef.current = null;
     setPause(null);
     // Stop recording before the tracks end, so the last piece is uploaded.
     // The upload finishes in the background; this page stays open after an
@@ -179,16 +187,16 @@ export function InterviewRoom({
   }
 
   /**
-   * Records the pause on the server, which owns the two-minute window and the
+   * Records the pause on the server, which owns the pause budget and the
    * timeline the recruiter reads afterwards. The recording token proves this
    * is the participant who joined, so nobody else can move an interview's
    * state.
    */
   const postPresence = useCallback(
-    (state: "paused" | "resumed" | "expired", reason: PauseReason) => {
+    (state: "paused" | "resumed" | "expired" | "left", reason: PauseReason | "left") => {
       const credentials = credentialsRef.current;
-      if (!credentials?.recordingToken) return;
-      void fetch(`/api/interviews/${encodeURIComponent(roomId)}/presence`, {
+      if (!credentials?.recordingToken) return Promise.resolve();
+      return fetch(`/api/interviews/${encodeURIComponent(roomId)}/presence`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -197,42 +205,76 @@ export function InterviewRoom({
         },
         body: JSON.stringify({ state, reason }),
         keepalive: true,
-      }).catch(() => {});
+      })
+        .then(() => undefined)
+        .catch(() => undefined);
     },
     [roomId],
+  );
+
+  /** The budget is spent: the interview ends here and is sent as it stands. */
+  const endForPause = useCallback(
+    (reason: PauseReason) => {
+      pauseRef.current = null;
+      pauseStartedAtRef.current = null;
+      setPause(null);
+      postPresence("expired", reason);
+
+      leftIntentionallyRef.current = true;
+      const room = roomRef.current;
+      roomRef.current = null;
+      void room?.disconnect().catch(() => {});
+      releaseMedia();
+      setStage("ended");
+    },
+    [postPresence],
   );
 
   /**
    * Pauses the interview: the interviewer can no longer hear or answer, the
    * candidate's own microphone stops sending, and a countdown takes over the
-   * screen. Leaving full screen, hiding the tab and pressing Leave all lead
-   * here, because all three mean the candidate is no longer in the interview.
+   * screen. Leaving full screen or hiding the tab leads here, because both
+   * mean the candidate is no longer in the interview. The countdown is what is
+   * left of one budget for the whole interview, so leaving twice does not
+   * buy another two minutes.
    */
-  const beginPause = useCallback((reason: PauseReason) => {
-    if (pauseRef.current) return;
-    const totalSeconds = pauseWindowSeconds();
-    const next: Pause = {
-      reason,
-      deadline: Date.now() + totalSeconds * 1000,
-      secondsLeft: totalSeconds,
-      totalSeconds,
-    };
-    pauseRef.current = next;
-    setPause(next);
+  const beginPause = useCallback(
+    (reason: PauseReason) => {
+      if (pauseRef.current) return;
+      const budget = pauseBudgetRef.current;
+      const secondsLeft = Math.max(0, budget.totalSeconds - budget.usedSeconds);
+      if (secondsLeft < 1) {
+        // Nothing left to spend: they are out of time away, so it ends now.
+        endForPause(reason);
+        return;
+      }
 
-    // Whatever the candidate is saying stops reaching the interviewer.
-    const publication = publicationsRef.current.audio;
-    micWasOnRef.current = Boolean(publication && !publication.isMuted);
-    if (micWasOnRef.current) void publication?.mute().catch(() => {});
-    setMuted(true);
-    // And the interviewer's voice does not play into an empty room.
-    audioElementsRef.current.forEach((element) => {
-      if (element instanceof HTMLMediaElement) element.pause();
-    });
+      const now = Date.now();
+      pauseStartedAtRef.current = now;
+      const next: Pause = {
+        reason,
+        deadline: now + secondsLeft * 1000,
+        secondsLeft: Math.ceil(secondsLeft),
+        totalSeconds: Math.ceil(secondsLeft),
+      };
+      pauseRef.current = next;
+      setPause(next);
 
-    sendClientEvent("interview_paused");
-    postPresence("paused", reason);
-  }, [postPresence]);
+      // Whatever the candidate is saying stops reaching the interviewer.
+      const publication = publicationsRef.current.audio;
+      micWasOnRef.current = Boolean(publication && !publication.isMuted);
+      if (micWasOnRef.current) void publication?.mute().catch(() => {});
+      setMuted(true);
+      // And the interviewer's voice does not play into an empty room.
+      audioElementsRef.current.forEach((element) => {
+        if (element instanceof HTMLMediaElement) element.pause();
+      });
+
+      sendClientEvent("interview_paused");
+      postPresence("paused", reason);
+    },
+    [endForPause, postPresence],
+  );
 
   /** Back from a pause: full screen again, microphone again, same question. */
   const resumeInterview = useCallback(() => {
@@ -242,6 +284,15 @@ export function InterviewRoom({
     // needs to give the screen back.
     if (isFullscreenSupported()) void requestFullscreen();
 
+    const startedAt = pauseStartedAtRef.current;
+    if (startedAt !== null) {
+      const budget = pauseBudgetRef.current;
+      budget.usedSeconds = Math.min(
+        budget.totalSeconds,
+        budget.usedSeconds + (Date.now() - startedAt) / 1000,
+      );
+    }
+    pauseStartedAtRef.current = null;
     pauseRef.current = null;
     setPause(null);
 
@@ -256,33 +307,33 @@ export function InterviewRoom({
     postPresence("resumed", current.reason);
   }, [postPresence]);
 
-  /** The two minutes ran out: the interview ends here and is sent as it is. */
+  /** The countdown reached zero while the candidate was still away. */
   const expirePause = useCallback(() => {
     const current = pauseRef.current;
     if (!current) return;
-    pauseRef.current = null;
-    setPause(null);
-    postPresence("expired", current.reason);
+    endForPause(current.reason);
+  }, [endForPause]);
 
-    leftIntentionallyRef.current = true;
-    const room = roomRef.current;
-    roomRef.current = null;
-    void room?.disconnect().catch(() => {});
-    releaseMedia();
-    setStage("ended");
-  }, [postPresence]);
-
-  /** Leave, pressed twice on purpose: the candidate really is done. */
-  const endInterview = useCallback(() => {
-    const current = pauseRef.current;
-    if (current) postPresence("resumed", current.reason);
+  /**
+   * Leave is not a pause: this is the candidate choosing to end the
+   * interview. It stops immediately and the report says they exited.
+   */
+  const leaveInterview = useCallback(() => {
     pauseRef.current = null;
+    pauseStartedAtRef.current = null;
     setPause(null);
 
     leftIntentionallyRef.current = true;
+    sendClientEvent("interview_left");
+    void postPresence("left", "left");
+
     const room = roomRef.current;
     roomRef.current = null;
-    void room?.disconnect().catch(() => {});
+    // Give the agent and the server a moment to hear about it before the
+    // connection goes.
+    window.setTimeout(() => {
+      void room?.disconnect().catch(() => {});
+    }, 200);
     releaseMedia();
     setStage("left");
   }, [postPresence]);
@@ -529,7 +580,21 @@ export function InterviewRoom({
     setMuted(false);
     setCameraOff(false);
     pauseRef.current = null;
+    pauseStartedAtRef.current = null;
     setPause(null);
+    // The pause budget is for the whole interview: a candidate who reloads
+    // keeps the time they had left, never a fresh two minutes.
+    const serverBudget = credentials.pauseBudgetSeconds;
+    const serverLeft = credentials.pauseSecondsLeft;
+    const alreadyUsed =
+      serverBudget !== undefined && serverLeft !== undefined
+        ? Math.max(0, serverBudget - serverLeft)
+        : 0;
+    const totalSeconds = pauseWindowSeconds();
+    pauseBudgetRef.current = {
+      totalSeconds,
+      usedSeconds: Math.min(alreadyUsed, totalSeconds),
+    };
     fullscreenArmedRef.current = isFullscreen();
 
     // Resuming an interview in progress: the server owns the clock, so the
@@ -651,9 +716,9 @@ export function InterviewRoom({
   }
 
   async function handleLeave() {
-    // Leaving is not an escape hatch: the interview pauses, and the candidate
-    // has the same two minutes to come back as when full screen is lost.
-    beginPause("left");
+    // The red button is the candidate's way out: it ends the interview now
+    // rather than pausing it, and the report records that they exited.
+    leaveInterview();
   }
 
   function handleRetry() {
@@ -724,7 +789,6 @@ export function InterviewRoom({
             : null
         }
         onResume={resumeInterview}
-        onEndInterview={endInterview}
         onEnableAudio={() => {
           void roomRef.current?.startAudio().then(() => setAudioBlocked(false));
         }}

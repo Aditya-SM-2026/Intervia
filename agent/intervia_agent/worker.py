@@ -1027,6 +1027,12 @@ class InterviewRuntime:
         if event_type == "interview_resumed":
             self._resume()
             return
+        if event_type == "interview_left":
+            # The candidate pressed Leave: they chose to end the interview,
+            # so it ends now and the report says they exited.
+            if not self._finished:
+                await self.finish("candidate_exited")
+            return
         if event_type not in ("tab_hidden", "tab_visible", "window_blur", "window_focus"):
             return
         self.backend.add_event(f"client_{event_type}")

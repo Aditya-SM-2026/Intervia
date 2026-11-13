@@ -77,11 +77,14 @@ function interviewDeadline(room: InterviewRoom, events: readonly { at: string }[
 }
 
 /**
- * Closes an interview that ran out of time or was left paused past its
- * window. Exported so the pause endpoint can do it the moment the candidate's
- * two minutes are up instead of waiting for the minute-by-minute sweep.
+ * Closes an interview that ran out of time, was left paused past its window,
+ * or was ended by the candidate. Exported so the presence endpoint can do it
+ * the moment it happens instead of waiting for the minute-by-minute sweep.
  */
-export async function closeInterview(room: InterviewRoom, reason: "time_up" | "pause_timeout"): Promise<void> {
+export async function closeInterview(
+  room: InterviewRoom,
+  reason: "time_up" | "pause_timeout" | "candidate_exited",
+): Promise<void> {
   const repository = getInterviewRepository();
   const endedAt = new Date().toISOString();
   const events = await repository.getEvents(room.id);
@@ -107,12 +110,14 @@ export async function closeInterview(room: InterviewRoom, reason: "time_up" | "p
           ? undefined
           : reason === "pause_timeout"
             ? "The candidate left the full screen and did not return; no interviewer was present to close the session."
-            : "The interviewer agent never joined; the session was closed at its time limit.",
+            : reason === "candidate_exited"
+              ? "The candidate ended the interview; no interviewer was present to close the session."
+              : "The interviewer agent never joined; the session was closed at its time limit.",
       },
     },
   ]);
 
-  if (agentWasPresent) {
+  if (agentWasPresent || reason === "candidate_exited") {
     // The agent's own outcome, when it got there first, is richer (coverage,
     // usage, real elapsed time): keep it rather than replacing it with blanks.
     const outcome = room.outcome ?? {
@@ -126,7 +131,7 @@ export async function closeInterview(room: InterviewRoom, reason: "time_up" | "p
       usage: [],
     };
     const room2 = await recordSessionOutcome(room.id, outcome, true);
-    if (room2?.status === "completed") {
+    if (agentWasPresent && room2?.status === "completed") {
       // Scoring runs in the background, exactly as the agent path does.
       void scoreInterview(room.id).catch((error) => {
         console.error(`[watchdog] scoring failed for ${room.id}:`, error);

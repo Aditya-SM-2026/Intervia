@@ -136,13 +136,11 @@ export function CandidateEndScreen({
           </span>
         }
         title="You left the interview"
-        actions={
-          <button type="button" onClick={onRetry} className={candidatePrimaryButton}>
-            Rejoin now
-          </button>
-        }
       >
-        <p>If that was a mistake, rejoin within 2 minutes and it continues exactly where it stopped.</p>
+        <p>
+          Your interview has ended and been sent{recruiterName ? ` to ${recruiterName}` : ""},
+          who will be in touch about next steps. You can close this page.
+        </p>
       </CandidateMessage>
     );
   }

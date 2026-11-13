@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import {
-  LogOut,
   Maximize2,
   MessageSquareText,
   Mic,
@@ -54,13 +53,11 @@ interface LiveRoomProps {
   onToggleCamera: () => void;
   onLeave: () => void;
   onResume: () => void;
-  /** Deliberately finish from the pause screen (only offered after Leave). */
-  onEndInterview: () => void;
   onEnableAudio: () => void;
 }
 
 /** Why the interview stopped, in the candidate's own terms. */
-export type PauseReason = "fullscreen" | "tab_hidden" | "left";
+export type PauseReason = "fullscreen" | "tab_hidden";
 
 /** The pause as the screen shows it: a reason and a countdown. */
 export interface PauseView {
@@ -72,7 +69,6 @@ export interface PauseView {
 const PAUSE_TEXT: Record<PauseReason, string> = {
   fullscreen: "You left full screen, so the interview is on hold. The interviewer cannot hear you.",
   tab_hidden: "You left the interview window, so it is on hold. The interviewer cannot hear you.",
-  left: "The interview is on hold. Come back and it continues exactly where you left off.",
 };
 
 /** Glow around the interviewer's orb, by what is happening. */
@@ -394,7 +390,7 @@ export function LiveRoom(props: LiveRoomProps) {
         )}
       </div>
 
-      {pause && <PauseScreen pause={pause} onResume={props.onResume} onEnd={props.onEndInterview} />}
+      {pause && <PauseScreen pause={pause} onResume={props.onResume} />}
     </main>
   );
 }
@@ -408,11 +404,9 @@ export function LiveRoom(props: LiveRoomProps) {
 function PauseScreen({
   pause,
   onResume,
-  onEnd,
 }: {
   pause: PauseView;
   onResume: () => void;
-  onEnd: () => void;
 }) {
   const windowText =
     pause.totalSeconds >= 60
@@ -458,16 +452,6 @@ function PauseScreen({
           <Maximize2 className="size-4" aria-hidden />
           Resume the interview
         </button>
-        {pause.reason === "left" && (
-          <button
-            type="button"
-            onClick={onEnd}
-            className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium text-white/60 transition hover:bg-white/5 hover:text-white"
-          >
-            <LogOut className="size-4" aria-hidden />
-            End the interview instead
-          </button>
-        )}
         <p className="mt-4 text-xs leading-relaxed text-white/40">
           The interview timer keeps running while you are away. If you are not back within{" "}
           {windowText}, it ends and is sent to the recruiter as it stands.
