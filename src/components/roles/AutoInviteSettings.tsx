@@ -42,6 +42,10 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [settings, setSettings] = useState<AutoInviteConfig>({ ...DEFAULT_AUTO_INVITE_SETTINGS });
+  // The number fields keep their own text while typing, so clearing the box or
+  // typing "70" one digit at a time is not clamped back to the minimum.
+  const [thresholdText, setThresholdText] = useState(String(DEFAULT_AUTO_INVITE_SETTINGS.threshold));
+  const [durationText, setDurationText] = useState(String(DEFAULT_AUTO_INVITE_SETTINGS.durationMinutes));
   const [state, setState] = useState<AutoInviteState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -50,8 +54,46 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
 
   function apply(body: AutoInviteState) {
     setSettings({ ...DEFAULT_AUTO_INVITE_SETTINGS, ...body.settings });
+    setThresholdText(String({ ...DEFAULT_AUTO_INVITE_SETTINGS, ...body.settings }.threshold));
+    setDurationText(String({ ...DEFAULT_AUTO_INVITE_SETTINGS, ...body.settings }.durationMinutes));
     setState(body);
     setError(null);
+  }
+
+  /** Reads a field's text and keeps it inside the allowed range. */
+  function readThreshold(text: string): number {
+    const parsed = Number(text);
+    if (text.trim() === "" || !Number.isFinite(parsed)) return settings.threshold;
+    return Math.min(100, Math.max(1, Math.round(parsed)));
+  }
+
+  function readDuration(text: string): number {
+    const parsed = Number(text);
+    if (text.trim() === "" || !Number.isFinite(parsed)) return settings.durationMinutes;
+    return Math.min(
+      AUTO_INVITE_MAX_DURATION,
+      Math.max(AUTO_INVITE_MIN_DURATION, Math.round(parsed)),
+    );
+  }
+
+  function commitThreshold() {
+    const value = readThreshold(thresholdText);
+    setSettings((current) => ({ ...current, threshold: value }));
+    setThresholdText(String(value));
+  }
+
+  function commitDuration() {
+    const value = readDuration(durationText);
+    setSettings((current) => ({ ...current, durationMinutes: value }));
+    setDurationText(String(value));
+  }
+
+  function saveNumbers() {
+    const threshold = readThreshold(thresholdText);
+    const durationMinutes = readDuration(durationText);
+    setThresholdText(String(threshold));
+    setDurationText(String(durationMinutes));
+    void save({ threshold, durationMinutes }, "Automatic invitation settings saved.");
   }
 
   useEffect(() => {
@@ -93,12 +135,16 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
         throw new Error(body.error?.message ?? "Could not save the setting.");
       }
       setSettings({ ...DEFAULT_AUTO_INVITE_SETTINGS, ...body.settings });
+      setThresholdText(String({ ...DEFAULT_AUTO_INVITE_SETTINGS, ...body.settings }.threshold));
+      setDurationText(String({ ...DEFAULT_AUTO_INVITE_SETTINGS, ...body.settings }.durationMinutes));
       setError(null);
       setToast({ tone: "success", message });
       void refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save the setting.");
       setSettings(settings);
+      setThresholdText(String(settings.threshold));
+      setDurationText(String(settings.durationMinutes));
     } finally {
       setSaving(false);
     }
@@ -244,17 +290,17 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
               <span className="block text-xs font-medium text-muted">Match score at least</span>
               <span className="mt-1 flex items-center gap-1.5">
                 <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  step={1}
-                  value={settings.threshold}
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      threshold: Math.max(1, Math.min(100, Number(event.target.value) || 1)),
-                    }))
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={3}
+                  value={thresholdText}
+                  onFocus={(event) => event.currentTarget.select()}
+                  onChange={(event) => setThresholdText(event.target.value.replace(/[^0-9]/g, ""))}
+                  onBlur={commitThreshold}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }}
                   className="w-16 rounded-lg border border-border bg-background px-2 py-1 text-right tabular-nums outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
                 />
                 <span className="text-sm text-muted">/ 100</span>
@@ -264,20 +310,17 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
               <span className="block text-xs font-medium text-muted">Interview length</span>
               <span className="mt-1 flex items-center gap-1.5">
                 <input
-                  type="number"
-                  min={AUTO_INVITE_MIN_DURATION}
-                  max={AUTO_INVITE_MAX_DURATION}
-                  step={5}
-                  value={settings.durationMinutes}
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      durationMinutes: Math.max(
-                        AUTO_INVITE_MIN_DURATION,
-                        Math.min(AUTO_INVITE_MAX_DURATION, Number(event.target.value) || AUTO_INVITE_MIN_DURATION),
-                      ),
-                    }))
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={2}
+                  value={durationText}
+                  onFocus={(event) => event.currentTarget.select()}
+                  onChange={(event) => setDurationText(event.target.value.replace(/[^0-9]/g, ""))}
+                  onBlur={commitDuration}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }}
                   className="w-16 rounded-lg border border-border bg-background px-2 py-1 text-right tabular-nums outline-none focus:border-accent focus:ring-4 focus:ring-accent/15"
                 />
                 <span className="text-sm text-muted">minutes</span>
@@ -324,7 +367,7 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
             <span className="grow" />
             <button
               type="button"
-              onClick={() => void save({}, "Automatic invitation settings saved.")}
+              onClick={saveNumbers}
               disabled={saving}
               className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-3.5 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-40"
             >
