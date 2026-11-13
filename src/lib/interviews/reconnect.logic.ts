@@ -7,7 +7,7 @@ import type { InterviewEvent, InterviewRoom } from "./interview.types";
  */
 
 /** How long a disconnected candidate may rejoin and resume. */
-export const RECONNECT_GRACE_SECONDS = 5 * 60;
+export const RECONNECT_GRACE_SECONDS = 2 * 60;
 
 export type ReconnectState =
   /** The interview has not started; the full duration lies ahead. */
@@ -52,7 +52,7 @@ export function reconnectStateFor(
       return {
         kind: "expired",
         reason:
-          "This interview expired because the connection was lost for more than 5 minutes.",
+          "This interview expired because the connection was lost for more than 2 minutes.",
       };
     }
   }

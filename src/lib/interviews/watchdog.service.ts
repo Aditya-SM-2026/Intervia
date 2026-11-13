@@ -4,6 +4,7 @@ import { getLiveKitConfig, isLiveKitConfigured } from "@/lib/livekit/config";
 import { getLiveKitRoomName } from "@/lib/livekit/room";
 import { getInterviewRepository } from "@/server/repositories";
 import { recordSessionOutcome } from "./interview.service";
+import { pauseStateFor } from "./pause.logic";
 import { scoreInterview } from "./scorecard.service";
 import type { InterviewRoom } from "./interview.types";
 
@@ -46,7 +47,17 @@ export async function runInterviewWatchdogOnce(): Promise<number> {
     const deadlinePassed = interviewDeadline(room, events) + GRACE_MS <= now;
     if (deadlinePassed) {
       closed++;
-      await closeInterview(room);
+      await closeInterview(room, "time_up");
+      continue;
+    }
+
+    // A candidate who left the full screen and never came back ends the
+    // interview too. The agent normally does this when the budget is spent; this
+    // is the backstop for when the agent is down or never reached.
+    const pause = pauseStateFor(events, now);
+    if (pause?.expired) {
+      closed++;
+      await closeInterview(room, "pause_timeout");
     }
   }
   if (closed > 0) console.info(`[watchdog] closed ${closed} overdue interview(s)`);
@@ -65,43 +76,62 @@ function interviewDeadline(room: InterviewRoom, events: readonly { at: string }[
   return (Number.isFinite(start) ? start : Date.now()) + room.durationMinutes * 60_000;
 }
 
-async function closeInterview(room: InterviewRoom): Promise<void> {
+/**
+ * Closes an interview that ran out of time, was left paused past its window,
+ * or was ended by the candidate. Exported so the presence endpoint can do it
+ * the moment it happens instead of waiting for the minute-by-minute sweep.
+ */
+export async function closeInterview(
+  room: InterviewRoom,
+  reason: "time_up" | "pause_timeout" | "candidate_exited",
+): Promise<void> {
   const repository = getInterviewRepository();
   const endedAt = new Date().toISOString();
+  const events = await repository.getEvents(room.id);
 
   // Disconnect anyone still in the room (candidate or agent).
   await deleteLiveKitRoom(room.id);
 
   const turns = await repository.getTurns(room.id);
   const agentWasPresent = turns.length > 0;
+  // How long the session really ran, from the first logged event: a pause
+  // timeout happens minutes before the booked duration is over.
+  const startEvent = events.find((event) => event.type === "interview_started") ?? events[0];
+  const startedAt = startEvent?.at ?? room.scheduledAt ?? room.createdAt;
+  const ranForSeconds = Math.round((Date.parse(endedAt) - Date.parse(startedAt)) / 1000);
   await repository.appendEvents(room.id, [
     {
       type: "interview_ended",
       at: endedAt,
       data: {
-        reason: "time_up",
+        reason,
         by: "web_watchdog",
         note: agentWasPresent
           ? undefined
-          : "The interviewer agent never joined; the session was closed at its time limit.",
+          : reason === "pause_timeout"
+            ? "The candidate left the full screen and did not return; no interviewer was present to close the session."
+            : reason === "candidate_exited"
+              ? "The candidate ended the interview; no interviewer was present to close the session."
+              : "The interviewer agent never joined; the session was closed at its time limit.",
       },
     },
   ]);
 
-  if (agentWasPresent) {
-    const room2 = await recordSessionOutcome(
-      room.id,
-      {
-        reason: "time_up",
-        startedAt: room.scheduledAt,
-        endedAt,
-        elapsedSeconds: room.durationMinutes * 60,
-        coverage: [],
-        usage: [],
-      },
-      true,
-    );
-    if (room2?.status === "completed") {
+  if (agentWasPresent || reason === "candidate_exited") {
+    // The agent's own outcome, when it got there first, is richer (coverage,
+    // usage, real elapsed time): keep it rather than replacing it with blanks.
+    const outcome = room.outcome ?? {
+      reason,
+      startedAt: room.scheduledAt,
+      endedAt,
+      elapsedSeconds: Number.isFinite(ranForSeconds) && ranForSeconds > 0
+        ? ranForSeconds
+        : room.durationMinutes * 60,
+      coverage: [],
+      usage: [],
+    };
+    const room2 = await recordSessionOutcome(room.id, outcome, true);
+    if (agentWasPresent && room2?.status === "completed") {
       // Scoring runs in the background, exactly as the agent path does.
       void scoreInterview(room.id).catch((error) => {
         console.error(`[watchdog] scoring failed for ${room.id}:`, error);

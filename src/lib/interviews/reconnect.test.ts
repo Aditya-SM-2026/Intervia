@@ -61,27 +61,27 @@ test("active interview reports remaining time", async () => {
   assert.ok(state.kind === "active" && state.remainingSeconds > 7 * 60 - 2 && state.remainingSeconds <= 8 * 60);
 });
 
-test("candidate away under 5 minutes may resume", async () => {
+test("candidate away under 2 minutes may resume", async () => {
   const { reconnectStateFor } = await import("./reconnect.logic.ts");
   const start = Date.now() - 3 * MIN;
   const state = reconnectStateFor(
     room(),
-    events(start, { disconnectAt: Date.now() - 4 * MIN }),
+    events(start, { disconnectAt: Date.now() - 90_000 }),
     Date.now(),
   );
   assert.equal(state.kind, "active");
 });
 
-test("candidate away more than 5 minutes is expired", async () => {
+test("candidate away more than 2 minutes is expired", async () => {
   const { reconnectStateFor } = await import("./reconnect.logic.ts");
   const start = Date.now() - 8 * MIN;
   const state = reconnectStateFor(
     room(),
-    events(start, { disconnectAt: Date.now() - 6 * MIN }),
+    events(start, { disconnectAt: Date.now() - 3 * MIN }),
     Date.now(),
   );
   assert.equal(state.kind, "expired");
-  assert.match(state.reason, /5 minutes/);
+  assert.match(state.reason, /2 minutes/);
 });
 
 test("a reconnected candidate resets the away clock", async () => {

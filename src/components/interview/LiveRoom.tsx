@@ -6,6 +6,7 @@ import {
   MessageSquareText,
   Mic,
   MicOff,
+  Pause,
   PhoneOff,
   Sparkles,
   UserRound,
@@ -45,12 +46,30 @@ interface LiveRoomProps {
   hrPresent: boolean;
   /** HR's camera, when they publish one. */
   hrTrack: MediaStreamTrack | null;
+  /** Set while the interview is on hold, waiting for the candidate to return. */
+  pause: PauseView | null;
   onToggleConversation: () => void;
   onToggleMute: () => void;
   onToggleCamera: () => void;
   onLeave: () => void;
+  onResume: () => void;
   onEnableAudio: () => void;
 }
+
+/** Why the interview stopped, in the candidate's own terms. */
+export type PauseReason = "fullscreen" | "tab_hidden";
+
+/** The pause as the screen shows it: a reason and a countdown. */
+export interface PauseView {
+  reason: PauseReason;
+  secondsLeft: number;
+  totalSeconds: number;
+}
+
+const PAUSE_TEXT: Record<PauseReason, string> = {
+  fullscreen: "You left full screen, so the interview is on hold. The interviewer cannot hear you.",
+  tab_hidden: "You left the interview window, so it is on hold. The interviewer cannot hear you.",
+};
 
 /** Glow around the interviewer's orb, by what is happening. */
 const ORB_GLOW: Record<AiUiState, string> = {
@@ -146,6 +165,7 @@ export function LiveRoom(props: LiveRoomProps) {
     hrNotice,
     hrPresent,
     hrTrack,
+    pause,
   } = props;
   const totalSeconds = durationMinutes * 60;
   const progress = Math.min(1, elapsedSeconds / totalSeconds);
@@ -164,7 +184,8 @@ export function LiveRoom(props: LiveRoomProps) {
   return (
     <main
       data-fullscreen={fullscreen.active || undefined}
-      className={`interview-stage flex items-center justify-center bg-[#050b1c] p-3 sm:p-6 ${
+      data-paused={pause ? true : undefined}
+      className={`interview-stage relative flex items-center justify-center bg-[#050b1c] p-3 sm:p-6 ${
         fullscreen.active ? "h-dvh" : "min-h-dvh"
       }`}
     >
@@ -337,7 +358,7 @@ export function LiveRoom(props: LiveRoomProps) {
             </ControlButton>
           </div>
 
-          {leftFullscreen && (
+          {leftFullscreen && !pause && (
             <div className="mt-3 flex justify-center">
               <button
                 type="button"
@@ -368,6 +389,74 @@ export function LiveRoom(props: LiveRoomProps) {
           </aside>
         )}
       </div>
+
+      {pause && <PauseScreen pause={pause} onResume={props.onResume} />}
     </main>
+  );
+}
+
+/**
+ * The hold screen. It covers the whole interview, because there is nothing
+ * left to do in it: the interviewer cannot hear the candidate and will not
+ * speak until they are back, and the only way back is the button (which is
+ * also the click the browser needs before it returns the screen).
+ */
+function PauseScreen({
+  pause,
+  onResume,
+}: {
+  pause: PauseView;
+  onResume: () => void;
+}) {
+  const windowText =
+    pause.totalSeconds >= 60
+      ? `${Math.round(pause.totalSeconds / 60)} minutes`
+      : `${pause.totalSeconds} seconds`;
+  const remaining = Math.max(0, Math.min(1, pause.secondsLeft / pause.totalSeconds));
+
+  return (
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="interview-paused"
+      className="absolute inset-0 z-30 flex items-center justify-center bg-[#050b1c]/80 p-4 backdrop-blur-md"
+    >
+      <div className="animate-pop-in w-full max-w-md rounded-2xl border border-white/10 bg-[#0b1430] p-7 text-center shadow-[0_40px_100px_-30px_rgba(0,0,0,0.95)]">
+        <span className="mx-auto grid size-14 place-items-center rounded-full bg-amber-400/15 text-amber-300">
+          <Pause className="size-6" fill="currentColor" aria-hidden />
+        </span>
+        <h2 id="interview-paused" className="mt-4 text-xl font-semibold tracking-tight text-white">
+          Interview paused
+        </h2>
+        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/65">
+          {PAUSE_TEXT[pause.reason]}
+        </p>
+
+        <p className="mt-6 text-5xl font-semibold tabular-nums tracking-tight text-white">
+          {formatClock(pause.secondsLeft)}
+        </p>
+        <p className="mt-1 text-xs uppercase tracking-[0.14em] text-white/40">to come back</p>
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/10">
+          <span
+            aria-hidden="true"
+            className="block h-full rounded-full bg-amber-400 transition-[width] duration-300 ease-linear"
+            style={{ width: `${remaining * 100}%` }}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={onResume}
+          className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-[#0b1640] transition hover:bg-white/90"
+        >
+          <Maximize2 className="size-4" aria-hidden />
+          Resume the interview
+        </button>
+        <p className="mt-4 text-xs leading-relaxed text-white/40">
+          The interview timer keeps running while you are away. If you are not back within{" "}
+          {windowText}, it ends and is sent to the recruiter as it stands.
+        </p>
+      </div>
+    </div>
   );
 }

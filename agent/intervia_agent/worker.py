@@ -64,9 +64,12 @@ HR_IDENTITY_PREFIX = "hr-"
 ROOM_NAME_PREFIX = "interview-"
 WATCHDOG_INTERVAL_SECONDS = 2.0
 # How long the interviewer waits for a rejoin after the candidate drops
-# (matches the web app's 5-minute reconnection window; the session keeps its
+# (matches the web app's two-minute reconnection window; the session keeps its
 # question state, transcript and elapsed clock while the candidate is away).
-CANDIDATE_REJOIN_GRACE_SECONDS = 300.0
+CANDIDATE_REJOIN_GRACE_SECONDS = 120.0
+# How long a paused candidate may take to come back from leaving full screen,
+# hiding the tab or pressing Leave, before the interview ends as it stands.
+PAUSE_GRACE_SECONDS = 30.0
 # A directive waits this long for the candidate to finish a sentence.
 MAX_WAIT_FOR_PAUSE_SECONDS = 15.0
 # Spoken once, word for word, when the time is up. Short enough to finish
@@ -226,6 +229,11 @@ class InterviewRuntime:
         self._outcome_task: asyncio.Task[None] | None = None
         # True while no candidate is in the room after one had joined.
         self._candidate_gone = False
+        # True while the candidate's page says the interview is on hold (they
+        # left full screen, hid the tab, or pressed Leave). The interviewer
+        # neither hears nor speaks until they are back.
+        self._paused = False
+        self._pause_task: asyncio.Task[None] | None = None
 
         # Voice mode (set once the interview context is loaded).
         self.rolling = False
@@ -642,6 +650,10 @@ class InterviewRuntime:
         assert self.controller is not None
         while not self._finished:
             await asyncio.sleep(WATCHDOG_INTERVAL_SECONDS)
+            # While the candidate is away the interview is on hold: no nudges,
+            # no notes, no moving the plan on into an empty room.
+            if self._paused:
+                continue
             directive = self.controller.tick()
             if directive is not None:
                 await self._apply(directive)
@@ -905,6 +917,15 @@ class InterviewRuntime:
                 self._rejoin_task.cancel()
                 self._rejoin_task = None
                 self.backend.add_event("candidate_reconnected")
+            # A page that was paused and then reloaded is back without ever
+            # saying "resume": the hold ends with the candidate in the room.
+            if self._paused:
+                self._paused = False
+                if self._pause_task is not None:
+                    self._pause_task.cancel()
+                    self._pause_task = None
+                if self._gate is not None and not self._hr_muted and not self.closing:
+                    self._gate.unmute()
             if was_gone and not self.closing:
                 # A returning candidate resumes the same session: the clock,
                 # plan and transcript were never reset. Instruct the
@@ -946,17 +967,50 @@ class InterviewRuntime:
         await asyncio.sleep(CANDIDATE_REJOIN_GRACE_SECONDS)
         if self._finished:
             return
-        # The candidate did not come back. The interview still ends exactly at
-        # its scheduled time: hold the room until the clock runs out (a
-        # returning candidate resumes the session in the meantime), then the
-        # system closing ends it. This sleep is only a safety net in case
-        # the closing timer cannot fire.
-        controller = self.controller
-        remaining = controller.total_seconds - controller.elapsed() if controller else 0.0
-        if remaining > 0:
-            await asyncio.sleep(remaining + 5.0)
-        if not self._finished:
-            await self.finish("candidate_left")
+        # The candidate did not come back inside the window. The interview
+        # ends here, with everything they answered kept and scored.
+        await self.finish("candidate_left")
+
+    def _pause(self) -> None:
+        """The candidate left the interview: stop hearing and speaking at once.
+
+        The page mutes its own microphone too, but this is the authoritative
+        side: silence replaces their audio for the model, so nothing said to
+        somebody in the room reaches the interviewer, and the controller stops
+        nudging a candidate who is not there.
+        """
+        if self._paused or self._finished or self.closing:
+            return
+        self._paused = True
+        if self._gate is not None:
+            self._gate.mute()
+        self._interrupt_speech()
+        if self._pause_task is None or self._pause_task.done():
+            self._pause_task = self._spawn(self._pause_timeout())
+
+    async def _pause_timeout(self) -> None:
+        """The pause budget passed without a return: end the interview."""
+        await asyncio.sleep(PAUSE_GRACE_SECONDS)
+        if self._finished or not self._paused:
+            return
+        await self.finish("pause_timeout")
+
+    def _resume(self) -> None:
+        """The candidate is back: hear them, and carry on with the same question."""
+        if not self._paused:
+            return
+        self._paused = False
+        if self._pause_task is not None:
+            self._pause_task.cancel()
+            self._pause_task = None
+        if self._gate is not None and not self._hr_muted and not self.closing:
+            self._gate.unmute()
+        if not self.closing and not self._finished:
+            self.instruct(
+                "The candidate is back after leaving full screen. Continue the interview "
+                "exactly where you left off: same question, no greeting, nothing repeated.",
+                allow_interruptions=False,
+            )
 
     async def _record_client_event(self, reader: rtc.TextStreamReader) -> None:
         """Browser-side signals (tab hidden, window blurred) sent by the page."""
@@ -967,6 +1021,18 @@ class InterviewRuntime:
         if not isinstance(payload, dict) or not isinstance(payload.get("type"), str):
             return
         event_type = payload["type"][:40]
+        if event_type == "interview_paused":
+            self._pause()
+            return
+        if event_type == "interview_resumed":
+            self._resume()
+            return
+        if event_type == "interview_left":
+            # The candidate pressed Leave: they chose to end the interview,
+            # so it ends now and the report says they exited.
+            if not self._finished:
+                await self.finish("candidate_exited")
+            return
         if event_type not in ("tab_hidden", "tab_visible", "window_blur", "window_focus"):
             return
         self.backend.add_event(f"client_{event_type}")

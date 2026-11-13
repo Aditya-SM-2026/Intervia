@@ -27,6 +27,7 @@ import {
   RECONNECT_GRACE_SECONDS,
   reconnectStateFor,
 } from "@/lib/interviews/reconnect.service";
+import { pauseBudgetFor, PAUSE_GRACE_SECONDS } from "@/lib/interviews/pause.logic";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
 
@@ -173,6 +174,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       remainingSeconds:
         reconnect.kind === "active" ? reconnect.remainingSeconds : undefined,
       reconnectGraceSeconds: RECONNECT_GRACE_SECONDS,
+      // How much of the (whole-interview) pause budget is left, so a candidate
+      // who reloads does not get a fresh two minutes.
+      pauseBudgetSeconds: PAUSE_GRACE_SECONDS,
+      pauseSecondsLeft: pauseBudgetFor(events).remainingSeconds,
     });
   } catch (error) {
     console.error("LiveKit token generation failed:", error);
