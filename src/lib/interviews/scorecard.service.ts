@@ -686,7 +686,7 @@ async function buildScorecard(
   events: InterviewEvent[],
   previous: Scorecard | null,
 ): Promise<Scorecard> {
-  const transcript = renderTranscript(turns);
+  const transcript = renderTranscriptWithHr(turns, events);
   const rubric = renderAnswerRubric(plan);
   const context = `Role: ${session.roleTitle ?? session.title}\n\n<rubric>\n${rubric}\n</rubric>\n\n<transcript>\n${transcript}\n</transcript>`;
 
@@ -1412,6 +1412,50 @@ function renderTranscript(turns: InterviewTurn[]): string {
   return lines.join("\n").slice(0, MAX_TRANSCRIPT_CHARS);
 }
 
+/** One HR caption as stored by the agent. */
+function hrQuestions(events: InterviewEvent[]): { at: string; text: string }[] {
+  return events
+    .filter((event) => event.type === "hr_speech")
+    .map((event) => ({
+      at: typeof event.data?.saidAt === "string" ? event.data.saidAt : event.at,
+      text: typeof event.data?.text === "string" ? event.data.text.trim() : "",
+    }))
+    .filter((entry) => entry.text.length > 0);
+}
+
+/**
+ * The transcript as the grader reads it, with the HR colleague's questions in
+ * it. HR is a third speaker in the same interview, so their questions belong
+ * in the same transcript and count towards the same score; they are marked so
+ * the grader never cites them as the candidate's own words.
+ */
+function renderTranscriptWithHr(turns: InterviewTurn[], events: InterviewEvent[]): string {
+  const hr = hrQuestions(events);
+  if (hr.length === 0) return renderTranscript(turns);
+
+  const hrLine = (text: string) => `INTERVIEWER (HR): ${text}`;
+  const times = [
+    ...turns.map((turn) => (turn.startedAt ? Date.parse(turn.startedAt) : Number.NaN)),
+    ...hr.map((entry) => Date.parse(entry.at)),
+  ];
+  if (times.some((value) => !Number.isFinite(value))) {
+    // No reliable clock for every line: keep the turns in order and put the HR
+    // questions after them, clearly labelled, rather than guessing a position.
+    return `${renderTranscript(turns)}\n\n${hr.map((entry) => hrLine(entry.text)).join("\n")}`.slice(
+      0,
+      MAX_TRANSCRIPT_CHARS,
+    );
+  }
+
+  const merged = [
+    ...turns.map((turn) => ({ at: Date.parse(turn.startedAt as string), line: renderTranscript([turn]) })),
+    ...hr.map((entry) => ({ at: Date.parse(entry.at), line: hrLine(entry.text) })),
+  ]
+    .sort((a, b) => a.at - b.at)
+    .map((entry) => entry.line);
+  return merged.join("\n").slice(0, MAX_TRANSCRIPT_CHARS);
+}
+
 /**
  * The transcript is graded question by question. Each question comes with
  * the plan's anchors for this role (what a poor, good and excellent answer
@@ -1464,6 +1508,8 @@ const GRADER_PROMPT = [
   "You grade a job interview transcript one question at a time. You are careful, evidence-bound and fair, and you do not inflate.",
   "",
   "Each rubric entry is a question the interviewer planned to ask, with its planned follow-ups and anchors for this role. Grade the question and every follow-up on the same topic as ONE exchange: a fluent first answer that falls apart when probed is not a 3.",
+  "",
+  "Lines marked INTERVIEWER (HR) are questions a colleague from the client's HR team asked in the same call. They are part of the interview: weigh a candidate's answer to one of them in the competency it best fits, and say so in the rationale. Never quote HR as candidate evidence.",
   "",
   "For each competency in the rubric:",
   "- status: \"scored\" when the candidate said enough to rate it; \"insufficient_evidence\" when it was discussed but the answer does not support a rating; \"not_assessed\" when the interview never got to it.",

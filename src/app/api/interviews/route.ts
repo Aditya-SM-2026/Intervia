@@ -6,7 +6,7 @@ import {
   createInterviewSchema,
   formatValidationIssues,
 } from "@/lib/interviews/interview.validation";
-import type { InterviewApiError } from "@/lib/interviews/interview.types";
+import type { InterviewApiError, ResumeInfo } from "@/lib/interviews/interview.types";
 import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
 import { requireRecruiter } from "@/lib/auth/guards";
 import { accountDisplayName } from "@/lib/auth/session";
@@ -15,6 +15,7 @@ import { ensureRoleForTitle, getRoleForForm } from "@/lib/roles/role.service";
 import { describeRoleError } from "@/lib/roles/role-errors";
 import { storeResumeFile } from "@/lib/uploads/resume-storage";
 import { getInterviewRepository } from "@/server/repositories";
+import { getRolesRepository } from "@/server/repositories/roles-repository";
 import {
   invitationInputFromRoom,
   sendHrInvitation,
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
     return invalidInput("A job description is required: paste text or upload a PDF.");
   }
 
-  let resume: { fileName: string; text: string; unreadable?: boolean } | null = null;
+  let resume: ResumeInfo | null = null;
   if (resumeFile instanceof File && resumeFile.size > 0) {
     try {
       resume = {
@@ -152,6 +153,7 @@ export async function POST(request: NextRequest) {
   }
 
   let room;
+  let applicationId: string | null = null;
   try {
     // Attach the interview to the role it was created for, when that role
     // still exists. An unknown or malformed id is ignored rather than failing
@@ -159,6 +161,35 @@ export async function POST(request: NextRequest) {
     const requestedRole = parsed.data.roleId
       ? await getRoleForForm(parsed.data.roleId)
       : null;
+
+    // The candidate already gave a resume on the role's application form.
+    // Use it rather than starting the interview empty and asking again.
+    if (!resume && requestedRole && parsed.data.candidateEmail) {
+      try {
+        const roles = getRolesRepository();
+        const application = await roles.getApplicationByEmail(
+          requestedRole.id,
+          parsed.data.candidateEmail,
+        );
+        if (application) {
+          applicationId = application.id;
+          const stored = await roles.getApplicationResume(requestedRole.id, application.id);
+          const resumeText = stored?.text.trim() ?? "";
+          if (stored?.fileName) {
+            resume = {
+              fileName: stored.fileName,
+              text: resumeText,
+              ...(resumeText ? {} : { unreadable: true }),
+              ...(stored.objectPath ? { objectPath: stored.objectPath } : {}),
+            };
+          }
+        }
+      } catch (error) {
+        // A resume lookup is a convenience, never a reason to fail scheduling.
+        console.error(`[interviews] application resume lookup failed: ${describeRoleError(error)}`);
+      }
+    }
+
     room = await createInterviewRoom({
       ...parsed.data,
       voiceMode,
@@ -168,6 +199,21 @@ export async function POST(request: NextRequest) {
       jobDescription,
       resume,
     });
+
+    // Keep the role page in step: this person is now scheduled, and the
+    // application points at their interview.
+    if (requestedRole && applicationId) {
+      try {
+        await getRolesRepository().updateApplicationStatus(
+          requestedRole.id,
+          applicationId,
+          "scheduled",
+          room.id,
+        );
+      } catch (error) {
+        console.error(`[interviews] could not link the application: ${describeRoleError(error)}`);
+      }
+    }
   } catch (error) {
     if (error instanceof DuplicateInterviewError) {
       // Lost the insert race against an identical simultaneous submission.
