@@ -14,7 +14,12 @@ PROJECT=siva-nikhil
 IMAGE="asia-south1-docker.pkg.dev/${PROJECT}/meetingbot/agent:predev"
 NAME=agent-predev
 WEB_URL="https://intervia-predev-web-199504026920.asia-south1.run.app"
-MEMORY_LIMIT=800m
+# A single job needs about 550 MB on top of the worker, and the old 800m cap
+# let the kernel OOM-kill an interview mid-call. The process died, the
+# candidate reconnected onto a fresh agent, and the first agent's recording was
+# never uploaded. Give a job room to grow and let a spike borrow swap.
+MEMORY_LIMIT=1200m
+MEMORY_SWAP=2048m
 
 TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
   "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
@@ -60,7 +65,8 @@ if [ "${ACTIVE:-0}" != "0" ]; then
 fi
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
-docker run -d --name "$NAME" --restart=always --memory="$MEMORY_LIMIT" \
+docker run -d --name "$NAME" --restart=always \
+  --memory="$MEMORY_LIMIT" --memory-swap="$MEMORY_SWAP" \
   -e AGENT_NAME=predev-interviewer \
   -e INTERVIA_WEB_URL="$WEB_URL" \
   -e AGENT_API_SECRET="$AGENT_API_SECRET" \
