@@ -265,7 +265,7 @@ export function ScreeningSettings({ roleId }: { roleId: string }) {
             aria-expanded={open}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-foreground px-3 text-sm font-medium text-background transition hover:opacity-90"
           >
-            Weights
+            Edit scoring
             <ChevronDown className={`size-4 transition ${open ? "rotate-180" : ""}`} aria-hidden />
           </button>
         </div>
@@ -382,7 +382,7 @@ export function ScreeningSettings({ roleId }: { roleId: string }) {
               className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-3.5 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-40"
             >
               {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
-              Save weights
+              Save scoring
             </button>
           </div>
           <p className="mt-3 text-xs text-muted">
