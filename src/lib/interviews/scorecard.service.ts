@@ -1354,6 +1354,9 @@ function buildIntegrity(
   let hiddenSince: number | null = null;
   let windowBlurCount = 0;
   let candidateDisconnects = 0;
+  let pauseCount = 0;
+  let pausedMs = 0;
+  let pausedSince: number | null = null;
   let lastAt = 0;
 
   for (const event of events) {
@@ -1369,9 +1372,16 @@ function buildIntegrity(
       windowBlurCount += 1;
     } else if (event.type === "candidate_disconnected") {
       candidateDisconnects += 1;
+    } else if (event.type === "candidate_paused") {
+      pauseCount += 1;
+      pausedSince ??= at;
+    } else if (event.type === "candidate_resumed" && pausedSince !== null) {
+      pausedMs += Math.max(0, at - pausedSince);
+      pausedSince = null;
     }
   }
   if (hiddenSince !== null && lastAt > hiddenSince) tabHiddenMs += lastAt - hiddenSince;
+  if (pausedSince !== null && lastAt > pausedSince) pausedMs += lastAt - pausedSince;
 
   const latencies = turns
     .filter((turn) => turn.speaker === "candidate" && turn.responseLatencyMs !== null)
@@ -1383,6 +1393,8 @@ function buildIntegrity(
     tabHiddenSeconds: Math.round(tabHiddenMs / 1000),
     windowBlurCount,
     candidateDisconnects,
+    pauseCount,
+    pausedSeconds: Math.round(pausedMs / 1000),
     medianResponseLatencyMs:
       latencies.length === 0 ? null : latencies[Math.floor(latencies.length / 2)],
     notes: rawNotes

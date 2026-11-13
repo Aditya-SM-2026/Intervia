@@ -126,7 +126,7 @@ export const PREVIEW_DETAIL = {
     competencies,
     overallScore: 2.2,
     suggestion: "weak",
-    integrity: { tabHiddenCount: 0, tabHiddenSeconds: 0, windowBlurCount: 0, candidateDisconnects: 0, medianResponseLatencyMs: 1800, notes: [] },
+    integrity: { tabHiddenCount: 0, tabHiddenSeconds: 0, windowBlurCount: 0, candidateDisconnects: 0, pauseCount: 0, pausedSeconds: 0, medianResponseLatencyMs: 1800, notes: [] },
     notes: [],
     needsHumanReview: false,
     answerQuality: 44,

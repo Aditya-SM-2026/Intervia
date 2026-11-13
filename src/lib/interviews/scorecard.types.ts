@@ -106,6 +106,10 @@ export interface IntegritySignals {
   tabHiddenSeconds: number;
   windowBlurCount: number;
   candidateDisconnects: number;
+  /** Times the candidate left the interview (full screen, tab, or Leave). */
+  pauseCount: number;
+  /** Total time the interview stood paused waiting for them, in seconds. */
+  pausedSeconds: number;
   /** Median gap between the interviewer finishing and the candidate starting. */
   medianResponseLatencyMs: number | null;
   notes: IntegrityNote[];

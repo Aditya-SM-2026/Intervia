@@ -7,7 +7,7 @@ import { CandidateMessage } from "@/components/interview/CandidateShell";
 import { LiveRoom } from "@/components/interview/LiveRoom";
 import type { AiUiState } from "@/components/interview/AiStatus";
 
-const STAGES = ["verify", "devices", "connecting", "live", "ended", "left", "error"] as const;
+const STAGES = ["verify", "devices", "connecting", "live", "paused", "ended", "left", "error"] as const;
 type PreviewStage = (typeof STAGES)[number];
 
 const TRANSCRIPT = [
@@ -34,7 +34,7 @@ export function InterviewPreview() {
         <p>This takes a few seconds. Keep this tab open.</p>
       </CandidateMessage>
     );
-  } else if (stage === "live") {
+  } else if (stage === "live" || stage === "paused") {
     screen = (
       <LiveRoom
         {...common}
@@ -53,6 +53,9 @@ export function InterviewPreview() {
         hrNotice={false}
         hrPresent={hr}
         hrTrack={null}
+        pause={
+          stage === "paused" ? { reason: "fullscreen", secondsLeft: 87, totalSeconds: 120 } : null
+        }
         onToggleConversation={() => setConversation((value) => !value)}
         onToggleMute={() => setMuted((value) => !value)}
         onToggleCamera={() => setCameraOff((value) => !value)}
@@ -60,6 +63,8 @@ export function InterviewPreview() {
           void exitFullscreen();
           setStage("left");
         }}
+        onResume={() => setStage("live")}
+        onEndInterview={() => setStage("left")}
         onEnableAudio={() => {}}
       />
     );

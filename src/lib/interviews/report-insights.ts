@@ -167,6 +167,11 @@ export function buildReportInsights(input: {
   if (integrity.candidateDisconnects >= 2) {
     flags.push(`Disconnected ${integrity.candidateDisconnects} times.`);
   }
+  if (integrity.pauseCount > 0) {
+    flags.push(
+      `Left the interview ${integrity.pauseCount} time(s) (full screen, tab or Leave) for ${integrity.pausedSeconds}s in total.`,
+    );
+  }
   const check = scorecard.integrityCheck;
   if (check) {
     for (const finding of check.findings.filter((item) => item.strength >= 2 && item.kind !== "left_tab")) {

@@ -96,6 +96,7 @@ const END_REASONS: Record<string, string> = {
   interviewer_ended: "Completed by the interviewer",
   time_up: "Ended at the time limit",
   candidate_left: "Candidate left early",
+  pause_timeout: "Candidate left full screen and did not return",
   session_closed: "Session closed unexpectedly",
 };
 

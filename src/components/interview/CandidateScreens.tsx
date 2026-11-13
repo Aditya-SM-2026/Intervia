@@ -142,7 +142,7 @@ export function CandidateEndScreen({
           </button>
         }
       >
-        <p>If that was a mistake, rejoin within 5 minutes and it continues exactly where it stopped.</p>
+        <p>If that was a mistake, rejoin within 2 minutes and it continues exactly where it stopped.</p>
       </CandidateMessage>
     );
   }

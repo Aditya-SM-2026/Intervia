@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DisconnectReason,
   ParticipantKind,
@@ -12,14 +12,20 @@ import {
   type RemoteTrack,
 } from "livekit-client";
 import type { LiveKitJoinCredentials } from "@/lib/livekit/client";
-import { exitFullscreen } from "@/lib/browser/fullscreen";
+import {
+  exitFullscreen,
+  isFullscreen,
+  isFullscreenSupported,
+  onFullscreenChange,
+  requestFullscreen,
+} from "@/lib/browser/fullscreen";
 import { startCandidateRecorder, type CandidateRecorder } from "@/lib/recordings/candidate-recorder";
 import type { ConnectionStage } from "./ConnectionStatus";
 import type { AiUiState } from "./AiStatus";
 import type { TranscriptEntry } from "./TranscriptPanel";
 import { CandidateMessage } from "./CandidateShell";
 import { CandidateEndScreen, ConnectingOrb, JoinScreen } from "./CandidateScreens";
-import { LiveRoom } from "./LiveRoom";
+import { LiveRoom, type PauseReason } from "./LiveRoom";
 
 interface InterviewRoomProps {
   roomId: string;
@@ -31,6 +37,14 @@ interface InterviewRoomProps {
 
 type Stage = "prejoin" | "connecting" | "connected" | "ended" | "left" | "error";
 
+interface Pause {
+  reason: PauseReason;
+  /** When the candidate must be back, in epoch milliseconds. */
+  deadline: number;
+  secondsLeft: number;
+  totalSeconds: number;
+}
+
 /** Text-stream topics: live captions from the agent, browser events to it. */
 const TRANSCRIPTION_TOPIC = "lk.transcription";
 const CLIENT_EVENT_TOPIC = "intervia.client";
@@ -38,6 +52,21 @@ const CLIENT_EVENT_TOPIC = "intervia.client";
 const AGENT_STATE_ATTRIBUTE = "lk.agent.state";
 /** If no interviewer has joined after this long, say so instead of waiting silently. */
 const AGENT_JOIN_TIMEOUT_MS = 30_000;
+/** How long a candidate who left the interview may take to come back. */
+const PAUSE_WINDOW_SECONDS = 2 * 60;
+
+/**
+ * The pause window, in seconds. Local development can shorten it with
+ * `?pauseWindow=15` so a two-minute wait is not needed for every test; the
+ * production build always uses the real window.
+ */
+function pauseWindowSeconds(): number {
+  if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+    const override = Number(new URLSearchParams(window.location.search).get("pauseWindow"));
+    if (Number.isFinite(override) && override >= 5 && override <= PAUSE_WINDOW_SECONDS) return override;
+  }
+  return PAUSE_WINDOW_SECONDS;
+}
 
 function toAiState(agentState: string | undefined): AiUiState {
   switch (agentState) {
@@ -88,8 +117,16 @@ export function InterviewRoom({
   /** HR is in the call (they are shown as a second camera tile). */
   const [hrPresent, setHrPresent] = useState(false);
   const [hrTrack, setHrTrack] = useState<MediaStreamTrack | null>(null);
+  /** Set while the interview is paused because the candidate left it. */
+  const [pause, setPause] = useState<Pause | null>(null);
 
   const roomRef = useRef<Room | null>(null);
+  const credentialsRef = useRef<LiveKitJoinCredentials | null>(null);
+  const pauseRef = useRef<Pause | null>(null);
+  /** The microphone was on when the pause started, so it goes back on. */
+  const micWasOnRef = useRef(false);
+  /** Full screen was really granted at least once: only then can leaving it mean anything. */
+  const fullscreenArmedRef = useRef(false);
   const streamRef = useRef<MediaStream | null>(null);
   const publicationsRef = useRef<{
     audio: LocalTrackPublication | null;
@@ -115,6 +152,8 @@ export function InterviewRoom({
     hrNoticeTimerRef.current = null;
     if (hardStopTimerRef.current) clearTimeout(hardStopTimerRef.current);
     hardStopTimerRef.current = null;
+    pauseRef.current = null;
+    setPause(null);
     // Stop recording before the tracks end, so the last piece is uploaded.
     // The upload finishes in the background; this page stays open after an
     // interview, on the "complete" screen.
@@ -129,6 +168,124 @@ export function InterviewRoom({
     setMicrophoneTrack(null);
     setInterviewerTrack(null);
   }
+
+  /** Tells the interviewer's agent what the page is doing, if it is there. */
+  function sendClientEvent(type: string) {
+    const room = roomRef.current;
+    if (!room || room.state !== "connected") return;
+    void room.localParticipant
+      .sendText(JSON.stringify({ type }), { topic: CLIENT_EVENT_TOPIC })
+      .catch(() => {});
+  }
+
+  /**
+   * Records the pause on the server, which owns the two-minute window and the
+   * timeline the recruiter reads afterwards. The recording token proves this
+   * is the participant who joined, so nobody else can move an interview's
+   * state.
+   */
+  const postPresence = useCallback(
+    (state: "paused" | "resumed" | "expired", reason: PauseReason) => {
+      const credentials = credentialsRef.current;
+      if (!credentials?.recordingToken) return;
+      void fetch(`/api/interviews/${encodeURIComponent(roomId)}/presence`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-recording-id": credentials.identity,
+          "x-recording-token": credentials.recordingToken,
+        },
+        body: JSON.stringify({ state, reason }),
+        keepalive: true,
+      }).catch(() => {});
+    },
+    [roomId],
+  );
+
+  /**
+   * Pauses the interview: the interviewer can no longer hear or answer, the
+   * candidate's own microphone stops sending, and a countdown takes over the
+   * screen. Leaving full screen, hiding the tab and pressing Leave all lead
+   * here, because all three mean the candidate is no longer in the interview.
+   */
+  const beginPause = useCallback((reason: PauseReason) => {
+    if (pauseRef.current) return;
+    const totalSeconds = pauseWindowSeconds();
+    const next: Pause = {
+      reason,
+      deadline: Date.now() + totalSeconds * 1000,
+      secondsLeft: totalSeconds,
+      totalSeconds,
+    };
+    pauseRef.current = next;
+    setPause(next);
+
+    // Whatever the candidate is saying stops reaching the interviewer.
+    const publication = publicationsRef.current.audio;
+    micWasOnRef.current = Boolean(publication && !publication.isMuted);
+    if (micWasOnRef.current) void publication?.mute().catch(() => {});
+    setMuted(true);
+    // And the interviewer's voice does not play into an empty room.
+    audioElementsRef.current.forEach((element) => {
+      if (element instanceof HTMLMediaElement) element.pause();
+    });
+
+    sendClientEvent("interview_paused");
+    postPresence("paused", reason);
+  }, [postPresence]);
+
+  /** Back from a pause: full screen again, microphone again, same question. */
+  const resumeInterview = useCallback(() => {
+    const current = pauseRef.current;
+    if (!current) return;
+    // First, before anything else: the click is the permission the browser
+    // needs to give the screen back.
+    if (isFullscreenSupported()) void requestFullscreen();
+
+    pauseRef.current = null;
+    setPause(null);
+
+    const publication = publicationsRef.current.audio;
+    if (micWasOnRef.current && publication) void publication.unmute().catch(() => {});
+    setMuted(!micWasOnRef.current);
+    audioElementsRef.current.forEach((element) => {
+      if (element instanceof HTMLMediaElement) void element.play().catch(() => {});
+    });
+
+    sendClientEvent("interview_resumed");
+    postPresence("resumed", current.reason);
+  }, [postPresence]);
+
+  /** The two minutes ran out: the interview ends here and is sent as it is. */
+  const expirePause = useCallback(() => {
+    const current = pauseRef.current;
+    if (!current) return;
+    pauseRef.current = null;
+    setPause(null);
+    postPresence("expired", current.reason);
+
+    leftIntentionallyRef.current = true;
+    const room = roomRef.current;
+    roomRef.current = null;
+    void room?.disconnect().catch(() => {});
+    releaseMedia();
+    setStage("ended");
+  }, [postPresence]);
+
+  /** Leave, pressed twice on purpose: the candidate really is done. */
+  const endInterview = useCallback(() => {
+    const current = pauseRef.current;
+    if (current) postPresence("resumed", current.reason);
+    pauseRef.current = null;
+    setPause(null);
+
+    leftIntentionallyRef.current = true;
+    const room = roomRef.current;
+    roomRef.current = null;
+    void room?.disconnect().catch(() => {});
+    releaseMedia();
+    setStage("left");
+  }, [postPresence]);
 
   // Cleanup when the page is closed or navigated away from.
   useEffect(() => {
@@ -162,16 +319,9 @@ export function InterviewRoom({
   // with timestamps for the recruiter's integrity view.
   useEffect(() => {
     if (stage !== "connected") return;
-    const send = (type: string) => {
-      const room = roomRef.current;
-      if (!room || room.state !== "connected") return;
-      void room.localParticipant
-        .sendText(JSON.stringify({ type }), { topic: CLIENT_EVENT_TOPIC })
-        .catch(() => {});
-    };
-    const onVisibility = () => send(document.hidden ? "tab_hidden" : "tab_visible");
-    const onBlur = () => send("window_blur");
-    const onFocus = () => send("window_focus");
+    const onVisibility = () => sendClientEvent(document.hidden ? "tab_hidden" : "tab_visible");
+    const onBlur = () => sendClientEvent("window_blur");
+    const onFocus = () => sendClientEvent("window_focus");
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("blur", onBlur);
     window.addEventListener("focus", onFocus);
@@ -181,6 +331,56 @@ export function InterviewRoom({
       window.removeEventListener("focus", onFocus);
     };
   }, [stage]);
+
+  // Leaving the full screen pauses the interview. The page is never told that
+  // Escape was pressed, but it is told that full screen ended, whichever way
+  // it happened. Nothing is paused until full screen has really been granted
+  // once, so a browser that refuses it does not leave the candidate stuck.
+  useEffect(() => {
+    if (stage !== "connected") {
+      fullscreenArmedRef.current = false;
+      return;
+    }
+    if (isFullscreen()) fullscreenArmedRef.current = true;
+    return onFullscreenChange(() => {
+      if (isFullscreen()) {
+        fullscreenArmedRef.current = true;
+        return;
+      }
+      if (fullscreenArmedRef.current) beginPause("fullscreen");
+    });
+  }, [stage, beginPause]);
+
+  // Switching tab, switching app, or locking the phone is leaving too: the
+  // interview stops while they are away rather than talking to nobody.
+  useEffect(() => {
+    if (stage !== "connected") return;
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") beginPause("tab_hidden");
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    return () => document.removeEventListener("visibilitychange", onHidden);
+  }, [stage, beginPause]);
+
+  // The countdown is computed from a fixed deadline, never from a count of
+  // ticks: a background tab or a sleeping phone cannot stretch the two
+  // minutes, and coming back after them ends the interview at once.
+  useEffect(() => {
+    if (!pause) return;
+    const tick = () => {
+      const secondsLeft = Math.max(0, Math.ceil((pause.deadline - Date.now()) / 1000));
+      if (secondsLeft <= 0) {
+        expirePause();
+        return;
+      }
+      setPause((current) =>
+        current && current.secondsLeft !== secondsLeft ? { ...current, secondsLeft } : current,
+      );
+    };
+    tick();
+    const timer = setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [pause?.deadline, expirePause]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function upsertTranscript(entry: TranscriptEntry & { id: string }) {
     setTranscript((current) => {
@@ -290,7 +490,7 @@ export function InterviewRoom({
         return;
       }
       setFailure(
-        "The connection to the interview was lost. Rejoin within 5 minutes and the interview continues exactly where it stopped: same question, same transcript, same clock.",
+        "The connection to the interview was lost. Rejoin within 2 minutes and the interview continues exactly where it stopped: same question, same transcript, same clock.",
       );
       setStage("error");
     });
@@ -321,12 +521,16 @@ export function InterviewRoom({
     }
 
     leftIntentionallyRef.current = false;
+    credentialsRef.current = credentials;
     streamRef.current = stream;
     setStage("connecting");
     setConnectionStage("connecting");
     setTranscript([]);
     setMuted(false);
     setCameraOff(false);
+    pauseRef.current = null;
+    setPause(null);
+    fullscreenArmedRef.current = isFullscreen();
 
     // Resuming an interview in progress: the server owns the clock, so the
     // timer continues from the original start rather than restarting. On a
@@ -447,15 +651,14 @@ export function InterviewRoom({
   }
 
   async function handleLeave() {
-    leftIntentionallyRef.current = true;
-    await roomRef.current?.disconnect();
-    roomRef.current = null;
-    releaseMedia();
-    setStage("left");
+    // Leaving is not an escape hatch: the interview pauses, and the candidate
+    // has the same two minutes to come back as when full screen is lost.
+    beginPause("left");
   }
 
   function handleRetry() {
     leftIntentionallyRef.current = false;
+    credentialsRef.current = null;
     setFailure(null);
     setAiState("connecting");
     setAiDetail(null);
@@ -511,6 +714,17 @@ export function InterviewRoom({
         onToggleMute={handleToggleMute}
         onToggleCamera={handleToggleCamera}
         onLeave={handleLeave}
+        pause={
+          pause
+            ? {
+                reason: pause.reason,
+                secondsLeft: pause.secondsLeft,
+                totalSeconds: pause.totalSeconds,
+              }
+            : null
+        }
+        onResume={resumeInterview}
+        onEndInterview={endInterview}
         onEnableAudio={() => {
           void roomRef.current?.startAudio().then(() => setAudioBlocked(false));
         }}

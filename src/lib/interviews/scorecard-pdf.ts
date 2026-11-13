@@ -685,6 +685,7 @@ export async function renderScorecardPdf(
     [
       ["Tab hidden", `${scorecard.integrity.tabHiddenCount} time(s), ${scorecard.integrity.tabHiddenSeconds}s total`],
       ["Window blur", `${scorecard.integrity.windowBlurCount} time(s)`],
+      ["Left the interview", `${scorecard.integrity.pauseCount} time(s), ${scorecard.integrity.pausedSeconds}s paused`],
       ["Candidate disconnects", String(scorecard.integrity.candidateDisconnects)],
       [
         "Median response latency",
