@@ -23,8 +23,11 @@ export async function runJob(job: WebJob): Promise<void> {
         throw new RetryableJobError(result.snapshot.reason || "screening call failed");
       }
       // Next step straight away: invite the candidate if they cleared the bar.
+      // A unique name: the sweep's per-minute job for this role may already
+      // have run this minute, and the queue would treat this as a repeat of
+      // it. Running twice is safe, each candidate is claimed once.
       if (result.snapshot.status === "scored" && (await autoInviteEnabledFor(job.roleId))) {
-        await enqueueJob({ kind: "auto-invite-role", roleId: job.roleId });
+        await enqueueJob({ kind: "auto-invite-role", roleId: job.roleId }, { windowMs: 1 });
       }
       return;
     }
