@@ -19,7 +19,9 @@ export function InfoTip({ text, align = "left" }: { text: string; align?: "left"
           // Inside a link card the tip opens; the card does not navigate.
           event.preventDefault();
           event.stopPropagation();
-          setOpen((current) => !current);
+          // Focus has already opened it; a click must not toggle it shut again
+          // (on a phone the tap is both). Blur or moving away closes it.
+          setOpen(true);
         }}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
