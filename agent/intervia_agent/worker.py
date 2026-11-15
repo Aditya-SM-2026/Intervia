@@ -583,9 +583,10 @@ class InterviewRuntime:
             self.instructions_for_current_step() + continuation_note(previous, answered=True),
             chat_ctx=carry_over_context(previous, self.controller.summary_so_far()),
             entering_note=(
-                "Continue the interview with the current step now. The candidate's last answer "
-                "has already been acknowledged, so do not thank them again: go straight to what "
-                "comes next. Do not greet them again and do not mention any change."
+                "Continue the interview with the current step now. You have already acknowledged "
+                "the candidate's last answer out loud, so your first words are the question "
+                "itself: no \"Got it\", \"Okay\", \"Thanks\" or other acknowledgement before it. "
+                "Ask it as one complete question. Do not greet them again and do not mention any change."
             ),
         )
 

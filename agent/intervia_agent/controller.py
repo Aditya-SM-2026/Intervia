@@ -415,7 +415,10 @@ class InterviewController:
                 "About a minute of the interview remains. When the candidate finishes their "
                 "current answer, ask whether they have any questions for you about the role, and "
                 "answer briefly from the job description (for anything else, say the recruiter "
-                "will follow up). Do not say goodbye: the system closes the interview.",
+                "will follow up). If they have no questions, or once you have answered, keep the "
+                "conversation going with one more question on their earlier answers. Never say you "
+                "are waiting for the end or that the session is over. Do not say goodbye: the "
+                "system closes the interview.",
             )
 
         if self.phase == Phase.INTRO:
