@@ -18,6 +18,7 @@ import {
 } from "@/lib/interviews/email-attempts";
 import { getLiveKitRoomName } from "@/lib/livekit/room";
 import { generateLiveKitToken } from "@/lib/livekit/token";
+import { agentJobConfig, ensureInterviewAgent } from "@/lib/livekit/agent-launch";
 import { createRecordingToken } from "@/lib/auth/session";
 import { getInterviewRepository } from "@/server/repositories";
 import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
@@ -157,11 +158,27 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       await attachApplicationResume(result.room);
     }
 
+    // Each interview can get its own interviewer machine (a Cloud Run job),
+    // started now so it boots while the candidate checks camera and
+    // microphone. If that cannot start, the token dispatches the shared
+    // worker instead, so the candidate is never left without an interviewer.
+    const roomName = getLiveKitRoomName(roomId);
+    const jobConfig = agentJobConfig();
+    let ownInterviewer = false;
+    if (jobConfig) {
+      try {
+        await ensureInterviewAgent(jobConfig, roomId, roomName);
+        ownInterviewer = true;
+      } catch (error) {
+        console.error("Interviewer job did not start, dispatching the shared worker:", error);
+      }
+    }
     const credentials = await generateLiveKitToken({
-      roomName: getLiveKitRoomName(roomId),
+      roomName,
       identity,
       displayName,
       dispatchInterviewId: roomId,
+      dispatchAgent: !ownInterviewer,
     });
     await activateRoom(roomId);
     return NextResponse.json({

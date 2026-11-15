@@ -92,7 +92,7 @@ export async function enqueueHttpTask(options: EnqueueOptions): Promise<boolean>
 }
 
 /** Access token from the Cloud Run metadata server, or null off GCP. */
-async function metadataToken(): Promise<string | null> {
+export async function metadataToken(): Promise<string | null> {
   if (process.env.CLOUD_RUN_JOB || process.env.K_SERVICE) {
     try {
       const response = await fetch(

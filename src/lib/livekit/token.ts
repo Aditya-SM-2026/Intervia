@@ -11,6 +11,12 @@ export interface LiveKitTokenParams {
    * agent dispatched to it for this interview (explicit dispatch: no polling).
    */
   dispatchInterviewId?: string;
+  /**
+   * False when the interview has its own interviewer job (one Cloud Run job
+   * per interview), which joins the room by itself. The room still keeps the
+   * candidate's rejoin window.
+   */
+  dispatchAgent?: boolean;
   /** HR joins to listen and speak; the agent still only hears the candidate. */
   canPublish?: boolean;
 }
@@ -41,6 +47,7 @@ export async function generateLiveKitToken({
   identity,
   displayName,
   dispatchInterviewId,
+  dispatchAgent = true,
   canPublish = true,
 }: LiveKitTokenParams): Promise<LiveKitToken> {
   const config = getLiveKitConfig();
@@ -62,12 +69,14 @@ export async function generateLiveKitToken({
       // Keeps the room (and the interviewer) available for 5 minutes after
       // the candidate drops, so they can rejoin and resume the same interview.
       departureTimeout: CANDIDATE_REJOIN_WINDOW_SECONDS,
-      agents: [
-        new RoomAgentDispatch({
-          agentName: AGENT_NAME,
-          metadata: JSON.stringify({ interviewId: dispatchInterviewId }),
-        }),
-      ],
+      agents: dispatchAgent
+        ? [
+            new RoomAgentDispatch({
+              agentName: AGENT_NAME,
+              metadata: JSON.stringify({ interviewId: dispatchInterviewId }),
+            }),
+          ]
+        : [],
     });
   }
 

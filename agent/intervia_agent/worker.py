@@ -1220,7 +1220,13 @@ def carry_over_context(
 
 
 def interview_id_for(ctx: JobContext) -> str:
-    """The interview id from the dispatch metadata, else from the room name."""
+    """The interview id from the dispatch metadata, else from the room name.
+
+    A one-shot run (one Cloud Run job per interview) has no dispatch, so the
+    web app passes the id in the environment instead."""
+    from_env = (os.environ.get("INTERVIA_INTERVIEW_ID") or "").strip()
+    if from_env:
+        return from_env
     try:
         metadata = json.loads(ctx.job.metadata or "{}")
         if isinstance(metadata, dict) and isinstance(metadata.get("interviewId"), str):
@@ -1245,7 +1251,10 @@ def prewarm(proc: JobProcess) -> None:
 
 
 load_env()
-server = AgentServer(setup_fnc=prewarm)
+# A one-shot run handles exactly one interview, so one warm process is enough;
+# the default pool would load the voice detector into several idle processes.
+ONE_SHOT = (os.environ.get("INTERVIA_ONE_SHOT") or "").strip() == "1"
+server = AgentServer(setup_fnc=prewarm, **({"num_idle_processes": 1} if ONE_SHOT else {}))
 
 
 @server.rtc_session(agent_name=agent_name())

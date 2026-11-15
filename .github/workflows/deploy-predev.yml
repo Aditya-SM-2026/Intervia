@@ -20,7 +20,12 @@ env:
   AR_REPO: asia-south1-docker.pkg.dev/siva-nikhil/meetingbot
   WIF_PROVIDER: projects/199504026920/locations/global/workloadIdentityPools/github-intervia/providers/github
   SA: 199504026920-compute@developer.gserviceaccount.com
-  VM: meetingbot-agent-vm
+  # The predev interviewer's own VM (2 vCPU, 8 GB). The shared e2-small ran
+  # out of CPU and memory when interviews overlapped.
+  VM: meetingbot-agent-predev-2
+  # One Cloud Run job execution per interview: started by the web app at the
+  # email gate, it runs one interview on its own machine and exits.
+  AGENT_JOB: intervia-predev-agent
   WEB_SERVICE: intervia-predev-web
   WORKER_SERVICE: intervia-predev-video-worker
   # Public URL written into shareable links. Request origins inside the
@@ -156,9 +161,25 @@ jobs:
           IMAGE=${{ env.AR_REPO }}/agent:predev
           docker build -t "$IMAGE" -f agent/Dockerfile agent
           docker push "$IMAGE"
-      - name: Restart only the predev container on the shared VM
+      - name: Deploy the per-interview interviewer job
         run: |
-          # Never `instances reset`: that would drop the production agent too.
+          # A running execution keeps the image it started with, so this never
+          # interrupts a live interview; the next interview gets the new image.
+          gcloud run jobs deploy ${{ env.AGENT_JOB }} \
+            --project ${{ env.PROJECT_ID }} \
+            --region ${{ env.REGION }} \
+            --image ${{ env.AR_REPO }}/agent:predev \
+            --command uv --args run,--no-dev,main.py,one-shot \
+            --execution-environment gen2 \
+            --cpu 2 --memory 4Gi \
+            --task-timeout 2h --max-retries 0 --tasks 1 \
+            --set-env-vars INTERVIA_ONE_SHOT=1,AGENT_NAME=predev-interviewer,AGENT_TTS_PROVIDER=cloud,NEXT_PUBLIC_VOICE_PROVIDER=cascade,NODE_ENV=production,INTERVIA_WEB_URL=${{ env.APP_BASE_URL }} \
+            --set-secrets AGENT_API_SECRET=predev-agent-api-secret:latest,GEMINI_API_KEY=meetingbot-gemini-api-key:latest,OMINIBOT_API_KEY=meetingbot-ominibot-api-key:latest,LIVEKIT_URL=meetingbot-livekit-url:latest,LIVEKIT_API_KEY=meetingbot-livekit-api-key:latest,LIVEKIT_API_SECRET=meetingbot-livekit-api-secret:latest \
+            --quiet
+      - name: Restart the predev fallback worker on its VM
+        run: |
+          # The long-running worker the web app falls back to when a job cannot
+          # start. Never `instances reset`.
           gcloud compute scp scripts/predev-agent-vm.sh ${{ env.VM }}:predev-agent-vm.sh \
             --project ${{ env.PROJECT_ID }} --zone ${{ env.ZONE }} --quiet
           gcloud compute ssh ${{ env.VM }} \

@@ -1,7 +1,7 @@
 #!/bin/bash
-# Runs the predev interviewer agent on meetingbot-agent-vm, beside the
-# production container. Only the `agent-predev` container is touched, so a
-# predev release never interrupts a production interview.
+# Runs the predev fallback interviewer on meetingbot-agent-predev-2. Interviews
+# normally get their own Cloud Run job; this long-running worker takes the
+# interview only when that job cannot start.
 #
 # No ports are published: the agent connects outbound to LiveKit Cloud, and
 # the production container already owns 7880/7881/7882.
@@ -18,8 +18,8 @@ WEB_URL="https://intervia-predev-web-199504026920.asia-south1.run.app"
 # let the kernel OOM-kill an interview mid-call. The process died, the
 # candidate reconnected onto a fresh agent, and the first agent's recording was
 # never uploaded. Give a job room to grow and let a spike borrow swap.
-MEMORY_LIMIT=1200m
-MEMORY_SWAP=2048m
+MEMORY_LIMIT=2048m
+MEMORY_SWAP=3072m
 
 TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
   "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
