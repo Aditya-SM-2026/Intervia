@@ -24,6 +24,8 @@ export type RecordingRef =
       object: { bucket: string; path: string };
       startedAt: string;
       mixed?: boolean;
+      /** The candidate recording this file is a copy of, when known. */
+      recordingId?: string;
     };
 
 export interface RecordingEvent {
@@ -87,7 +89,12 @@ export function listRecordings(events: readonly RecordingEvent[]): RecordingRef[
       // finished; playable from any deployment, so it is always listed.
       const startedAt =
         (typeof recordingId === "string" ? starts.get(recordingId) : undefined) ?? event.at;
-      found.push({ kind: "gcs", object: { bucket, path: objectPath }, startedAt });
+      found.push({
+        kind: "gcs",
+        object: { bucket, path: objectPath },
+        startedAt,
+        ...(typeof recordingId === "string" ? { recordingId } : {}),
+      });
       continue;
     }
     if (storage === "local" && typeof recordingId === "string") {
@@ -118,8 +125,28 @@ export function hasRecording(events: readonly RecordingEvent[]): boolean {
  * testing). The mix is used only when nothing else is stored.
  */
 export function storedRecordingForAnalysis(
-  refs: readonly RecordingRef[],
+  events: readonly RecordingEvent[],
 ): Extract<RecordingRef, { kind: "gcs" }> | null {
-  const stored = refs.filter((ref): ref is Extract<RecordingRef, { kind: "gcs" }> => ref.kind === "gcs");
-  return stored.filter((ref) => !ref.mixed).at(-1) ?? stored.at(-1) ?? null;
+  const stored = listRecordings(events).filter(
+    (ref): ref is Extract<RecordingRef, { kind: "gcs" }> => ref.kind === "gcs",
+  );
+  const own = stored.filter((ref) => !ref.mixed);
+  if (own.length === 0) return stored.at(-1) ?? null;
+  // A candidate who rejoined leaves several recordings, and the last can be a
+  // few seconds long (one ended at 41 seconds and the analysis measured no
+  // answers at all). The longest one holds the interview: compare the sizes
+  // logged when each recording finished, the latest winning a tie.
+  const bytes = new Map<string, number>();
+  for (const event of events) {
+    if (event.type !== "recording_finished") continue;
+    const { recordingId, bytes: size } = event.data;
+    if (typeof recordingId === "string" && typeof size === "number") bytes.set(recordingId, size);
+  }
+  let best = own[own.length - 1];
+  for (const ref of own) {
+    const size = ref.recordingId ? (bytes.get(ref.recordingId) ?? -1) : -1;
+    const bestSize = best.recordingId ? (bytes.get(best.recordingId) ?? -1) : -1;
+    if (size > bestSize) best = ref;
+  }
+  return best;
 }

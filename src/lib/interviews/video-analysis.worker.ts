@@ -66,7 +66,7 @@ export interface VideoJob {
 function storedRecording(
   events: readonly InterviewEvent[],
 ): Extract<RecordingRef, { kind: "gcs" }> | null {
-  return storedRecordingForAnalysis(listRecordings(events));
+  return storedRecordingForAnalysis(events);
 }
 
 /** Where the worker should read the recording from. */
@@ -386,7 +386,10 @@ export function videoBehaviourFromMeasures(raw: VideoMeasures, durationSeconds: 
     moments,
     summary: !measures.faceSeen
       ? "No face could be seen in the recording."
-      : videoFindings.length === 0
+      : videoFindings.length === 0 && !enough
+        ? // Not a clean result: too little was measured to say anything.
+          `Only ${judged.length} of ${measures.answers.length} answers could be measured on camera, too few to judge.`
+        : videoFindings.length === 0
         ? `Across ${judged.length} answers measured on camera, nothing stood out: the candidate mostly looked at their screen, and where they looked away it wandered, as people do when thinking.`
         : videoFindings.map((finding) => finding.title).join(". ") + ".",
     model: "local-cv v2 (mediapipe, faster-whisper, wespeaker, yolox)",

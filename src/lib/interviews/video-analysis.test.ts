@@ -67,17 +67,29 @@ test("the uploaded GCS copy keeps the recording's real start time", () => {
   assert.equal(gcs[0].startedAt, "2026-10-14T10:00:00.000Z");
 });
 test("video analysis reads the candidate's own recording, not the mixed copy", () => {
-  const refs = listRecordings([
-    event("recording_started", { storage: "gcs", recordingId: "candidate-abc", mimeType: "video/webm" }),
+  const events = [
+    event("recording_started", { storage: "local", recordingId: "candidate-abc", mimeType: "video/webm" }),
     event("recording_uploaded", { storage: "gcs", bucket: "b", path: "room-1/candidate-abc.play.webm", recordingId: "candidate-abc", mimeType: "video/webm" }),
     event("recording_mixed", { storage: "gcs", bucket: "b", path: "interviews/room-1/mixed-room-1.webm", recordingId: "candidate-abc", mimeType: "video/webm" }),
-  ]);
-  assert.equal(storedRecordingForAnalysis(refs)?.object.path, "room-1/candidate-abc.play.webm");
+  ];
+  assert.equal(storedRecordingForAnalysis(events)?.object.path, "room-1/candidate-abc.play.webm");
 });
 
 test("video analysis falls back to the mixed copy when it is the only one stored", () => {
-  const refs = listRecordings([
+  const events = [
     event("recording_mixed", { storage: "gcs", bucket: "b", path: "interviews/room-1/mixed-room-1.webm", mimeType: "video/webm" }),
-  ]);
-  assert.equal(storedRecordingForAnalysis(refs)?.object.path, "interviews/room-1/mixed-room-1.webm");
+  ];
+  assert.equal(storedRecordingForAnalysis(events)?.object.path, "interviews/room-1/mixed-room-1.webm");
+});
+
+test("after a rejoin, video analysis reads the long recording, not a short last one", () => {
+  const events = [
+    event("recording_started", { storage: "local", recordingId: "candidate-long", mimeType: "video/webm" }),
+    event("recording_finished", { recordingId: "candidate-long", bytes: 59_513_780 }),
+    event("recording_uploaded", { storage: "gcs", bucket: "b", path: "room-1/candidate-long.play.webm", recordingId: "candidate-long", mimeType: "video/webm" }),
+    event("recording_started", { storage: "local", recordingId: "candidate-short", mimeType: "video/webm" }),
+    event("recording_finished", { recordingId: "candidate-short", bytes: 2_091_856 }),
+    event("recording_uploaded", { storage: "gcs", bucket: "b", path: "room-1/candidate-short.play.webm", recordingId: "candidate-short", mimeType: "video/webm" }),
+  ];
+  assert.equal(storedRecordingForAnalysis(events)?.object.path, "room-1/candidate-long.play.webm");
 });
