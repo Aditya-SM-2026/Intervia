@@ -2,7 +2,11 @@ import "server-only";
 import { getInterviewRepository } from "@/server/repositories";
 import { getRolesRepository } from "@/server/repositories/roles-repository";
 import { queueAutoInviteScan } from "@/lib/roles/auto-invite.service";
+import { requestVideoAnalysis } from "@/lib/interviews/scorecard.service";
 import { enqueueJob } from "./queue";
+
+/** Longer than any analysis takes (the worker's own limit is 30 minutes). */
+const VIDEO_STUCK_MINUTES = 45;
 
 /** Safety-net retries are spaced an hour apart per item. */
 const RETRY_WINDOW_MS = 60 * 60_000;
@@ -18,6 +22,7 @@ export async function queueSweepJobs(): Promise<{
   screenings: number;
   scorecards: number;
   mixes: number;
+  videos: number;
 }> {
   const autoInviteRoles = await queueAutoInviteScan();
 
@@ -41,6 +46,17 @@ export async function queueSweepJobs(): Promise<{
     await enqueueJob({ kind: "mix-recording", roomId }, { windowMs: RETRY_WINDOW_MS });
   }
 
+  // A video job lost on its way to the worker (seen when more videos were
+  // queued at once than the worker had instances) would say "queued" forever.
+  // Each re-send restarts the clock, so a video is tried about every 45
+  // minutes, for at most six hours.
+  const stuck = await getInterviewRepository().listStuckVideoAnalyses(VIDEO_STUCK_MINUTES, 6, 5);
+  for (const roomId of stuck) {
+    await requestVideoAnalysis(roomId, { retryStuck: true }).catch((cause) =>
+      console.error(`[sweep] video re-send failed for ${roomId}:`, cause),
+    );
+  }
+
   await enqueueJob({ kind: "file-cleanup" });
 
   return {
@@ -48,5 +64,6 @@ export async function queueSweepJobs(): Promise<{
     screenings: unscreened.length,
     scorecards: unscored.length,
     mixes: unmixed.length,
+    videos: stuck.length,
   };
 }

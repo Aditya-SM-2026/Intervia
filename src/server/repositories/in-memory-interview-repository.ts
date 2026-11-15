@@ -130,6 +130,23 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
         .map((room) => room.id);
     },
 
+    async listStuckVideoAnalyses(
+      olderThanMinutes: number,
+      maxAgeHours: number,
+      limit: number,
+    ): Promise<string[]> {
+      const now = Date.now();
+      return [...store.scorecards.values()]
+        .filter((scorecard) => {
+          const video = scorecard.video as { status?: string; queuedAt?: string } | undefined;
+          if (video?.status !== "queued" || !video.queuedAt) return false;
+          const age = now - Date.parse(video.queuedAt);
+          return age > olderThanMinutes * 60_000 && age < maxAgeHours * 60 * 60_000;
+        })
+        .slice(0, limit)
+        .map((scorecard) => scorecard.roomId);
+    },
+
     async listUnmixedCompleted(
       olderThanMinutes: number,
       maxAgeHours: number,

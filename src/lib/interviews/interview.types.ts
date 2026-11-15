@@ -299,6 +299,12 @@ export interface InterviewRepository {
    */
   listUnmixedCompleted(olderThanMinutes: number, maxAgeHours: number, limit: number): Promise<string[]>;
   /**
+   * Reports whose video analysis has said "queued" for longer than
+   * `olderThanMinutes` (but was queued less than `maxAgeHours` ago): the job
+   * was lost on its way to the worker and nothing will finish it.
+   */
+  listStuckVideoAnalyses(olderThanMinutes: number, maxAgeHours: number, limit: number): Promise<string[]>;
+  /**
    * Inserts a new room while holding a per-duplicate-key lock, so two
    * simultaneous identical creations cannot both succeed. Returns the
    * existing room when another creation of the same slot won the race.

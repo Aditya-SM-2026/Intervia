@@ -476,6 +476,28 @@ role_id = EXCLUDED.role_id,
       return result.rows.map((row) => row.id);
     },
 
+    async listStuckVideoAnalyses(
+      olderThanMinutes: number,
+      maxAgeHours: number,
+      limit: number,
+    ): Promise<string[]> {
+      await ensureSchema();
+      const result = await getPool().query<{ room_id: string }>(
+        `SELECT room_id FROM scorecards
+         WHERE scorecard->'video'->>'status' = 'queued'
+           AND (scorecard->'video'->>'queuedAt')::timestamptz < now() - make_interval(mins => $1)
+           AND (scorecard->'video'->>'queuedAt')::timestamptz > now() - make_interval(hours => $3)
+         ORDER BY (scorecard->'video'->>'queuedAt') ASC
+         LIMIT $2`,
+        [
+          Math.max(0, Math.round(olderThanMinutes)),
+          Math.min(Math.max(limit, 1), 50),
+          Math.max(1, Math.round(maxAgeHours)),
+        ],
+      );
+      return result.rows.map((row) => row.room_id);
+    },
+
     async get(id: string): Promise<InterviewRoom | null> {
       await ensureSchema();
       const result = await getPool().query<InterviewRow>(

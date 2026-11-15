@@ -47,6 +47,11 @@ gcloud run deploy intervia-video-worker \
 
 # 3. Queue + the identity Cloud Tasks uses to call the worker
 gcloud tasks queues create intervia-video-analysis --location=asia-south1 --project siva-nikhil
+# Send no more videos at once than the worker has instances (its max-instances),
+# and space retries out: otherwise a burst of jobs is refused by a busy worker
+# three times in a second and lost. Predev's queue runs with these settings.
+gcloud tasks queues update intervia-video-analysis --location=asia-south1 --project siva-nikhil \
+  --max-concurrent-dispatches=4 --max-attempts=10 --min-backoff=60s --max-backoff=600s
 gcloud iam service-accounts create tasks-invoker --project siva-nikhil
 gcloud run services add-iam-policy-binding intervia-video-worker \
   --member=serviceAccount:tasks-invoker@siva-nikhil.iam.gserviceaccount.com \

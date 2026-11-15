@@ -428,6 +428,7 @@ export async function requestResumeAnalysis(
  */
 export async function requestVideoAnalysis(
   roomId: string,
+  options: { retryStuck?: boolean } = {},
 ): Promise<
   | { queued: true }
   | { queued: false; code: "ROOM_NOT_FOUND" | "ROOM_UNAVAILABLE"; reason: string }
@@ -439,7 +440,9 @@ export async function requestVideoAnalysis(
   }
 
   const status = scorecard.video?.status;
-  if (status === "queued") {
+  // The sweep re-sends a job that has been "queued" far longer than any
+  // analysis takes; anyone else waits for the one already running.
+  if (status === "queued" && !options.retryStuck) {
     return {
       queued: false,
       code: "ROOM_UNAVAILABLE",
