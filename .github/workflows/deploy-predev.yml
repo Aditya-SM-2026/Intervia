@@ -92,7 +92,7 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --image ${{ env.AR_REPO }}/web:predev \
             --region ${{ env.REGION }} \
-            --update-env-vars APP_BASE_URL=${{ env.APP_BASE_URL }} \
+            --update-env-vars APP_BASE_URL=${{ env.APP_BASE_URL }},AGENT_JOB_NAME=${{ env.AGENT_JOB }},AGENT_JOB_PROJECT=${{ env.PROJECT_ID }},AGENT_JOB_REGION=${{ env.REGION }} \
             --update-secrets INTERNAL_SECRET=predev-internal-secret:latest \
             --quiet
 
@@ -169,7 +169,7 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --region ${{ env.REGION }} \
             --image ${{ env.AR_REPO }}/agent:predev \
-            --command uv --args run,--no-dev,main.py,one-shot \
+            --command /app/.venv/bin/python --args main.py,one-shot \
             --execution-environment gen2 \
             --cpu 2 --memory 4Gi \
             --task-timeout 2h --max-retries 0 --tasks 1 \
@@ -177,6 +177,10 @@ jobs:
             --set-secrets AGENT_API_SECRET=predev-agent-api-secret:latest,GEMINI_API_KEY=meetingbot-gemini-api-key:latest,OMINIBOT_API_KEY=meetingbot-ominibot-api-key:latest,LIVEKIT_URL=meetingbot-livekit-url:latest,LIVEKIT_API_KEY=meetingbot-livekit-api-key:latest,LIVEKIT_API_SECRET=meetingbot-livekit-api-secret:latest \
             --quiet
       - name: Restart the predev fallback worker on its VM
+        # The job above is what interviews use; a failure here only leaves the
+        # fallback worker on its previous image. (The VM needs the
+        # cloud-platform access scope to read its secrets.)
+        continue-on-error: true
         run: |
           # The long-running worker the web app falls back to when a job cannot
           # start. Never `instances reset`.
