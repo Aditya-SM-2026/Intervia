@@ -60,57 +60,22 @@ export default async function SettingsPage() {
           </section>
 
           <div className="grid gap-6 sm:grid-cols-2">
-            <Link
+            <SettingsCard
               href="/dashboard/settings/agent"
-              className="group flex flex-col justify-between gap-4 rounded-2xl border border-border bg-surface p-5 transition hover:border-accent/50"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-accent/30 bg-accent/10 text-accent">
-                  <Bot className="size-5" aria-hidden />
-                </span>
-                <ChevronRight
-                  className="size-5 shrink-0 text-muted transition group-hover:text-foreground"
-                  aria-hidden
-                />
-              </div>
-              <div>
-                <p className="font-semibold tracking-tight">Modify agent behaviour</p>
-                <p className="mt-1 text-sm text-muted">
-                  Change how the interviewer speaks and runs the interview. Blank text fields keep
-                  the built-in behaviour.
-                </p>
-                <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-muted">
-                  <SlidersHorizontal className="size-3.5" aria-hidden />
-                  {basic ? "Basic personality in use" : "Custom behaviour in use"}
-                </p>
-              </div>
-            </Link>
-
-            <Link
+              icon={<Bot className="size-5" aria-hidden />}
+              title="Agent behaviour"
+              tip="Change how the interviewer speaks and runs the interview. Blank text fields keep the built-in behaviour."
+              badge={basic ? "Basic personality in use" : "Custom behaviour in use"}
+              badgeIcon={<SlidersHorizontal className="size-3.5" aria-hidden />}
+            />
+            <SettingsCard
               href="/dashboard/settings/voice"
-              className="group flex flex-col justify-between gap-4 rounded-2xl border border-border bg-surface p-5 transition hover:border-accent/50"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-accent/30 bg-accent/10 text-accent">
-                  <Mic className="size-5" aria-hidden />
-                </span>
-                <ChevronRight
-                  className="size-5 shrink-0 text-muted transition group-hover:text-foreground"
-                  aria-hidden
-                />
-              </div>
-              <div>
-                <p className="font-semibold tracking-tight">Voice and engine</p>
-                <p className="mt-1 text-sm text-muted">
-                  Hear a sample of each interviewer voice, and choose which engine runs the call.
-                  Every interview uses both.
-                </p>
-                <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-muted">
-                  <Mic className="size-3.5" aria-hidden />
-                  {voice.name} · {voice.tone}
-                </p>
-              </div>
-            </Link>
+              icon={<Mic className="size-5" aria-hidden />}
+              title="Voice and engine"
+              tip="Hear a sample of each interviewer voice, and choose which engine runs the call. Every interview uses both."
+              badge={`${voice.name} · ${voice.tone}`}
+              badgeIcon={<Mic className="size-3.5" aria-hidden />}
+            />
           </div>
 
           <div className="grid gap-6 sm:grid-cols-2">
@@ -120,14 +85,14 @@ export default async function SettingsPage() {
                   href="/dashboard/settings/team"
                   icon={<Users className="size-5" aria-hidden />}
                   title="Team"
-                  text="Give each person who hires with you their own login, reset passwords, and turn accounts off."
+                  tip="Give each person who hires with you their own login, reset passwords, and turn accounts off."
                   badge={`${activeMembers + 1} ${activeMembers === 0 ? "person" : "people"} can sign in`}
                 />
                 <SettingsCard
                   href="/dashboard/settings/activity"
                   icon={<History className="size-5" aria-hidden />}
                   title="Activity"
-                  text="Who did what and when: sign-ins, roles, invitations, interviews, decisions, settings and downloads."
+                  tip="Who did what and when: sign-ins, roles, invitations, interviews, decisions, settings and downloads."
                   badge="Everyone's actions"
                 />
               </>
@@ -136,7 +101,7 @@ export default async function SettingsPage() {
                 href="/dashboard/settings/account"
                 icon={<KeyRound className="size-5" aria-hidden />}
                 title="Your password"
-                text="Change the password you sign in with."
+                tip="Change the password you sign in with."
                 badge={actor?.email ?? "Your login"}
               />
             )}
@@ -151,20 +116,20 @@ export default async function SettingsPage() {
                 label="Voice engine"
                 value={personality.voiceMode === "rolling" ? "Lower cost" : "Standard"}
               />
-              <Row label="Language" value="English (plus the languages the candidate uses)" />
-              <Row label="Join window" value="The agent waits up to 5 minutes for the candidate" />
-              <Row label="Recording" value="Kept on the report and playable" />
-              <Row label="Interview length" value="Fixed to the booked time; the agent cannot end it early" />
+              <Row label="Language" value="English" tip="The interviewer also follows the candidate into another language if they switch." />
+              <Row label="Join window" value="5 minutes" tip="The interviewer waits up to 5 minutes for the candidate to join." />
+              <Row label="Recording" value="Kept and playable" tip="The recording is kept on the report and can be played back there." />
+              <Row label="Interview length" value="Fixed" tip="Every interview runs to its booked time. The interviewer cannot end it early." />
             </dl>
           </section>
 
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-semibold tracking-tight">Report analysis</h2>
             <dl className="mt-4 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
-              <Row label="Report model" value="Ominibot, Gemini 3.8 Flash as the fallback" />
+              <Row label="Report model" value="Ominibot" tip="Gemini 3.8 Flash writes the report if Ominibot is unavailable." />
               <Row label="Score weights" value="Answers 45 · Resume 20 · Authenticity 20 · Video 15" />
-              <Row label="Cost gate" value="Below 50/100 on the transcript, the paid analyses are skipped" />
-              <Row label="Video analysis" value="Local gaze scoring, plus a vision pass on key frames" />
+              <Row label="Cost gate" value="50/100" tip="When the transcript scores below 50/100, the paid video and resume analyses are skipped." />
+              <Row label="Video analysis" value="Gaze and key frames" tip="Gaze is scored locally, then a vision model looks at key frames from the recording." />
             </dl>
           </section>
 
@@ -173,13 +138,10 @@ export default async function SettingsPage() {
               <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-border text-muted">
                 <Database className="size-5" aria-hidden />
               </span>
-              <div>
-                <p className="font-semibold tracking-tight">Data</p>
-                <p className="mt-1 text-sm text-muted">
-                  Interviews, transcripts, reports and recordings are stored privately for Medhas
-                  Academy and are never shared with anyone else.
-                </p>
-              </div>
+              <p className="flex items-center gap-2 self-center font-semibold tracking-tight">
+                Data stored privately
+                <InfoTip text="Interviews, transcripts, reports and recordings are stored privately for Medhas Academy and are never shared with anyone else." />
+              </p>
             </div>
           </section>
         </div>
@@ -188,16 +150,33 @@ export default async function SettingsPage() {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, tip }: { label: string; value: string; tip?: string }) {
   return (
     <div className="flex flex-col gap-0.5 border-b border-border/60 pb-2 last:border-0">
-      <dt className="text-xs text-muted">{label}</dt>
+      <dt className="flex items-center gap-1 text-xs text-muted">
+        {label}
+        {tip && <InfoTip text={tip} />}
+      </dt>
       <dd>{value}</dd>
     </div>
   );
 }
 
-function SettingsCard({ href, icon, title, text, badge }: { href: string; icon: React.ReactNode; title: string; text: string; badge: string }) {
+function SettingsCard({
+  href,
+  icon,
+  title,
+  tip,
+  badge,
+  badgeIcon,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  title: string;
+  tip: string;
+  badge: string;
+  badgeIcon?: React.ReactNode;
+}) {
   return (
     <Link
       href={href}
@@ -208,9 +187,14 @@ function SettingsCard({ href, icon, title, text, badge }: { href: string; icon: 
         <ChevronRight className="size-5 shrink-0 text-muted transition group-hover:text-foreground" aria-hidden />
       </div>
       <div>
-        <p className="font-semibold tracking-tight">{title}</p>
-        <p className="mt-1 text-sm text-muted">{text}</p>
-        <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-muted">{badge}</p>
+        <p className="flex items-center gap-1.5 font-semibold tracking-tight">
+          {title}
+          <InfoTip text={tip} />
+        </p>
+        <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-muted">
+          {badgeIcon}
+          {badge}
+        </p>
       </div>
     </Link>
   );

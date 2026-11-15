@@ -15,7 +15,12 @@ export function InfoTip({ text, align = "left" }: { text: string; align?: "left"
         type="button"
         aria-label="What this means"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={(event) => {
+          // Inside a link card the tip opens; the card does not navigate.
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen((current) => !current);
+        }}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         className="grid size-5 place-items-center rounded-full text-muted transition hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-2 focus-visible:outline-accent"

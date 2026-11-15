@@ -117,8 +117,7 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
       <div className="rounded-2xl border border-border bg-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">Agent voice<InfoTip text="How the interviewer sounds during the call. Play a sample to hear it, then pick the voice you want. The chosen voice is used for every interview from now on." /></h2>
-            <p className="mt-1 text-xs text-muted">Sample: &ldquo;{VOICE_SAMPLE_TEXT}&rdquo;</p>
+            <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">Agent voice<InfoTip text={`How the interviewer sounds during the call. Play a sample ("${VOICE_SAMPLE_TEXT}") to hear it, then pick the voice you want. The chosen voice is used for every interview from now on.`} /></h2>
           </div>
           <span className="rounded-full border border-border px-3 py-1 text-xs text-muted">
             {selected.name} · {selected.tone}
@@ -152,7 +151,10 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
                       className="mt-1 size-4 shrink-0"
                     />
                     <span className="min-w-0">
-                      <span className="block font-semibold tracking-tight">{option.name}</span>
+                      <span className="flex items-center gap-1.5 font-semibold tracking-tight">
+                        {option.name}
+                        <InfoTip text={option.description} />
+                      </span>
                       <span className="block text-xs text-muted">
                         {option.tone} · {option.gender === "female" ? "Female" : "Male"}
                       </span>
@@ -173,7 +175,6 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
                     {isLoading ? "Loading" : isPlaying ? "Stop" : "Play sample"}
                   </button>
                 </div>
-                <p className="mt-3 text-xs text-muted">{option.description}</p>
               </div>
             );
           })}
@@ -193,11 +194,13 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
             {
               value: "standard" as AgentVoiceEngine,
               title: "Standard",
+              short: "About $1.80 an hour",
               hint: "One continuous session for the whole interview. The version tested most. About $1.80 an hour in a 3-minute test, and the rate rises as the interview gets longer.",
             },
             {
               value: "rolling" as AgentVoiceEngine,
               title: "Lower cost",
+              short: "About $1.10 an hour",
               hint: "Same interviewer and voice, renewed at each topic and about every 90 seconds, carrying the conversation as text. About $1.10 an hour, and the rate stays flat.",
             },
           ].map((option) => {
@@ -223,10 +226,11 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
                     className="mt-1 size-4 shrink-0"
                   />
                   <span className="min-w-0">
-                    <span className="block font-semibold tracking-tight">{option.title}</span>
-                    <span className="mt-1 block text-xs leading-relaxed text-muted">
-                      {option.hint}
+                    <span className="flex items-center gap-1.5 font-semibold tracking-tight">
+                      {option.title}
+                      <InfoTip text={option.hint} />
                     </span>
+                    <span className="mt-0.5 block text-xs text-muted">{option.short}</span>
                   </span>
                 </span>
               </label>

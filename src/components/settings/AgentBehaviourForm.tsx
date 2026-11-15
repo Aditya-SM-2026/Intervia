@@ -21,13 +21,6 @@ const STYLE_LABELS: Record<AgentDifficulty, string> = {
   "extra-hard": "Extra hard",
 };
 
-const STYLE_HINTS: Record<AgentDifficulty, string> = {
-  easy: "Used when the interview difficulty is Easy.",
-  medium: "Used when the interview difficulty is Medium (the default).",
-  hard: "Used when the interview difficulty is Hard.",
-  "extra-hard": "Used when the interview difficulty is Extra hard.",
-};
-
 const TEXT_FIELDS = [
   {
     key: "persona" as const,
@@ -120,7 +113,7 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
       <div className="rounded-2xl border border-border bg-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">Agent behaviour<InfoTip text="These are the interviewer's instructions. Every field is optional: anything you leave blank keeps the built-in text, so the behaviour only changes where you write something. A change applies to every interview from now on, including interviews already scheduled." /></h2>
+            <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">Agent behaviour<InfoTip text="These are the interviewer's instructions. Every box is optional: an empty box keeps the built-in text shown in grey, and a box you write in is marked Custom. A change applies to every interview from now on, including ones already scheduled." /></h2>
           </div>
           {/* The time zone differs between server and browser; the browser's wins. */}
           <span suppressHydrationWarning className="rounded-full border border-border px-3 py-1 text-xs text-muted">
@@ -134,7 +127,13 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
       {TEXT_FIELDS.map((field) => (
         <section key={field.key} className="rounded-2xl border border-border bg-surface p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="font-semibold tracking-tight">{field.label}</h3>
+            <h3 className="flex items-center gap-2 font-semibold tracking-tight">
+              {field.label}
+              <InfoTip text={field.hint} />
+              {values[field.key].trim() && (
+                <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">Custom</span>
+              )}
+            </h3>
             <button
               type="button"
               onClick={() => setValue(field.key, field.placeholder)}
@@ -143,7 +142,6 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
               Load the built-in text
             </button>
           </div>
-          <p className="mt-1 text-sm text-muted">{field.hint}</p>
           <textarea
             value={values[field.key]}
             onChange={(event) => setValue(field.key, event.target.value)}
@@ -152,16 +150,11 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
             spellCheck={false}
             className="mt-3 w-full resize-y rounded-xl border border-border bg-background px-3.5 py-3 font-mono text-[13px] leading-relaxed outline-none transition placeholder:text-muted/60 focus:border-accent focus:ring-2 focus:ring-accent/20"
           />
-          <p className="mt-2 text-xs text-muted">
-            {values[field.key].trim()
-              ? "Custom text replaces the built-in version."
-              : "Empty, so the built-in version shown as placeholder is used."}
-          </p>
         </section>
       ))}
 
       <section className="rounded-2xl border border-border bg-surface p-5">
-        <h3 className="font-semibold tracking-tight flex items-center gap-2">Interviewer style by difficulty<InfoTip text="The interview's difficulty picks one of these. Leave them empty to keep the built-in style for each level." /></h3>
+        <h3 className="font-semibold tracking-tight flex items-center gap-2">Interviewer style by difficulty<InfoTip text="The interview's difficulty picks one of these. Leave a box empty to keep the built-in style for that level, shown in grey." /></h3>
         <div className="mt-4 grid gap-4">
           {DIFFICULTIES.map((difficulty) => (
             <div key={difficulty}>
@@ -183,7 +176,6 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
                   Load the built-in text
                 </button>
               </div>
-              <p className="text-xs text-muted">{STYLE_HINTS[difficulty]}</p>
               <textarea
                 id={`style-${difficulty}`}
                 value={styles[difficulty]}
