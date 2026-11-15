@@ -1,3 +1,5 @@
+import { CircleSlash } from "lucide-react";
+import { StatusScreen } from "@/components/ui/StatusScreen";
 import { BrandMark } from "@/components/brand/BrandMark";
 import type { Metadata } from "next";
 import { ApplicationForm } from "@/components/apply/ApplicationForm";
@@ -15,10 +17,10 @@ export async function generateMetadata({
     closedReason: null,
   }));
   return {
-    title: state.form?.roleTitle ? `Apply for ${state.form.roleTitle} | Intervia` : "Apply | Intervia",
+    title: state.form?.roleTitle ? `Apply for ${state.form.roleTitle}` : "Apply",
     description: state.form?.roleDescription
       ? state.form.roleDescription.slice(0, 160)
-      : "Submit your application on Intervia.",
+      : "Submit your application to Medhas Academy.",
   };
 }
 
@@ -32,6 +34,18 @@ export default async function ApplyPage({
     form: null,
     closedReason: null,
   }));
+
+  if (!state.form) {
+    return (
+      <StatusScreen
+        icon={CircleSlash}
+        tone="warn"
+        title="Applications are closed"
+        message={closedReasonMessage(state.closedReason)}
+        reason={state.closedReason ?? "unknown"}
+      />
+    );
+  }
 
   return (
     <main className="relative min-h-dvh overflow-hidden px-4 pb-16 pt-6 sm:px-6 sm:pt-10">
@@ -53,7 +67,7 @@ export default async function ApplyPage({
             </span>
           </div>
         </div>
-        {state.form ? (
+        {state.form && (
           <div className="mt-8">
             <ApplicationForm
               token={token}
@@ -61,13 +75,6 @@ export default async function ApplyPage({
               roleDescription={state.form.roleDescription}
               fields={state.form.fields}
             />
-          </div>
-        ) : (
-          <div className="mx-auto mt-16 max-w-md rounded-[28px] border border-border bg-surface p-8 text-center shadow-[0_20px_60px_-35px_rgba(8,26,61,0.3)] sm:p-10">
-            <h1 className="text-xl font-semibold tracking-[-0.02em]">Applications are closed</h1>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              {closedReasonMessage(state.closedReason)}
-            </p>
           </div>
         )}
       </div>

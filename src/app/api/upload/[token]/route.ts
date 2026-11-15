@@ -1,3 +1,4 @@
+import { ORGANIZATION_NAME } from "@/lib/brand";
 import { RESUME_CONTENT_MISMATCH, resumeBytesMatch } from "@/lib/uploads/resume-upload";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
@@ -23,7 +24,8 @@ export async function GET(_request: NextRequest, context: RouteContext) {
   const valid = isUploadLinkValid(found);
   return NextResponse.json({
     roleTitle: found.roleTitle,
-    recruiterName: found.recruiterName,
+    // Candidates see the organisation, never an internal login name.
+    recruiterName: ORGANIZATION_NAME,
     candidateName: found.candidateName,
     scheduledAt: found.scheduledAt,
     valid,

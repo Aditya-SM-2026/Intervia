@@ -1,5 +1,9 @@
 "use client";
 
+import { CircleCheck, Clock, Link2Off } from "lucide-react";
+import { BrandMark } from "@/components/brand/BrandMark";
+import { StatusScreen } from "@/components/ui/StatusScreen";
+
 import { useEffect, useState } from "react";
 
 type UploadInfo = {
@@ -62,33 +66,24 @@ export function ResumeUploadForm({ token }: { token: string }) {
   }
 
   if (loading) {
-    return <p className="text-sm text-muted">Loading…</p>;
+    return (
+      <main className="flex min-h-dvh flex-col items-center px-6 py-8">
+        <BrandMark href={null} />
+        <p className="flex flex-1 items-center text-sm text-muted">Loading…</p>
+      </main>
+    );
   }
 
   if (!info) {
-    return (
-      <p role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400">
-        {error}
-      </p>
-    );
+    return <StatusScreen icon={Link2Off} title="This link is not valid" message="Ask the person who invited you for a new resume link." reason="invalid" />;
   }
 
   if (info.alreadyUsed || (done !== null && info.resumeReceived)) {
-    return (
-      <div className="grid gap-2">
-        <p className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-400">
-          Your resume has been received. You can close this page.
-        </p>
-      </div>
-    );
+    return <StatusScreen icon={CircleCheck} tone="good" title="Resume received" message="Thank you. Your interview will use it. You can close this page." reason="received" />;
   }
 
   if (!info.valid) {
-    return (
-      <p role="alert" className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-        This upload link has expired. Please ask your recruiter for a new one.
-      </p>
-    );
+    return <StatusScreen icon={Clock} tone="warn" title="This upload link has expired" message="Ask the person who invited you for a new one." reason="expired" />;
   }
 
   const when = info.scheduledAt
@@ -96,6 +91,12 @@ export function ResumeUploadForm({ token }: { token: string }) {
     : null;
 
   return (
+    <main className="flex min-h-dvh flex-col items-center bg-background px-4 py-8">
+      <BrandMark href={null} />
+      <div className="flex w-full max-w-md flex-1 flex-col justify-center py-10">
+        <div className="rounded-2xl border border-border bg-surface p-6 sm:p-8">
+          <h1 className="text-xl font-semibold tracking-tight">Upload your resume</h1>
+          <p className="mb-5 mt-1 text-sm text-muted">Your interview uses it to ask about your own work.</p>
     <div className="grid gap-5">
       <div className="grid gap-1 text-sm">
         {info.candidateName && <p>Hi <span className="font-medium">{info.candidateName}</span>,</p>}
@@ -144,5 +145,8 @@ export function ResumeUploadForm({ token }: { token: string }) {
         </form>
       )}
     </div>
+        </div>
+      </div>
+    </main>
   );
 }

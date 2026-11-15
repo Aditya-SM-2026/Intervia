@@ -1,3 +1,5 @@
+import { CircleSlash, Link2Off } from "lucide-react";
+import { StatusScreen } from "@/components/ui/StatusScreen";
 import type { Metadata } from "next";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { ReplaceResumeForm } from "@/components/apply/ReplaceResumeForm";
@@ -17,6 +19,13 @@ export default async function ReplaceResumePage({
 }) {
   const { updateToken } = await params;
   const state = await getResumeUpdateState(updateToken).catch(() => null);
+
+  if (state === null) {
+    return <StatusScreen icon={Link2Off} title="This link is not valid" message="Ask the recruiting team to send you a new resume link." reason="invalid" />;
+  }
+  if (!state.open) {
+    return <StatusScreen icon={CircleSlash} tone="warn" title="This link is closed" message={state.closedMessage} reason="closed" />;
+  }
 
   return (
     <main className="relative min-h-dvh px-4 pb-16 pt-8 sm:pt-12">

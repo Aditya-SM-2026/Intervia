@@ -186,7 +186,7 @@ function RoleCard({
         <RoleIcon title={role.title} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <Link href={href} className="truncate text-[17px] font-semibold tracking-[-0.015em] hover:text-accent">
+            <Link href={href} title={role.title} className="line-clamp-2 break-words text-[17px] font-semibold leading-snug tracking-[-0.015em] hover:text-accent">
               {role.title}
             </Link>
             {role.status === "completed" ? (

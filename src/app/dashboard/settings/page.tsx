@@ -176,8 +176,8 @@ export default async function SettingsPage() {
               <div>
                 <p className="font-semibold tracking-tight">Data</p>
                 <p className="mt-1 text-sm text-muted">
-                  Interviews, transcripts, scorecards and recordings live in this workspace&apos;s own
-                  Cloud SQL database and storage bucket. Nothing is shared between workspaces.
+                  Interviews, transcripts, reports and recordings are stored privately for Medhas
+                  Academy and are never shared with anyone else.
                 </p>
               </div>
             </div>

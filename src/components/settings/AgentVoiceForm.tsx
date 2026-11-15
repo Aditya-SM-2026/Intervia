@@ -1,5 +1,7 @@
 "use client";
 
+import { InfoTip } from "@/components/ui/InfoTip";
+
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Check, Loader2, Play, Save, Sparkles, Square } from "lucide-react";
@@ -115,11 +117,7 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
       <div className="rounded-2xl border border-border bg-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold tracking-tight">Agent voice</h2>
-            <p className="mt-1 max-w-2xl text-sm text-muted">
-              How the interviewer sounds during the call. Play a sample to hear it, then pick the
-              voice you want. The chosen voice is used for every interview from now on.
-            </p>
+            <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">Agent voice<InfoTip text="How the interviewer sounds during the call. Play a sample to hear it, then pick the voice you want. The chosen voice is used for every interview from now on." /></h2>
             <p className="mt-1 text-xs text-muted">Sample: &ldquo;{VOICE_SAMPLE_TEXT}&rdquo;</p>
           </div>
           <span className="rounded-full border border-border px-3 py-1 text-xs text-muted">
@@ -189,11 +187,7 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
       </div>
 
       <div className="rounded-2xl border border-border bg-surface p-5">
-        <h2 className="text-lg font-semibold tracking-tight">Voice engine</h2>
-        <p className="mt-1 max-w-2xl text-sm text-muted">
-          How the live call is run. This applies to every interview from now on, and it is no
-          longer chosen when an interview is created.
-        </p>
+        <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">Voice engine<InfoTip text="How the live call is run. This applies to every interview from now on, and it is no longer chosen when an interview is created." /></h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {[
             {

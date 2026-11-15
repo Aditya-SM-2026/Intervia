@@ -168,7 +168,8 @@ function SectionBar({ ids }: { ids: ReadonlySet<string> }) {
   const present = REPORT_SECTIONS.filter(({ id }) => ids.has(id));
   return (
     <div className="sticky top-16 z-20 -mx-4 border-b border-border bg-background/85 px-4 backdrop-blur-xl sm:-mx-6 sm:px-6">
-      <nav aria-label="Report sections" className="flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* On phones the row may still scroll; the fade on the right shows it does. */}
+      <nav aria-label="Report sections" className="flex gap-0.5 overflow-x-auto [mask-image:linear-gradient(to_right,black_88%,transparent)] [scrollbar-width:none] sm:gap-1 sm:[mask-image:none] [&::-webkit-scrollbar]:hidden">
         {present.map(({ id, label }) => {
           const active = id === activeId;
           return (
@@ -176,7 +177,7 @@ function SectionBar({ ids }: { ids: ReadonlySet<string> }) {
               key={id}
               href={`#${id}`}
               aria-current={active ? "true" : undefined}
-              className={`relative shrink-0 px-3 py-3 text-sm font-medium transition-colors ${
+              className={`relative shrink-0 px-2 py-3 text-[13px] font-medium transition-colors sm:px-3 sm:text-sm ${
                 active ? "text-foreground" : "text-muted hover:text-foreground"
               }`}
             >
@@ -2531,7 +2532,8 @@ function RecordingPanel({
               controls
               playsInline
               preload="metadata"
-              src={`/api/dashboard/interviews/${roomId}/recording`}
+              // "#t=0.1" makes the browser show a still frame instead of a black box before play.
+              src={`/api/dashboard/interviews/${roomId}/recording#t=0.1`}
               onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
               onLoadedMetadata={(event) => {
                 setDuration(

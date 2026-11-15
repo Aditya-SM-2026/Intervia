@@ -4,7 +4,7 @@ import { ThemeProvider } from "@/components/dashboard/theme";
 import { CandidateDetailView } from "@/components/roles/CandidateDetailView";
 
 export const metadata: Metadata = {
-  title: "Candidate report",
+  title: "Candidate",
 };
 
 export default async function CandidateDetailPage({

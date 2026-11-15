@@ -102,6 +102,10 @@ export function JoinInterviewForm({
 
   async function handleVerify(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setVerifyError("Enter the email address your invitation was sent to.");
+      return;
+    }
     if (!consent) {
       setVerifyError("Please give consent to continue.");
       return;
@@ -214,7 +218,7 @@ export function JoinInterviewForm({
 
   if (!verified) {
     return (
-      <form onSubmit={handleVerify} className="grid gap-5">
+      <form onSubmit={handleVerify} noValidate className="grid gap-5">
         {steps}
         <div>
           <label htmlFor="join-email" className={fieldLabelClasses}>

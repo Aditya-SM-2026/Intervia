@@ -1,5 +1,7 @@
 "use client";
 
+import { InfoTip } from "@/components/ui/InfoTip";
+
 import { useState } from "react";
 import Link from "next/link";
 import { Check, RotateCcw, Save, Sparkles } from "lucide-react";
@@ -118,17 +120,12 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
       <div className="rounded-2xl border border-border bg-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold tracking-tight">Agent behaviour</h2>
-            <p className="mt-1 max-w-2xl text-sm text-muted">
-              These are the interviewer&apos;s instructions. Every field is optional: anything you
-              leave blank keeps the built-in text, so the behaviour only changes where you write
-              something. A change applies to every interview from now on, including interviews
-              already scheduled.
-            </p>
+            <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">Agent behaviour<InfoTip text="These are the interviewer's instructions. Every field is optional: anything you leave blank keeps the built-in text, so the behaviour only changes where you write something. A change applies to every interview from now on, including interviews already scheduled." /></h2>
           </div>
-          <span className="rounded-full border border-border px-3 py-1 text-xs text-muted">
+          {/* The time zone differs between server and browser; the browser's wins. */}
+          <span suppressHydrationWarning className="rounded-full border border-border px-3 py-1 text-xs text-muted">
             {initial.updatedAt
-              ? `Saved ${new Date(initial.updatedAt).toLocaleString()}`
+              ? `Saved ${new Date(initial.updatedAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}`
               : "Basic personality"}
           </span>
         </div>
@@ -164,11 +161,7 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
       ))}
 
       <section className="rounded-2xl border border-border bg-surface p-5">
-        <h3 className="font-semibold tracking-tight">Interviewer style by difficulty</h3>
-        <p className="mt-1 text-sm text-muted">
-          The interview&apos;s difficulty picks one of these. Leave them empty to keep the built-in
-          style for each level.
-        </p>
+        <h3 className="font-semibold tracking-tight flex items-center gap-2">Interviewer style by difficulty<InfoTip text="The interview's difficulty picks one of these. Leave them empty to keep the built-in style for each level." /></h3>
         <div className="mt-4 grid gap-4">
           {DIFFICULTIES.map((difficulty) => (
             <div key={difficulty}>

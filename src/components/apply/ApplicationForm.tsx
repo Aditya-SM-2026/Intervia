@@ -143,7 +143,7 @@ function RolePanel({
         className={`relative flex flex-col px-6 py-7 sm:px-8 sm:py-9 ${
           preview
             ? ""
-            : "lg:absolute lg:inset-0 lg:overflow-y-auto lg:overscroll-contain lg:px-9 lg:py-10"
+            : "lg:absolute lg:inset-0 lg:overflow-y-auto lg:overscroll-contain lg:px-9 lg:pt-10 lg:pb-24"
         }`}
       >
         <div className="flex flex-wrap items-center gap-2">
@@ -160,6 +160,17 @@ function RolePanel({
         <h1 className="mt-5 text-balance break-words text-[2rem] leading-[1.08] font-semibold tracking-[-0.035em] sm:text-[2.45rem]">
           {roleTitle}
         </h1>
+
+        {/* Phones show the description first; one tap reaches the form. */}
+        {!preview && (
+          <a
+            href="#application-form"
+            className="mt-5 inline-flex w-fit items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#081a3d] transition hover:bg-white/90 lg:hidden"
+          >
+            Apply now
+            <ArrowRight className="size-4" aria-hidden />
+          </a>
+        )}
 
         {roleDescription.trim() !== "" && (
           <div className="mt-8 border-t border-white/10 pt-7">
@@ -184,6 +195,11 @@ function RolePanel({
           </div>
         </div>
       </div>
+      {/* On wide screens the description scrolls inside the panel; the fade
+          shows there is more below instead of looking cut off. */}
+      {!preview && (
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-20 rounded-b-[28px] bg-gradient-to-t from-[#081a3d] to-transparent lg:block" />
+      )}
     </aside>
   );
 }
@@ -587,17 +603,6 @@ export function ApplicationForm({
           className="rounded-[28px] border border-border bg-surface p-5 shadow-[0_20px_60px_-35px_rgba(8,26,61,0.3)] sm:p-8 lg:p-9"
         >
           <div className="mx-auto max-w-[42rem]">
-            {/* Mobile quick jump helper */}
-            <div className="mb-4 lg:hidden">
-              <a
-                href="#application-form"
-                className="flex items-center justify-between rounded-xl border border-border bg-background/60 px-3.5 py-2 text-xs font-medium text-accent transition hover:bg-accent-soft"
-              >
-                <span>Ready to apply? Fill your details below</span>
-                <ArrowRight className="size-3.5" />
-              </a>
-            </div>
-
             {preview && (
               <p className="mb-6 rounded-xl bg-accent-soft px-3.5 py-2.5 text-xs font-medium text-accent">
                 Preview mode. This is how candidates experience your application form.
@@ -606,10 +611,7 @@ export function ApplicationForm({
 
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-[11px] font-medium tracking-[0.14em] text-accent uppercase">
-                  Candidate application
-                </p>
-                <h2 className="mt-1.5 text-[1.65rem] font-semibold tracking-[-0.03em] sm:text-[1.9rem]">
+                <h2 className="text-[1.65rem] font-semibold tracking-[-0.03em] sm:text-[1.9rem]">
                   Your application
                 </h2>
                 <p className="mt-1.5 text-sm text-muted">
@@ -877,7 +879,7 @@ export function ApplicationForm({
                                 clearFieldError("cgpa");
                               }}
                               onBlur={() => handleBlur("cgpa")}
-                              placeholder="e.g. 8.4 (out of 10) or 78 (percentage)"
+                              placeholder="8.4"
                               required={field.required}
                             />
                             {isOk && (

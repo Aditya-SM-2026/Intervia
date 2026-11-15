@@ -239,8 +239,9 @@ function StageStrip({
   const tiles: { id: StageFilter; label: string; count: number; tile: string; bar: string }[] =
     PIPELINE_STEPS.map(({ step, label, tile, bar }) => ({
       id: step as StageFilter,
-      label,
-      // Applied is everyone who applied for this role.
+      // The first tile counts everyone who applied and shows them all, so it
+      // is labelled for what it shows, not as the "Applied" status.
+      label: step === "applied" ? "All candidates" : label,
       count: step === "applied" ? total : (counts?.[step] ?? 0),
       tile,
       bar,

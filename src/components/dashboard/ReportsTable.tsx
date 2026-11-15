@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { ArrowDown, ArrowUp, Download, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, Download, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import type { DashboardInterviewSummary } from "@/lib/dashboard/dashboard.types";
 import type { InterviewStatus } from "@/lib/interviews/interview.types";
 import { EASE_OUT } from "@/components/ui/animated";
@@ -103,7 +103,24 @@ export function ReportsTable({
   }, [someSelected]);
 
   return (
-    <div className="relative overflow-x-auto rounded-2xl border border-border bg-surface">
+    <>
+    {/* Phones: one card per interview instead of a table that scrolls sideways. */}
+    <ul className="grid gap-2 sm:hidden" aria-label="Interviews">
+      {loading
+        ? Array.from({ length: Math.min(skeletonCount, 4) }, (_, index) => (
+            <li key={index} className="skeleton h-24 rounded-2xl" />
+          ))
+        : rows.map((summary) => (
+            <MobileRow
+              key={summary.room.id}
+              summary={summary}
+              selected={selected.has(summary.room.id)}
+              onToggle={() => onToggleRow(summary.room.id)}
+              onAction={onAction}
+            />
+          ))}
+    </ul>
+    <div className="relative hidden overflow-x-auto rounded-2xl border border-border bg-surface sm:block">
       <table className="w-full min-w-[860px] border-collapse text-sm">
         <thead className="border-b border-border bg-foreground/[0.015]">
           <tr>
@@ -148,6 +165,75 @@ export function ReportsTable({
         </tbody>
       </table>
     </div>
+    </>
+  );
+}
+
+/** The actions every row offers, shared by the table and the phone cards. */
+function rowMenuItems(summary: DashboardInterviewSummary, onAction: ReportsTableProps["onAction"]) {
+  const { room, scorecard } = summary;
+  const status = room.status as InterviewStatus;
+  return [
+    { id: "open", label: scorecard ? "Open report" : "Open", icon: <ArrowUpRight className="size-4" aria-hidden />, onSelect: () => onAction("view", room.id) },
+    ...(scorecard
+      ? [{ id: "download", label: "Download PDF", icon: <Download className="size-4" aria-hidden />, onSelect: () => onAction("download", room.id) }]
+      : []),
+    ...((status === "scheduled" || status === "expired") && !scorecard
+      ? [{ id: "edit", label: "Edit interview", icon: <Pencil className="size-4" aria-hidden />, onSelect: () => onAction("edit", room.id) }]
+      : []),
+    { id: "delete", label: "Delete", icon: <Trash2 className="size-4" aria-hidden />, danger: true, onSelect: () => onAction("delete", room.id) },
+  ];
+}
+
+function MobileRow({
+  summary,
+  selected,
+  onToggle,
+  onAction,
+}: {
+  summary: DashboardInterviewSummary;
+  selected: boolean;
+  onToggle: () => void;
+  onAction: ReportsTableProps["onAction"];
+}) {
+  const { room } = summary;
+  const name = room.candidateName ?? "Unnamed candidate";
+  return (
+    <li
+      className={`rounded-2xl border border-border p-4 transition-colors ${selected ? "bg-accent-soft" : "bg-surface"}`}
+      onClick={() => onAction("view", room.id)}
+    >
+      <div className="flex items-start gap-3">
+        <span onClick={(event) => event.stopPropagation()} className="pt-2">
+          <Checkbox checked={selected} onChange={onToggle} label={`Select ${name}`} />
+        </span>
+        <Avatar name={name} className="size-9 shrink-0 text-[13px]" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium">{displayName(name)}</p>
+          <p className="truncate text-xs text-muted">{room.roleTitle ?? room.title}</p>
+        </div>
+        <span onClick={(event) => event.stopPropagation()}>
+          <Menu
+            label={`Actions for ${name}`}
+            align="end"
+            trigger={
+              <button type="button" aria-label={`Actions for ${name}`} className="grid size-9 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.06]">
+                <MoreHorizontal className="size-4" aria-hidden />
+              </button>
+            }
+            items={rowMenuItems(summary, onAction)}
+          />
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pl-[4.25rem]">
+        <StatusBadge status={room.status as InterviewStatus} />
+        <ScoreCell summary={summary} />
+        <p className="w-full text-xs text-muted">
+          {relativeDay(room.createdAt)}, {formatTime(room.createdAt)}
+          {room.recruiterName ? ` by ${room.recruiterName}` : ""}
+        </p>
+      </div>
+    </li>
   );
 }
 
@@ -214,15 +300,7 @@ function Row({
                 <MoreHorizontal className="size-4" aria-hidden />
               </button>
             }
-            items={[
-              ...(scorecard
-                ? [{ id: "download", label: "Download PDF", icon: <Download className="size-4" aria-hidden />, onSelect: () => onAction("download", room.id) }]
-                : []),
-              ...((status === "scheduled" || status === "expired") && !scorecard
-                ? [{ id: "edit", label: "Edit interview", icon: <Pencil className="size-4" aria-hidden />, onSelect: () => onAction("edit", room.id) }]
-                : []),
-              { id: "delete", label: "Delete", icon: <Trash2 className="size-4" aria-hidden />, danger: true, onSelect: () => onAction("delete", room.id) },
-            ]}
+            items={rowMenuItems(summary, onAction)}
           />
         </div>
       </td>

@@ -71,6 +71,12 @@ function RoleForm({
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving) return;
+    // Our own message instead of the browser's pop-up, in the app's style.
+    const missing = [title.trim() ? null : "a role title", description.trim() ? null : "a job description"].filter(Boolean);
+    if (missing.length > 0) {
+      setError(`Add ${missing.join(" and ")} to save the role.`);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -97,7 +103,7 @@ function RoleForm({
   const skillList = splitSkills(skills);
 
   return (
-    <form onSubmit={save} className="grid gap-5" aria-label={role ? `Edit role ${role.title}` : "Create role"}>
+    <form onSubmit={save} noValidate className="grid gap-5" aria-label={role ? `Edit role ${role.title}` : "Create role"}>
       <div className="grid gap-4 sm:grid-cols-[1fr_11rem]">
         <label className="block text-sm">
           <span className="mb-1.5 block font-medium">Role title</span>

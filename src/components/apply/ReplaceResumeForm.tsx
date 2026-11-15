@@ -113,8 +113,8 @@ export function ReplaceResumeForm({
           <span className="min-w-0 truncate">{currentFileName ?? "No file on record"}</span>
         </p>
         {lastUpdatedAt && (
-          <p className="mt-1 text-xs text-muted">
-            Last replaced {new Date(lastUpdatedAt).toLocaleString()}
+          <p suppressHydrationWarning className="mt-1 text-xs text-muted">
+            Last replaced {new Date(lastUpdatedAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
           </p>
         )}
       </div>

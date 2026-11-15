@@ -94,7 +94,7 @@ export function SegmentedTabs<T extends string>({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(option.value)}
-            className={`relative rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`relative shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
               active ? "text-foreground" : "text-muted hover:text-foreground"
             }`}
           >

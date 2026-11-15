@@ -167,6 +167,15 @@ export function TopNav() {
             New interview
           </Link>
 
+          {/* Phones: the same action as an icon, so creating is never out of reach. */}
+          <Link
+            href="/recruiter"
+            aria-label="New interview"
+            className="grid size-9 place-items-center rounded-lg bg-accent text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 sm:hidden"
+          >
+            <Plus className="size-4" aria-hidden />
+          </Link>
+
           <span aria-hidden className="mx-1 hidden h-6 w-px bg-border sm:block" />
 
           <Menu

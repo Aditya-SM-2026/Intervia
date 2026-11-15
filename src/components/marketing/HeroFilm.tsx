@@ -210,7 +210,7 @@ export function HeroFilm({ compact = false }: { compact?: boolean }) {
               />
             </span>
             <span
-              className={`mt-2 block truncate text-xs transition ${index === act ? "text-white" : "text-white/45 group-hover:text-white/70"}`}
+              className={`mt-2 block text-[11px] leading-snug transition sm:truncate sm:text-xs ${index === act ? "text-white" : "text-white/45 group-hover:text-white/70"}`}
             >
               {chapter.label}
             </span>
