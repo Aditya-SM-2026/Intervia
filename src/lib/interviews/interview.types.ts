@@ -278,10 +278,21 @@ export interface InterviewRepository {
    */
   claimDueReminders(now: string): Promise<string[]>;
   /**
+   * Runs `fn` only if no other server instance holds the same key right now.
+   * Never waits: a held key returns `{ ran: false }` at once, so a small
+   * connection pool can never be tied up by requests queuing for a lock.
+   */
+  tryWithLock<T>(key: string, fn: () => Promise<T>): Promise<{ ran: true; value: T } | { ran: false }>;
+  /**
    * Completed interviews with no scorecard yet, finished between
    * `olderThanMinutes` and 24 hours ago (the sweep's safety net).
    */
   listUnscoredCompleted(olderThanMinutes: number, limit: number): Promise<string[]>;
+  /**
+   * Completed interviews with the interviewer's audio but no mixed recording,
+   * finished between `olderThanMinutes` and `maxAgeHours` ago.
+   */
+  listUnmixedCompleted(olderThanMinutes: number, maxAgeHours: number, limit: number): Promise<string[]>;
   /**
    * Inserts a new room while holding a per-duplicate-key lock, so two
    * simultaneous identical creations cannot both succeed. Returns the

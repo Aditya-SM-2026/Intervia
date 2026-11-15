@@ -195,12 +195,17 @@ def measure_clip(clip: dict[str, Any], answers: list[dict[str, Any]], workdir: P
 
 
 def callback(payload: dict[str, Any]) -> None:
+    post_to_web("/api/internal/video-result", payload)
+
+
+def post_to_web(route: str, payload: dict[str, Any]) -> bool:
+    """POSTs a result to the web app, three tries. True once it is accepted."""
     base = (os.environ.get("INTERVIA_WEB_URL") or "").rstrip("/")
     secret = (os.environ.get("INTERNAL_SECRET") or "").strip()
     if not base or not secret:
         log("callback skipped: INTERVIA_WEB_URL / INTERNAL_SECRET not set")
-        return
-    url = f"{base}/api/internal/video-result"
+        return False
+    url = f"{base}{route}"
     body = json.dumps(payload).encode("utf-8")
     last_error: Exception | None = None
     for attempt in range(1, 4):
@@ -213,7 +218,7 @@ def callback(payload: dict[str, Any]) -> None:
         try:
             with urllib.request.urlopen(request, timeout=CALLBACK_TIMEOUT) as response:
                 log(f"callback ok ({response.status})")
-                return
+                return True
         except urllib.error.HTTPError as error:
             last_error = error
             log(f"callback failed ({error.code}), attempt {attempt}")
@@ -221,6 +226,7 @@ def callback(payload: dict[str, Any]) -> None:
             last_error = error
             log(f"callback failed ({error}), attempt {attempt}")
     log(f"callback gave up: {last_error}")
+    return False
 
 
 def run_job(payload: dict[str, Any]) -> None:

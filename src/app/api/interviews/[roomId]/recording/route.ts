@@ -9,7 +9,8 @@ import {
   markRecordingFinished,
   type LocalRecording,
 } from "@/lib/recordings/store";
-import { recordingsBucket, uploadRecordingToGcs } from "@/lib/recordings/gcs-upload";
+import { enqueueJob } from "@/lib/jobs/queue";
+import { recordingsBucket } from "@/lib/recordings/gcs-upload";
 import { getInterviewRepository } from "@/server/repositories";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
@@ -93,29 +94,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
     ]);
     // Copy the finished recording to GCS (when configured) so it plays from
-    // any deployment and survives this container going away. Fire-and-forget:
-    // the seekable copy can take a while, and the candidate's browser is done.
-    const bucket = recordingsBucket();
-    if (bucket) {
-      void uploadRecordingToGcs(recording)
-        .then(async (objectPath) => {
-          if (!objectPath) {
-            console.error(`[recording] GCS upload failed for ${roomId}/${recordingId}`);
-            return;
-          }
-          await repository.appendEvents(roomId, [
-            {
-              type: "recording_uploaded",
-              at: new Date().toISOString(),
-              data: { storage: "gcs", bucket, path: objectPath, recordingId, mimeType },
-            },
-          ]);
-        })
-        .catch((error) => {
+    // any deployment and survives this container going away. Queued as its
+    // own job: the seekable copy can take a while, the candidate's browser is
+    // done, and work left running after this reply would be throttled.
+    if (recordingsBucket()) {
+      await enqueueJob({ kind: "upload-recording", roomId, recordingId, format: recording.format }).catch(
+        (error) => {
           console.error(
-            `[recording] GCS upload error for ${roomId}/${recordingId}: ${error instanceof Error ? error.message : String(error)}`,
+            `[recording] upload not queued for ${roomId}/${recordingId}: ${error instanceof Error ? error.message : String(error)}`,
           );
-        });
+        },
+      );
     }
   }
   return NextResponse.json({ ok: true, size });

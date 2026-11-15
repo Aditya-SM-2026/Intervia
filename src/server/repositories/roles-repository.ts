@@ -1,6 +1,7 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
+import { sharedPool } from "@/server/db/pool";
 import type {
   HumanDecision,
   InterviewStatus,
@@ -474,7 +475,7 @@ function getPool(): Pool {
     if (!connectionString) {
       throw new Error("DATABASE_URL is not set; cannot use the Postgres roles repository");
     }
-    globalRefs.__rolesPgPool = new Pool({ connectionString, max: 3 });
+    globalRefs.__rolesPgPool = sharedPool(connectionString);
   }
   return globalRefs.__rolesPgPool;
 }

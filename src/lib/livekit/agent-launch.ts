@@ -20,7 +20,8 @@ export function agentJobConfig(): AgentJobConfig | null {
 }
 
 // Two email-gate requests for the same interview at once (a double click)
-// would otherwise both see "no job yet" and start two.
+// would otherwise both see "no job yet" and start two. This catches it within
+// one instance; the database lock in launch() catches it across instances.
 const inflight = new Map<string, Promise<void>>();
 
 async function executionStatus(token: string, execution: string): Promise<ExecutionStatus> {
@@ -38,6 +39,14 @@ async function executionStatus(token: string, execution: string): Promise<Execut
 }
 
 async function launch(config: AgentJobConfig, roomId: string, roomName: string): Promise<void> {
+  // Held in the database, so two web instances (a double click that lands on
+  // both) cannot each start an interviewer. The one that loses returns at once:
+  // the winner's interviewer is already on its way.
+  const repository = getInterviewRepository();
+  await repository.tryWithLock(`agent-launch:${roomId}`, () => launchUnlocked(config, roomId, roomName));
+}
+
+async function launchUnlocked(config: AgentJobConfig, roomId: string, roomName: string): Promise<void> {
   const token = await metadataToken();
   if (!token) throw new Error("No Google access token to start the interviewer job.");
 

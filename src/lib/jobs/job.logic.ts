@@ -11,7 +11,8 @@ export type WebJob =
   | { kind: "screen-application"; roleId: string; applicationId: string }
   | { kind: "auto-invite-role"; roleId: string }
   | { kind: "score-interview"; roomId: string }
-  | { kind: "mix-recording"; roomId: string };
+  | { kind: "mix-recording"; roomId: string }
+  | { kind: "upload-recording"; roomId: string; recordingId: string; format: "webm" | "mp4" };
 
 export type WebJobKind = WebJob["kind"];
 
@@ -40,6 +41,12 @@ export function parseJob(body: unknown): WebJob | null {
       const roomId = id(record.roomId);
       return roomId ? { kind: record.kind, roomId } : null;
     }
+    case "upload-recording": {
+      const roomId = id(record.roomId);
+      const recordingId = id(record.recordingId);
+      const format = record.format === "mp4" || record.format === "webm" ? record.format : null;
+      return roomId && recordingId && format ? { kind: record.kind, roomId, recordingId, format } : null;
+    }
     default:
       return null;
   }
@@ -55,6 +62,8 @@ export function jobSubject(job: WebJob): string {
     case "score-interview":
     case "mix-recording":
       return job.roomId;
+    case "upload-recording":
+      return job.recordingId;
   }
 }
 
@@ -76,6 +85,7 @@ export const JOB_WINDOW_MS: Record<WebJobKind, number> = {
   "auto-invite-role": 60_000,
   "score-interview": 10 * 60_000,
   "mix-recording": 10 * 60_000,
+  "upload-recording": 10 * 60_000,
 };
 
 export interface JobsQueueConfig {

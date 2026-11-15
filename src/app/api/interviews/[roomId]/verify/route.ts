@@ -14,7 +14,6 @@ import {
 import {
   checkEmailAttempt,
   recordEmailFailure,
-  resetEmailAttempts,
 } from "@/lib/interviews/email-attempts";
 import { getLiveKitRoomName } from "@/lib/livekit/room";
 import { generateLiveKitToken } from "@/lib/livekit/token";
@@ -74,7 +73,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return interviewErrorResponse("INVALID_INPUT", parsed.error.issues[0]?.message ?? "Invalid input.");
   }
 
-  const attempt = checkEmailAttempt(roomId);
+  const attempt = await checkEmailAttempt(roomId);
   if (!attempt.allowed) {
     return interviewErrorResponse(
       "EMAIL_MISMATCH",
@@ -84,11 +83,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const result = await verifyCandidateEmail(roomId, parsed.data.email, new Date().toISOString());
   if (!result.ok) {
-    if (result.code === "EMAIL_MISMATCH") recordEmailFailure(roomId);
+    if (result.code === "EMAIL_MISMATCH") await recordEmailFailure(roomId).catch(() => undefined);
     return interviewErrorResponse(result.code, result.message);
   }
 
-  resetEmailAttempts(roomId);
   const identity = `candidate-${randomUUID()}`;
   const displayName = result.room.candidateName ?? "Candidate";
 

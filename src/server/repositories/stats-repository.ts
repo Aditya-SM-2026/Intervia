@@ -1,5 +1,6 @@
 import "server-only";
 import { Pool } from "pg";
+import { sharedPool } from "@/server/db/pool";
 import { estimateVoiceCost } from "@/lib/interviews/cost";
 import type { SessionOutcome } from "@/lib/interviews/interview.types";
 import type { DashboardStats, StatsRange, StatsRoleRow } from "@/lib/dashboard/stats.types";
@@ -16,7 +17,7 @@ const globalRefs = globalThis as unknown as { __statsPgPool?: Pool };
 function getPool(): Pool | null {
   const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) return null;
-  if (!globalRefs.__statsPgPool) globalRefs.__statsPgPool = new Pool({ connectionString, max: 2 });
+  if (!globalRefs.__statsPgPool) globalRefs.__statsPgPool = sharedPool(connectionString);
   return globalRefs.__statsPgPool;
 }
 

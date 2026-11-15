@@ -10,12 +10,14 @@ const RETRY_WINDOW_MS = 60 * 60_000;
 /**
  * The every-minute sweep's queue work: one auto-invite job per role with the
  * automation on, and a fresh job for anything the normal path missed
- * (an application never screened, an interview finished without a report).
+ * (an application never screened, an interview finished without a report or
+ * without its mixed recording).
  */
 export async function queueSweepJobs(): Promise<{
   autoInviteRoles: number;
   screenings: number;
   scorecards: number;
+  mixes: number;
 }> {
   const autoInviteRoles = await queueAutoInviteScan();
 
@@ -32,5 +34,17 @@ export async function queueSweepJobs(): Promise<{
     await enqueueJob({ kind: "score-interview", roomId }, { windowMs: RETRY_WINDOW_MS });
   }
 
-  return { autoInviteRoles, screenings: unscreened.length, scorecards: unscored.length };
+  // Three hours of hourly retries: enough for a passing problem, without
+  // re-running a broken video's mix all day.
+  const unmixed = await getInterviewRepository().listUnmixedCompleted(15, 3, 20);
+  for (const roomId of unmixed) {
+    await enqueueJob({ kind: "mix-recording", roomId }, { windowMs: RETRY_WINDOW_MS });
+  }
+
+  return {
+    autoInviteRoles,
+    screenings: unscreened.length,
+    scorecards: unscored.length,
+    mixes: unmixed.length,
+  };
 }

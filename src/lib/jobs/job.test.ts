@@ -44,6 +44,11 @@ test("only known jobs with safe ids are accepted", () => {
     roleId: "r1",
     applicationId: "a1",
   });
+  assert.deepEqual(
+    parseJob({ kind: "upload-recording", roomId: "r", recordingId: "candidate-abc12345", format: "webm" }),
+    { kind: "upload-recording", roomId: "r", recordingId: "candidate-abc12345", format: "webm" },
+  );
+  assert.equal(parseJob({ kind: "upload-recording", roomId: "r", recordingId: "candidate-1", format: "avi" }), null);
   assert.equal(parseJob({ kind: "score-interview", roomId: "../etc" }), null);
   assert.equal(parseJob({ kind: "screen-application", roleId: "r1" }), null);
   assert.equal(parseJob({ kind: "delete-everything", roomId: "a" }), null);

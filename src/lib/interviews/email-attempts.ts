@@ -1,52 +1,27 @@
 import "server-only";
+import { getInterviewRepository } from "@/server/repositories";
+import { EMAIL_FAILURE_EVENT, emailLockFrom } from "./email-attempts.logic";
 
 /**
- * Brute-force guard for the candidate email gate, per link. Kept in memory
- * (single web instance for now); database-backed counters can replace this
- * when the web service scales out.
+ * Brute-force guard for the candidate email gate, per link. Failed attempts
+ * are stored on the interview, so the limit holds across every web instance.
  */
 
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCK_DURATION_MS = 15 * 60_000;
-
-interface AttemptState {
-  failures: number;
-  lockedUntil: number;
-}
-
-const globalAttempts = globalThis as unknown as {
-  __interviewEmailAttempts?: Map<string, AttemptState>;
-};
-
-function getAttempts(): Map<string, AttemptState> {
-  if (!globalAttempts.__interviewEmailAttempts) {
-    globalAttempts.__interviewEmailAttempts = new Map();
-  }
-  return globalAttempts.__interviewEmailAttempts;
-}
-
 /** Returns whether another verification attempt may be made right now. */
-export function checkEmailAttempt(roomId: string): { allowed: boolean; retryAfterSeconds?: number } {
-  const state = getAttempts().get(roomId);
-  if (!state) return { allowed: true };
-  const remaining = state.lockedUntil - Date.now();
-  if (remaining <= 0) return { allowed: true };
-  return { allowed: false, retryAfterSeconds: Math.ceil(remaining / 1000) };
+export async function checkEmailAttempt(
+  roomId: string,
+): Promise<{ allowed: boolean; retryAfterSeconds?: number }> {
+  const events = await getInterviewRepository().getEvents(roomId);
+  const failures = events
+    .filter((event) => event.type === EMAIL_FAILURE_EVENT)
+    .map((event) => Date.parse(event.at))
+    .filter(Number.isFinite);
+  return emailLockFrom(failures, Date.now());
 }
 
-/** Counts a failed verification; locks the link after too many. */
-export function recordEmailFailure(roomId: string): void {
-  const attempts = getAttempts();
-  const state = attempts.get(roomId) ?? { failures: 0, lockedUntil: 0 };
-  state.failures += 1;
-  if (state.failures >= MAX_FAILED_ATTEMPTS) {
-    state.lockedUntil = Date.now() + LOCK_DURATION_MS;
-    state.failures = 0;
-  }
-  attempts.set(roomId, state);
-}
-
-/** Clears the counter after a successful verification. */
-export function resetEmailAttempts(roomId: string): void {
-  getAttempts().delete(roomId);
+/** Counts a failed verification; five lock the link for 15 minutes. */
+export async function recordEmailFailure(roomId: string): Promise<void> {
+  await getInterviewRepository().appendEvents(roomId, [
+    { type: EMAIL_FAILURE_EVENT, at: new Date().toISOString(), data: {} },
+  ]);
 }

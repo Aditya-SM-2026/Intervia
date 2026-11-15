@@ -6,6 +6,7 @@ the web app. It never talks to the database: the web app stays the only
 writer, which keeps the schema in one place.
 
     POST /analyse   { roomId, recording, startedAt, answers, hiddenCount, hiddenSeconds }
+    POST /mix       one mixed recording (see mix.py)
     GET  /healthz
 """
 
@@ -17,6 +18,7 @@ from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
 
+from mix import MixError, run_mix
 from pipeline import run_job
 
 app = FastAPI(title="Intervia video analysis worker")
@@ -51,6 +53,22 @@ def analyse(
     # makes Cloud Tasks retry a job that failed instead of counting it as sent.
     run_job(payload)
     return {"ok": True, "roomId": room_id}
+
+
+@app.post("/mix")
+def mix(
+    payload: dict[str, Any],
+    x_internal_secret: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Folds the interviewer's voice into the candidate's video. Waits for the
+    work, like /analyse, so a failure makes Cloud Tasks retry."""
+    if not _secret_ok(x_internal_secret):
+        raise HTTPException(status_code=401, detail="Not allowed.")
+    try:
+        run_mix(payload)
+    except MixError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    return {"ok": True}
 
 
 @app.post("/analyse-sync")

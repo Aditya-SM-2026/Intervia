@@ -1,5 +1,6 @@
 import "server-only";
 import { Pool } from "pg";
+import { sharedPool } from "@/server/db/pool";
 import type { AgentPersonality } from "@/lib/agent/personality.types";
 
 /**
@@ -54,7 +55,7 @@ function getPool(): Pool {
     if (!connectionString) {
       throw new Error("DATABASE_URL is not set; cannot use the Postgres repository");
     }
-    globalRefs.__agentSettingsPool = new Pool({ connectionString, max: 2 });
+    globalRefs.__agentSettingsPool = sharedPool(connectionString);
   }
   return globalRefs.__agentSettingsPool;
 }

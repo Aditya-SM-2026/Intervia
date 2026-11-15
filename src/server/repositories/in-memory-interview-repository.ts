@@ -57,6 +57,9 @@ function getStore(): InterviewStore {
   return globalStore.__interviewStoreV2;
 }
 
+/** Keys held by tryWithLock in this process. */
+const heldLocks = new Set<string>();
+
 export function getInMemoryInterviewRepository(): InterviewRepository {
   const store = getStore();
 
@@ -100,6 +103,19 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
       return claimed;
     },
 
+    async tryWithLock<T>(
+      key: string,
+      fn: () => Promise<T>,
+    ): Promise<{ ran: true; value: T } | { ran: false }> {
+      if (heldLocks.has(key)) return { ran: false };
+      heldLocks.add(key);
+      try {
+        return { ran: true, value: await fn() };
+      } finally {
+        heldLocks.delete(key);
+      }
+    },
+
     async listUnscoredCompleted(olderThanMinutes: number, limit: number): Promise<string[]> {
       const now = Date.now();
       return [...store.rooms.values()]
@@ -110,6 +126,27 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
           return age > olderThanMinutes * 60_000 && age < 24 * 60 * 60_000;
         })
         .sort((a, b) => (a.completedAt ?? "").localeCompare(b.completedAt ?? ""))
+        .slice(0, limit)
+        .map((room) => room.id);
+    },
+
+    async listUnmixedCompleted(
+      olderThanMinutes: number,
+      maxAgeHours: number,
+      limit: number,
+    ): Promise<string[]> {
+      const now = Date.now();
+      return [...store.rooms.values()]
+        .filter((room) => {
+          if (room.status !== "completed" || !room.completedAt) return false;
+          const age = now - Date.parse(room.completedAt);
+          if (age <= olderThanMinutes * 60_000 || age >= maxAgeHours * 60 * 60_000) return false;
+          const events = store.events.get(room.id) ?? [];
+          return (
+            events.some((event) => event.type === "interview_audio_uploaded") &&
+            !events.some((event) => event.type === "recording_mixed")
+          );
+        })
         .slice(0, limit)
         .map((room) => room.id);
     },

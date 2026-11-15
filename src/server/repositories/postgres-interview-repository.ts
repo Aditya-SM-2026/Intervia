@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { sharedPool } from "@/server/db/pool";
 import type {
   AssistantExchangeInput,
   DashboardListFilter,
@@ -93,6 +94,11 @@ CREATE TABLE IF NOT EXISTS interview_events (
   data JSONB NOT NULL DEFAULT '{}'::jsonb,
   PRIMARY KEY (room_id, seq)
 );
+CREATE TABLE IF NOT EXISTS app_locks (
+  key TEXT PRIMARY KEY,
+  token TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL
+);
 CREATE TABLE IF NOT EXISTS scorecards (
   room_id TEXT PRIMARY KEY,
   scorecard JSONB NOT NULL,
@@ -136,7 +142,7 @@ function getPool(): Pool {
     if (!connectionString) {
       throw new Error("DATABASE_URL is not set; cannot use the Postgres repository");
     }
-    globalRefs.__interviewPgPool = new Pool({ connectionString, max: 5 });
+    globalRefs.__interviewPgPool = sharedPool(connectionString);
   }
   return globalRefs.__interviewPgPool;
 }
@@ -399,6 +405,34 @@ role_id = EXCLUDED.role_id,
       return result.rows.map((row) => row.id);
     },
 
+    async tryWithLock<T>(
+      key: string,
+      fn: () => Promise<T>,
+    ): Promise<{ ran: true; value: T } | { ran: false }> {
+      await ensureSchema();
+      // A row, not a session lock: no connection is held while `fn` runs, so
+      // the small shared pool cannot be tied up. A claim left by a crashed
+      // instance expires after two minutes.
+      const token = randomUUID();
+      const claimed = await getPool().query(
+        `INSERT INTO app_locks (key, token, expires_at)
+         VALUES ($1, $2, now() + interval '2 minutes')
+         ON CONFLICT (key) DO UPDATE
+           SET token = EXCLUDED.token, expires_at = EXCLUDED.expires_at
+           WHERE app_locks.expires_at < now()
+         RETURNING key`,
+        [key, token],
+      );
+      if ((claimed.rowCount ?? 0) === 0) return { ran: false };
+      try {
+        return { ran: true, value: await fn() };
+      } finally {
+        await getPool()
+          .query("DELETE FROM app_locks WHERE key = $1 AND token = $2", [key, token])
+          .catch(() => undefined);
+      }
+    },
+
     async listUnscoredCompleted(olderThanMinutes: number, limit: number): Promise<string[]> {
       await ensureSchema();
       const result = await getPool().query<{ id: string }>(
@@ -411,6 +445,32 @@ role_id = EXCLUDED.role_id,
          ORDER BY i.completed_at ASC
          LIMIT $2`,
         [Math.max(0, Math.round(olderThanMinutes)), Math.min(Math.max(limit, 1), 200)],
+      );
+      return result.rows.map((row) => row.id);
+    },
+
+    async listUnmixedCompleted(
+      olderThanMinutes: number,
+      maxAgeHours: number,
+      limit: number,
+    ): Promise<string[]> {
+      await ensureSchema();
+      const result = await getPool().query<{ id: string }>(
+        `SELECT i.id FROM interviews i
+         WHERE i.status = 'completed'
+           AND i.completed_at < now() - make_interval(mins => $1)
+           AND i.completed_at > now() - make_interval(hours => $3)
+           AND EXISTS (SELECT 1 FROM interview_events e
+                       WHERE e.room_id = i.id AND e.type = 'interview_audio_uploaded')
+           AND NOT EXISTS (SELECT 1 FROM interview_events e
+                           WHERE e.room_id = i.id AND e.type = 'recording_mixed')
+         ORDER BY i.completed_at ASC
+         LIMIT $2`,
+        [
+          Math.max(0, Math.round(olderThanMinutes)),
+          Math.min(Math.max(limit, 1), 200),
+          Math.max(1, Math.round(maxAgeHours)),
+        ],
       );
       return result.rows.map((row) => row.id);
     },

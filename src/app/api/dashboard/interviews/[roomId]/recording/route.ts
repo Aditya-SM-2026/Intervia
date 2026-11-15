@@ -8,6 +8,8 @@ import { MAX_RESPONSE_BYTES, clampRange, fileResponse, mimeFor, playableRecordin
 import { fetchStoredObject } from "@/lib/storage/gcs";
 import { findAgentAudio } from "@/lib/recordings/agent-audio";
 import { buildMixedRecording } from "@/lib/recordings/mix";
+import { workerMixEnabled } from "@/lib/recordings/mix-worker";
+import { enqueueJob } from "@/lib/jobs/queue";
 import { getInterviewRepository } from "@/server/repositories";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
@@ -37,7 +39,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   // straight away and used to get the candidate-only video for the first few
   // minutes. Build it here when it is missing, so the first play already has
   // the interviewer and HR.
-  if (!events.some((event) => event.type === "recording_mixed") && findAgentAudio(events)) {
+  if (!events.some((event) => event.type === "recording_mixed") && findAgentAudio(events) && workerMixEnabled()) {
+    // The video worker builds it: ask (repeat asks collapse into one job) and
+    // play the candidate's own video until the mixed copy is ready.
+    await enqueueJob({ kind: "mix-recording", roomId }).catch(() => undefined);
+  } else if (!events.some((event) => event.type === "recording_mixed") && findAgentAudio(events)) {
     await Promise.race([
       buildMixedRecording(roomId).catch(() => false),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), MIX_WAIT_MS)),

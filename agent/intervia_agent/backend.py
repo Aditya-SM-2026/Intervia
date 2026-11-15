@@ -21,6 +21,11 @@ FLUSH_INTERVAL_SECONDS = 3.0
 REQUEST_TIMEOUT_SECONDS = 15.0
 # A half-hour interview is a few tens of megabytes.
 AUDIO_TIMEOUT_SECONDS = 180.0
+# End-of-interview reports are retried: the web app may be starting up (it
+# scales to zero) or briefly busy, and a lost report costs the scorecard or
+# the interviewer's voice in the recording.
+REPORT_ATTEMPTS = 3
+REPORT_BACKOFF_SECONDS = (2.0, 6.0)
 
 
 def iso_now() -> str:
@@ -101,7 +106,7 @@ class Backend:
             logger.error("could not read interview audio: %s", error)
             return False
         try:
-            response = await self._client.post(
+            await self._post_with_retries(
                 f"{self._base}/audio",
                 content=body,
                 headers={
@@ -110,7 +115,6 @@ class Backend:
                 },
                 timeout=AUDIO_TIMEOUT_SECONDS,
             )
-            response.raise_for_status()
             logger.info("uploaded %.1f MB of interview audio", len(body) / 1024 / 1024)
             return True
         except Exception as error:  # noqa: BLE001
@@ -129,7 +133,7 @@ class Backend:
             logger.error("could not read HR audio: %s", error)
             return False
         try:
-            response = await self._client.post(
+            await self._post_with_retries(
                 f"{self._base}/audio",
                 content=body,
                 headers={
@@ -139,7 +143,6 @@ class Backend:
                 },
                 timeout=AUDIO_TIMEOUT_SECONDS,
             )
-            response.raise_for_status()
             logger.info("uploaded %.1f MB of HR audio", len(body) / 1024 / 1024)
             return True
         except Exception as error:  # noqa: BLE001
@@ -152,10 +155,35 @@ class Backend:
             self._flush_task = None
         await self.flush()
         try:
-            response = await self._client.post(f"{self._base}/complete", json=payload)
-            response.raise_for_status()
+            await self._post_with_retries(f"{self._base}/complete", json=payload)
         except Exception as error:  # noqa: BLE001
             logger.error("could not record interview completion: %s", error)
+
+    async def _post_with_retries(self, url: str, **kwargs: Any) -> httpx.Response:
+        """POST, tried up to REPORT_ATTEMPTS times on network errors, 429 and 5xx.
+
+        A 4xx other than 429 is the web app refusing the request on purpose, so
+        it is not repeated. Both end-of-interview calls are safe to repeat.
+        """
+        for attempt in range(REPORT_ATTEMPTS):
+            try:
+                response = await self._client.post(url, **kwargs)
+                if response.status_code != 429 and response.status_code < 500:
+                    response.raise_for_status()
+                    return response
+                error: Exception = httpx.HTTPStatusError(
+                    f"{response.status_code}", request=response.request, response=response
+                )
+            except httpx.HTTPStatusError:
+                raise
+            except Exception as caught:  # noqa: BLE001 - network trouble: retry
+                error = caught
+            if attempt + 1 >= REPORT_ATTEMPTS:
+                raise error
+            delay = REPORT_BACKOFF_SECONDS[min(attempt, len(REPORT_BACKOFF_SECONDS) - 1)]
+            logger.warning("%s failed (%s), retrying in %.0f s", url.rsplit("/", 1)[-1], error, delay)
+            await asyncio.sleep(delay)
+        raise RuntimeError("unreachable")
 
     async def aclose(self) -> None:
         await self._client.aclose()
