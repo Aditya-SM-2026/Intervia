@@ -25,6 +25,8 @@ export interface DashboardRow {
     status: string;
     createdAt: string;
     completedAt: string | null;
+    /** Why this completed interview cannot have a report, when it cannot. */
+    noReportReason: string | null;
   };
   hasScorecard: boolean;
 }
@@ -88,6 +90,7 @@ function rowToDashboardRow(row: {
   created_at: Date;
   completed_at: Date | null;
   has_scorecard: boolean;
+  no_report_reason?: string | null;
 }): DashboardRow {
   return {
     room: {
@@ -100,6 +103,7 @@ function rowToDashboardRow(row: {
       status: row.status,
       createdAt: row.created_at.toISOString(),
       completedAt: row.completed_at ? row.completed_at.toISOString() : null,
+      noReportReason: row.no_report_reason ?? null,
     },
     hasScorecard: row.has_scorecard,
   };
@@ -107,6 +111,7 @@ function rowToDashboardRow(row: {
 
 const ROW_SELECT = `i.id, i.title, i.candidate_name, i.candidate_email, i.recruiter_name,
   i.role_title, i.status, i.created_at, i.completed_at,
+  i.outcome->>'noReportReason' AS no_report_reason,
   (s.room_id IS NOT NULL) AS has_scorecard`;
 
 export interface DashboardRepository {
@@ -156,7 +161,7 @@ export function getPostgresDashboardRepository(): DashboardRepository {
         `SELECT
            COUNT(*)::int AS total,
            (COUNT(*) FILTER (WHERE s.room_id IS NOT NULL))::int AS ready,
-           (COUNT(*) FILTER (WHERE i.status = 'completed' AND s.room_id IS NULL))::int AS awaiting
+           (COUNT(*) FILTER (WHERE i.status = 'completed' AND s.room_id IS NULL AND i.outcome->>'noReportReason' IS NULL))::int AS awaiting
          FROM interviews i
          LEFT JOIN scorecards s ON s.room_id = i.id`,
       );
@@ -164,7 +169,7 @@ export function getPostgresDashboardRepository(): DashboardRepository {
         `SELECT
            COUNT(*)::int AS total,
            (COUNT(*) FILTER (WHERE s.room_id IS NOT NULL))::int AS ready,
-           (COUNT(*) FILTER (WHERE i.status = 'completed' AND s.room_id IS NULL))::int AS awaiting
+           (COUNT(*) FILTER (WHERE i.status = 'completed' AND s.room_id IS NULL AND i.outcome->>'noReportReason' IS NULL))::int AS awaiting
          FROM interviews i
          LEFT JOIN scorecards s ON s.room_id = i.id
          WHERE i.created_at >= $1 AND i.created_at < $2`,
@@ -185,7 +190,7 @@ export function getPostgresDashboardRepository(): DashboardRepository {
            COALESCE(i.completed_at, i.created_at) AS at
          FROM interviews i
          LEFT JOIN scorecards s ON s.room_id = i.id
-         WHERE i.status = 'completed' AND s.room_id IS NULL
+         WHERE i.status = 'completed' AND s.room_id IS NULL AND i.outcome->>'noReportReason' IS NULL
          ORDER BY at DESC
          LIMIT 8`,
       );
@@ -321,6 +326,7 @@ export function getInMemoryDashboardRepository(): DashboardRepository {
             status: room.status,
             createdAt: room.createdAt,
             completedAt: room.completedAt,
+            noReportReason: room.outcome?.noReportReason ?? null,
           },
           hasScorecard: store.scorecards.has(room.id),
         })),
@@ -339,7 +345,7 @@ export function getInMemoryDashboardRepository(): DashboardRepository {
         return {
           total: subset.length,
           ready: subset.filter((room) => store.scorecards.has(room.id)).length,
-          awaiting: subset.filter((room) => room.status === "completed" && !store.scorecards.has(room.id)).length,
+          awaiting: subset.filter((room) => room.status === "completed" && !store.scorecards.has(room.id) && !room.outcome?.noReportReason).length,
         };
       };
       const t = countWhere(() => true);
@@ -357,7 +363,7 @@ export function getInMemoryDashboardRepository(): DashboardRepository {
         });
       }
       const awaitingRecent: DashboardAwaitingItem[] = rooms
-        .filter((room) => room.status === "completed" && !store.scorecards.has(room.id))
+        .filter((room) => room.status === "completed" && !store.scorecards.has(room.id) && !room.outcome?.noReportReason)
         .sort((a, b) => (b.completedAt ?? b.createdAt).localeCompare(a.completedAt ?? a.createdAt))
         .slice(0, 8)
         .map((room) => ({

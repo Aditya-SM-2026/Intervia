@@ -22,6 +22,8 @@ interface AutoInviteState {
     interviewId: string | null;
     at: string | null;
   }[];
+  screeningOn?: boolean;
+  roleClosed?: boolean;
 }
 
 const DIFFICULTY_LABELS: Record<string, string> = {
@@ -293,6 +295,14 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
       {error && (
         <p role="alert" className="mx-4 mb-4 rounded-xl bg-rose-500/[0.07] px-3.5 py-2 text-sm text-rose-700 sm:mx-5 dark:text-rose-300">
           {error}
+        </p>
+      )}
+
+      {!loading && state && enabled && (state.roleClosed || state.screeningOn === false) && (
+        <p className="mx-4 mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-sm text-amber-700 dark:text-amber-300 sm:mx-5">
+          {state.roleClosed
+            ? "The role is closed, so nobody is invited. Make the role active to start again."
+            : "Resume screening is off, so nobody gets a Match score and nobody is invited. Turn on Screen new applications in Resume screening."}
         </p>
       )}
 

@@ -5,6 +5,7 @@ import { recordingsBucket, uploadRecordingToGcs } from "@/lib/recordings/gcs-upl
 import { buildMixedRecording } from "@/lib/recordings/mix";
 import { requestWorkerMix, workerMixEnabled } from "@/lib/recordings/mix-worker";
 import { mimeFor } from "@/lib/recordings/store";
+import { sweepOrphanFiles } from "@/lib/storage/cleanup";
 import { getInterviewRepository } from "@/server/repositories";
 import { autoInviteEnabledFor, runAutoInviteJob } from "@/lib/roles/auto-invite.service";
 import { screenApplication } from "@/lib/screening/screening.service";
@@ -56,6 +57,11 @@ export async function runJob(job: WebJob): Promise<void> {
     }
     case "upload-recording": {
       await uploadRecording(job.roomId, job.recordingId, job.format);
+      return;
+    }
+    case "file-cleanup": {
+      const result = await sweepOrphanFiles();
+      if (result.removed > 0) console.info(`[cleanup] removed ${result.removed} files of deleted interviews or applications`);
       return;
     }
   }

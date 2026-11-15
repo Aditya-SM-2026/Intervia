@@ -1,22 +1,26 @@
-import { Clock, Link2Off, MailX, RotateCcw, ServerCrash, type LucideIcon } from "lucide-react";
+import { CircleCheck, Clock, Link2Off, MailX, RotateCcw, ServerCrash, type LucideIcon } from "lucide-react";
 import { BrandMark } from "@/components/brand/BrandMark";
 
 interface JoinErrorProps {
   code: "ROOM_NOT_FOUND" | "ROOM_EXPIRED" | "ROOM_UNAVAILABLE" | "EMAIL_MISMATCH" | "SERVER_ERROR";
   message: string;
+  /** The interview already took place: thank the candidate, offer no retry. */
+  finished?: boolean;
 }
 
 const VIEWS: Record<JoinErrorProps["code"], { title: string; icon: LucideIcon; tint: string; retry?: boolean }> = {
   ROOM_NOT_FOUND: { title: "This link doesn't work", icon: Link2Off, tint: "bg-slate-500/10 text-slate-600 dark:text-slate-300" },
   ROOM_EXPIRED: { title: "This interview link has expired", icon: Clock, tint: "bg-amber-500/10 text-amber-600 dark:text-amber-300" },
-  ROOM_UNAVAILABLE: { title: "This interview isn't available", icon: Link2Off, tint: "bg-slate-500/10 text-slate-600 dark:text-slate-300", retry: true },
+  ROOM_UNAVAILABLE: { title: "This interview isn't available", icon: Link2Off, tint: "bg-slate-500/10 text-slate-600 dark:text-slate-300" },
   EMAIL_MISMATCH: { title: "This link is for someone else", icon: MailX, tint: "bg-rose-500/10 text-rose-600 dark:text-rose-300" },
   SERVER_ERROR: { title: "We couldn't load your interview", icon: ServerCrash, tint: "bg-rose-500/10 text-rose-600 dark:text-rose-300", retry: true },
 };
 
 /** Shown to a candidate whose interview link cannot be opened. */
-export function JoinError({ code, message }: JoinErrorProps) {
-  const view = VIEWS[code];
+export function JoinError({ code, message, finished }: JoinErrorProps) {
+  const view = finished
+    ? { title: "Your interview is complete", icon: CircleCheck, tint: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300", retry: false }
+    : VIEWS[code];
   const Icon = view.icon;
   return (
     <main className="flex min-h-dvh flex-col items-center px-6 py-8" data-reason={code}>

@@ -1,3 +1,4 @@
+import { RESUME_CONTENT_MISMATCH, resumeBytesMatch } from "@/lib/uploads/resume-upload";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getInterviewRepository } from "@/server/repositories";
@@ -63,6 +64,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const data = Buffer.from(await file.arrayBuffer());
+  if (!resumeBytesMatch(validation.kind, data)) {
+    return NextResponse.json({ error: { code: "INVALID_INPUT", message: RESUME_CONTENT_MISMATCH } }, { status: 400 });
+  }
   const stored = await storeResumeFile(room.id, validation.kind, data, file.name);
 
   let text = "";

@@ -52,6 +52,10 @@ export interface AutoInviteState {
   /** Candidates who clear the bar and have not been invited yet. */
   eligible: number;
   activity: AutoInviteActivity[];
+  /** Resume screening is on for the role; without it nobody gets a Match score to clear. */
+  screeningOn: boolean;
+  /** The role is closed, so nobody is invited whatever the settings say. */
+  roleClosed: boolean;
 }
 
 export interface AutoInviteRunResult {
@@ -127,7 +131,7 @@ export async function getAutoInviteState(roleId: string): Promise<AutoInviteStat
       interviewId: row.autoInviteInterviewId,
       at: row.autoInvitedAt,
     }));
-  return { settings, eligible, activity };
+  return { settings, eligible, activity, screeningOn: screening?.enabled !== false, roleClosed: role.status === "completed" };
 }
 
 /** Saves the role's automation settings; null when the role is gone. */
@@ -171,7 +175,8 @@ export async function runAutoInvite(
     const role = await repository().getRole(roleId);
     if (!role) return null;
     const settings = storedSettings(role);
-    if (!settings.enabled) {
+    // A closed role invites nobody, whatever its automation says.
+    if (!settings.enabled || role.status === "completed") {
       return { invited: 0, failed: 0, skipped: 0, eligible: 0, results: [] };
     }
 
@@ -281,7 +286,7 @@ export async function runAutoInvite(
 /** Whether the role exists and has automatic invitations switched on. */
 export async function autoInviteEnabledFor(roleId: string): Promise<boolean> {
   const role = await repository().getRole(roleId);
-  return role ? storedSettings(role).enabled : false;
+  return role ? storedSettings(role).enabled && role.status !== "completed" : false;
 }
 
 /**
@@ -302,7 +307,7 @@ export async function runAutoInviteJob(roleId: string): Promise<void> {
 /** For the every-minute sweep: one job per role with the automation on. */
 export async function queueAutoInviteScan(): Promise<number> {
   const roles = await repository().listRoles({});
-  const enabled = roles.filter((role) => storedSettings(role).enabled);
+  const enabled = roles.filter((role) => storedSettings(role).enabled && role.status !== "completed");
   for (const role of enabled) {
     await enqueueJob({ kind: "auto-invite-role", roleId: role.id });
   }
@@ -317,7 +322,7 @@ export async function runAutoInviteScanOnce(
   limitRoles = MAX_ROLES_PER_SCAN,
 ): Promise<{ roles: number; invited: number; failed: number }> {
   const roles = await repository().listRoles({});
-  const enabled = roles.filter((role) => storedSettings(role).enabled).slice(0, limitRoles);
+  const enabled = roles.filter((role) => storedSettings(role).enabled && role.status !== "completed").slice(0, limitRoles);
   let invited = 0;
   let failed = 0;
   for (const role of enabled) {

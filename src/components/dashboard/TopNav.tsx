@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { usePathname, useRouter } from "next/navigation";
@@ -100,7 +100,14 @@ export function TopNav() {
     router.push(term ? `/dashboard?q=${encodeURIComponent(term)}` : "/dashboard");
   }
 
-  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  // The server cannot know the visitor's keyboard. Render the same label on
+  // both sides first and switch after hydration, or React rebuilds the page
+  // (error 418) on every load.
+  const isMac = useSyncExternalStore(
+    noSubscription,
+    () => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent),
+    () => false,
+  );
   const shortcutHint = isMac ? "⌘K" : "Ctrl K";
 
   /** Clears the session and lands on the sign-in page. */
@@ -282,4 +289,9 @@ function ThemeControl() {
       ))}
     </div>
   );
+}
+
+/** The keyboard never changes while the page is open. */
+function noSubscription(): () => void {
+  return () => {};
 }

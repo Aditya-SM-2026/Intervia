@@ -1,3 +1,4 @@
+import { ORGANIZATION_NAME } from "../brand.ts";
 import nodemailer, { type Transporter } from "nodemailer";
 import type { InterviewRoom } from "@/lib/interviews/interview.types";
 
@@ -65,9 +66,9 @@ export function buildInvitationEmail(input: InvitationEmailInput): InvitationEma
       : "any time";
 
   const recruiterLine = input.recruiterName
-    ? `<p style="margin:0 0 4px">Interviewer: <strong>${escapeHtml(input.recruiterName)}</strong></p>`
+    ? `<p style="margin:0 0 4px">Organised by: <strong>${escapeHtml(input.recruiterName)}</strong></p>`
     : "";
-  const recruiterText = input.recruiterName ? `Interviewer: ${input.recruiterName}\n` : "";
+  const recruiterText = input.recruiterName ? `Organised by: ${input.recruiterName}\n` : "";
 
   const subject = `Interview invitation: ${input.roleTitle}`;
   const text = [
@@ -87,7 +88,7 @@ export function buildInvitationEmail(input: InvitationEmailInput): InvitationEma
     "- You can speak naturally and interrupt the interviewer at any point.",
     "",
     "Good luck!",
-    "The Sreemedhas Agent team",
+    `The ${ORGANIZATION_NAME} hiring team`,
   ].join("\n");
 
   const html = `<!doctype html>
@@ -119,7 +120,7 @@ export function buildInvitationEmail(input: InvitationEmailInput): InvitationEma
         <li>You can speak naturally and interrupt the interviewer at any point.</li>
       </ul>
     </div>
-    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by Sreemedhas Agent — please do not reply to this email.</p>
+    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by ${ORGANIZATION_NAME} Interviews. Please do not reply to this email.</p>
   </div>
 </body></html>`;
 
@@ -254,7 +255,7 @@ export function buildHrInvitationEmail(input: HrInvitationEmailInput): Invitatio
     "Joining is optional. If you join, you can listen to the whole interview.",
     "Speaking to the candidate pauses the AI interviewer until you press Unmute agent.",
     "",
-    "The Sreemedhas Agent team",
+    `The ${ORGANIZATION_NAME} hiring team`,
   ].join("\n");
 
   const html = `<!doctype html>
@@ -270,7 +271,7 @@ export function buildHrInvitationEmail(input: HrInvitationEmailInput): Invitatio
       <div style="background:#f4f5f7;border-radius:8px;padding:14px 16px;margin:0 0 20px;font-size:15px;line-height:1.7">
         <p style="margin:0 0 4px">When: <strong>${escapeHtml(whenLine)}</strong></p>
         <p style="margin:0 0 4px">Duration: about <strong>${input.durationMinutes}</strong> minutes</p>
-        ${input.recruiterName ? `<p style="margin:0 0 4px">Interviewer: <strong>${escapeHtml(input.recruiterName)}</strong></p>` : ""}
+        ${input.recruiterName ? `<p style="margin:0 0 4px">Organised by: <strong>${escapeHtml(input.recruiterName)}</strong></p>` : ""}
       </div>
       <p style="margin:0 0 16px">
         <a href="${input.hrUrl}"
@@ -286,7 +287,7 @@ export function buildHrInvitationEmail(input: HrInvitationEmailInput): Invitatio
         <li>The interview is recorded and includes your voice when you join.</li>
       </ul>
     </div>
-    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by Sreemedhas Agent — please do not reply to this email.</p>
+    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by ${ORGANIZATION_NAME} Interviews. Please do not reply to this email.</p>
   </div>
 </body></html>`;
   return { from: fromAddress(), to: input.to, subject, text, html };
@@ -371,7 +372,7 @@ export function buildInterviewUpdateEmail(
     "- You need a laptop with a working camera and microphone; the interview is recorded.",
     "",
     "Good luck!",
-    "The Sreemedhas Agent team",
+    `The ${ORGANIZATION_NAME} hiring team`,
   ].join("\n");
 
   const changeItems = changeLines
@@ -394,7 +395,7 @@ export function buildInterviewUpdateEmail(
       <div style="background:#f4f5f7;border-radius:8px;padding:14px 16px;margin:0 0 20px;font-size:15px;line-height:1.7">
         <p style="margin:0 0 4px">When: <strong>${escapeHtml(whenLine)}</strong></p>
         <p style="margin:0 0 4px">Duration: about <strong>${input.durationMinutes}</strong> minutes</p>
-        ${input.recruiterName ? `<p style="margin:0 0 4px">Interviewer: <strong>${escapeHtml(input.recruiterName)}</strong></p>` : ""}
+        ${input.recruiterName ? `<p style="margin:0 0 4px">Organised by: <strong>${escapeHtml(input.recruiterName)}</strong></p>` : ""}
       </div>
       <p style="margin:0 0 16px">
         <a href="${input.candidateUrl}"
@@ -410,7 +411,7 @@ export function buildInterviewUpdateEmail(
         <li>You need a laptop with a working camera and microphone; the interview is recorded.</li>
       </ul>
     </div>
-    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by Sreemedhas Agent — please do not reply to this email.</p>
+    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by ${ORGANIZATION_NAME} Interviews. Please do not reply to this email.</p>
   </div>
 </body></html>`;
 
@@ -481,7 +482,7 @@ export function buildReminderEmail(
     `- The interview takes about ${input.durationMinutes} minutes and is recorded.`,
     "",
     "See you very soon!",
-    "The Sreemedhas Agent team",
+    `The ${ORGANIZATION_NAME} hiring team`,
   ].join("\n");
   const html = `<!doctype html>
 <html><body style="margin:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#1a1a2e">
@@ -505,7 +506,7 @@ export function buildReminderEmail(
         <li>The interview takes about ${input.durationMinutes} minutes and is recorded.</li>
       </ul>
     </div>
-    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by Sreemedhas Agent — please do not reply to this email.</p>
+    <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by ${ORGANIZATION_NAME} Interviews. Please do not reply to this email.</p>
   </div>
 </body></html>`;
   return { from: invite.from, to: input.to, subject, text, html };
@@ -559,7 +560,8 @@ export function invitationInputFromRoom(
     to: room.candidateEmail ?? "",
     candidateName: room.candidateName || "candidate",
     roleTitle: room.roleTitle || room.title || "your interview",
-    recruiterName: room.recruiterName,
+    // Candidates see the organisation, never an internal login name.
+    recruiterName: ORGANIZATION_NAME,
     candidateUrl,
     scheduledAt: room.scheduledAt,
     expiresAt: room.expiresAt,

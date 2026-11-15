@@ -634,15 +634,31 @@ export async function scoreInterview(
     const turns = loaded?.turns ?? (await repository.getTurns(roomId));
     const events = loaded?.events ?? (await repository.getEvents(roomId));
 
+    // No report is possible: say so on the interview, once, so the lists
+    // stop showing "Writing report" and nothing keeps retrying it.
+    const noReport = async (reason: string): Promise<ScoreOutcome> => {
+      if (session.status === "completed" && session.outcome?.noReportReason !== reason) {
+        const outcome = session.outcome ?? {
+          reason: "session_closed",
+          startedAt: null,
+          endedAt: session.completedAt ?? new Date().toISOString(),
+          elapsedSeconds: 0,
+          coverage: [],
+          usage: [],
+        };
+        await repository.save({ ...session, outcome: { ...outcome, noReportReason: reason } }).catch(() => undefined);
+      }
+      return { scorecard: null, reason };
+    };
+
     const candidateTurns = turns.filter((turn) => turn.speaker === "candidate");
     if (candidateTurns.length < MIN_CANDIDATE_TURNS) {
-      return {
-        scorecard: null,
-        reason: `The candidate gave ${candidateTurns.length} answer${candidateTurns.length === 1 ? "" : "s"}; at least ${MIN_CANDIDATE_TURNS} are needed for a scorecard.`,
-      };
+      return noReport(
+        `The candidate gave ${candidateTurns.length} answer${candidateTurns.length === 1 ? "" : "s"}; at least ${MIN_CANDIDATE_TURNS} are needed for a report.`,
+      );
     }
     if (!session.plan) {
-      return { scorecard: null, reason: "This interview has no plan to grade against." };
+      return noReport("This interview has no plan to grade against.");
     }
     if (!isStructuredLlmAvailable()) {
       return {

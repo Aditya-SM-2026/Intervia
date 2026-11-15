@@ -1,3 +1,4 @@
+import { clientAddress } from "@/lib/auth/accounts.logic";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import {
@@ -30,12 +31,9 @@ function overRateLimit(key: string): boolean {
   return false;
 }
 
+/** The last X-Forwarded-For entry: the address Google saw, not one the client chose. */
 function clientIp(request: NextRequest): string {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    "unknown"
-  );
+  return clientAddress(request.headers.get("x-forwarded-for"));
 }
 
 /** What the public form needs: the role, its description and its questions. */

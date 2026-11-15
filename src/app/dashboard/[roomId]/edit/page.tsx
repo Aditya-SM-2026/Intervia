@@ -46,11 +46,11 @@ export default async function EditInterviewPage({
           </Link>
 
           <div className="mb-5">
-            <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">Edit interview</h1>
+            <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">{state.editable ? "Edit interview" : "Interview"}</h1>
             <p className="mt-1 text-sm text-muted">
               {room.candidateName ?? "This candidate"} · {room.roleTitle ?? room.title}
             </p>
-            {state.expired && (
+            {state.expired && state.editable && (
               <p className="mt-1 text-sm text-muted">
                 The link expired before the candidate joined. Saving reopens it now for 24 hours, or
                 at the date and time you choose below.
@@ -82,10 +82,10 @@ export default async function EditInterviewPage({
               <h2 className="text-lg font-semibold">This interview can no longer be edited</h2>
               <p className="mt-2 text-sm text-muted">{state.reason}</p>
               <Link
-                href="/dashboard"
+                href={`/dashboard/${room.id}`}
                 className="mt-5 inline-block rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
               >
-                Back to dashboard
+                Open the report
               </Link>
             </div>
           )}

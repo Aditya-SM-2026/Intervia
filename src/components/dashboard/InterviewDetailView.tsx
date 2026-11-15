@@ -1198,7 +1198,7 @@ function AnswerQualityTable({
         right={
           <div className="flex items-center gap-3">
             <span className="hidden text-sm tabular-nums text-muted sm:inline">
-              {scorecard.competencies.length} topics · {turns.filter((turn) => turn.speaker === "candidate").length} answers
+              {scorecard.competencies.length} {scorecard.competencies.length === 1 ? "topic" : "topics"} · {turns.filter((turn) => turn.speaker === "candidate").length} answers
             </span>
             <HeadingScore score={score} tone={chip.tone} label={chip.label} />
           </div>
@@ -2031,9 +2031,16 @@ function VideoSection({
   const flagged = aspects.filter((aspect) => aspect.state === "bad");
   const selected = aspects.find((aspect) => aspect.id === (picked ?? flagged[0]?.id)) ?? null;
 
+  // The overall level also counts what the answers themselves showed (text
+  // findings), which the video checks below do not cover. Say so, so this
+  // section never reads "nothing stood out" under a "Worth a look" verdict.
+  const answerFindings = (check?.findings ?? []).filter((finding) => finding.source === "text");
+  const answerTitles = [...new Set(answerFindings.map((finding) => finding.title.replace(/\.$/, "")))];
   const summary =
     flagged.length === 0
-      ? "Nothing in the recording stood out. Everything below looked normal."
+      ? check && check.level !== "clear" && answerTitles.length > 0
+        ? `The video looked normal. It is worth a look because of the answers: ${answerTitles.slice(0, 2).join("; ").toLowerCase()}.`
+        : "Nothing in the recording stood out. Everything below looked normal."
       : `${flagged
           .map((aspect, index) => (index === 0 ? aspect.phrase.charAt(0).toUpperCase() + aspect.phrase.slice(1) : aspect.phrase))
           .join(flagged.length > 2 ? ", " : " and ")}. ${

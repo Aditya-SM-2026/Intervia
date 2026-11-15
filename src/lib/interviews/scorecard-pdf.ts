@@ -1,3 +1,4 @@
+import { ORGANIZATION_NAME } from "@/lib/brand";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { InterviewRoom } from "./interview.types";
 import type { Scorecard } from "./scorecard.types";
@@ -458,8 +459,8 @@ export async function renderScorecardPdf(
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.setTitle(`Interview scorecard - ${safe(heading)}`);
-  doc.setAuthor("Sreemedhas Agent");
-  doc.setCreator("Sreemedhas Agent");
+  doc.setAuthor(`${ORGANIZATION_NAME} Interviews`);
+  doc.setCreator(`${ORGANIZATION_NAME} Interviews`);
 
   const regular = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -472,7 +473,7 @@ export async function renderScorecardPdf(
     page,
     y: PAGE_HEIGHT - MARGIN,
     heading: `Interview scorecard - ${safe(heading)}`,
-    footer: "Sreemedhas Agent  ·  scorecards are recommendations; the hiring decision is recorded separately.",
+    footer: `${ORGANIZATION_NAME} Interviews  ·  scorecards are recommendations; the hiring decision is recorded separately.`,
     pageNumber: 1,
   };
 

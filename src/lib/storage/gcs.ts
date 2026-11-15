@@ -93,3 +93,40 @@ export async function fetchStoredObject(
   }
   return response;
 }
+
+export interface ListedObject {
+  name: string;
+  timeCreated: string;
+}
+
+/** Every object under a prefix (all pages). Empty when storage is not reachable. */
+export async function listStoredObjects(bucket: string, prefix: string): Promise<ListedObject[]> {
+  const token = await getStorageAccessToken();
+  if (!token) return [];
+  const found: ListedObject[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o`);
+    url.searchParams.set("prefix", prefix);
+    url.searchParams.set("fields", "items(name,timeCreated),nextPageToken");
+    url.searchParams.set("maxResults", "1000");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) break;
+    const page = (await response.json()) as { items?: ListedObject[]; nextPageToken?: string };
+    found.push(...(page.items ?? []));
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+  return found;
+}
+
+/** Deletes one object; a missing object counts as deleted. */
+export async function deleteStoredObject(bucket: string, path: string): Promise<boolean> {
+  const token = await getStorageAccessToken();
+  if (!token) return false;
+  const response = await fetch(
+    `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) },
+  );
+  return response.ok || response.status === 404;
+}

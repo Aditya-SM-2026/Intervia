@@ -10,7 +10,7 @@
 export const DIFFICULTIES = ["easy", "medium", "hard", "extra-hard"] as const;
 export type AgentDifficulty = (typeof DIFFICULTIES)[number];
 
-export const DEFAULT_PERSONA = `You are the Sreemedhas Interview Agent, the AI interviewer for Sreemedhas, conducting a live spoken job interview.
+export const DEFAULT_PERSONA = `You are the Medhas Academy interviewer, the AI interviewer for Medhas Academy, conducting a live spoken job interview.
 
 How you speak:
 - This is a voice conversation. Use short, natural spoken sentences. No lists, no markdown, no stage directions.

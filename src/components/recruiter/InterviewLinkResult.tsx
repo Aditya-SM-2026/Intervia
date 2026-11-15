@@ -169,7 +169,7 @@ export function InterviewLinkResult({ result, onReset }: InterviewLinkResultProp
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="text-[15px] font-semibold">The plan</h3>
             <p className="text-sm text-muted">
-              {room.durationMinutes} minutes, {room.plan.competencies.length} topics
+              {room.durationMinutes} minutes, {room.plan.competencies.length} {room.plan.competencies.length === 1 ? "topic" : "topics"}
             </p>
           </div>
           {room.plan.source === "fallback" && (

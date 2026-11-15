@@ -1,3 +1,4 @@
+import { deleteFilesFor } from "@/lib/storage/cleanup";
 import "server-only";
 import type { InterviewStatus } from "@/lib/interviews/interview.types";
 import type {
@@ -22,8 +23,10 @@ import { getInterviewRepository } from "@/server/repositories";
 function reportStateFor(
   status: string,
   hasScorecard: boolean,
+  noReportReason?: string,
 ): { reportState: ReportState; reportReason: string | null } {
   if (hasScorecard) return { reportState: "ready", reportReason: null };
+  if (status === "completed" && noReportReason) return { reportState: "not-started", reportReason: "Too short for a report" };
   const normalized = status as InterviewStatus;
   switch (normalized) {
     case "active":
@@ -49,12 +52,14 @@ function reportStateFor(
 }
 
 function toSummary(row: DashboardRow, scorecard: DashboardInterviewSummary["scorecard"]): DashboardInterviewSummary {
-  const { reportState, reportReason } = reportStateFor(row.room.status, row.hasScorecard);
+  const { reportState, reportReason } = reportStateFor(row.room.status, row.hasScorecard, row.room.noReportReason ?? undefined);
   return {
     room: {
       ...row.room,
       status: row.room.status as InterviewStatus,
-    } as DashboardInterviewSummary["room"],
+      // The list only needs the no-report reason from the outcome.
+      outcome: row.room.noReportReason ? { noReportReason: row.room.noReportReason } : null,
+    } as unknown as DashboardInterviewSummary["room"],
     scorecard,
     reportState,
     reportReason,
@@ -85,5 +90,9 @@ export async function getDashboardAnalytics(): Promise<DashboardAnalytics> {
 export async function deleteDashboardInterviews(
   roomIds: readonly string[],
 ): Promise<{ deleted: string[]; failed: { roomId: string; error: string }[] }> {
-  return getDashboardRepository().deleteSessions(roomIds);
+  const result = await getDashboardRepository().deleteSessions(roomIds);
+  // The candidate was promised their recording and data can be deleted: the
+  // files go with the record, not only the database rows.
+  await deleteFilesFor(result.deleted);
+  return result;
 }

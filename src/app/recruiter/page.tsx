@@ -52,7 +52,7 @@ export default async function RecruiterPage({ searchParams }: PageProps<"/recrui
         <header className="pb-7 pt-9">
           <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">New interview</h1>
           <p className="mt-1.5 max-w-xl text-sm text-muted">
-            The job description and resume become the interview plan. You see the plan before you send the link.
+            The job description and resume become the interview plan. The candidate is emailed their link as soon as you create it.
           </p>
         </header>
         <CreateInterviewPanel

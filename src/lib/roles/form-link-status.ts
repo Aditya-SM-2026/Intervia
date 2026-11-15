@@ -24,13 +24,17 @@ export function formLinkStatus(
   link: RoleFormLink,
   applicationsReceived: number,
   now: number = Date.now(),
+  /** The role itself was closed: no link of it takes applications. */
+  roleClosed = false,
 ): FormLinkStatus {
   const expiresAt = linkExpiresAt(link);
   const maxApplications = link.maxApplications ?? null;
   const expiresAfterHours = link.expiresAfterHours ?? null;
 
   let closedReason: FormLinkClosedReason | null = null;
-  if (link.revokedAt) {
+  if (roleClosed) {
+    closedReason = "role_closed";
+  } else if (link.revokedAt) {
     closedReason = "revoked";
   } else if (expiresAt !== null && now >= Date.parse(expiresAt)) {
     closedReason = "expired";
@@ -58,6 +62,8 @@ export function closedReasonMessage(reason: FormLinkClosedReason | null): string
       return "This link has expired. Ask the recruiter who shared it for a new one.";
     case "revoked":
       return "This link was turned off by the recruiter. Ask them for a new one.";
+    case "role_closed":
+      return "This role is no longer taking applications. Thank you for your interest.";
     default:
       return "This link is no longer accepting applications. Ask the recruiter who shared it for a new one.";
   }

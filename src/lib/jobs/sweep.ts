@@ -41,6 +41,8 @@ export async function queueSweepJobs(): Promise<{
     await enqueueJob({ kind: "mix-recording", roomId }, { windowMs: RETRY_WINDOW_MS });
   }
 
+  await enqueueJob({ kind: "file-cleanup" });
+
   return {
     autoInviteRoles,
     screenings: unscreened.length,

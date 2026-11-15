@@ -97,6 +97,11 @@ export interface SessionOutcome {
   usage: unknown[];
   /** How many voice-model sessions the interview used (1 in standard mode). */
   modelSessions?: number;
+  /**
+   * Set when the interview cannot have a report (too few answers, no plan),
+   * so lists say why instead of waiting for one forever.
+   */
+  noReportReason?: string;
 }
 
 /** The hiring decision. Always made by a person; the scorecard only advises. */

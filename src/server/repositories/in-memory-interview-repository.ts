@@ -121,7 +121,7 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
       return [...store.rooms.values()]
         .filter((room) => {
           if (room.status !== "completed" || !room.completedAt) return false;
-          if (store.scorecards.has(room.id)) return false;
+          if (store.scorecards.has(room.id) || room.outcome?.noReportReason) return false;
           const age = now - Date.parse(room.completedAt);
           return age > olderThanMinutes * 60_000 && age < 24 * 60 * 60_000;
         })

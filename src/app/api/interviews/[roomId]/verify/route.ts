@@ -1,3 +1,4 @@
+import { RESUME_CONTENT_MISMATCH, resumeBytesMatch } from "@/lib/uploads/resume-upload";
 import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
@@ -119,6 +120,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         return interviewErrorResponse("INVALID_INPUT", messages[validation.reason]);
       }
       const data = Buffer.from(await resumeFile.arrayBuffer());
+      if (!resumeBytesMatch(validation.kind, data)) {
+        return interviewErrorResponse("INVALID_INPUT", RESUME_CONTENT_MISMATCH);
+      }
       const stored = await storeResumeFile(roomId, validation.kind, data, resumeFile.name);
       let text = "";
       let unreadable = false;

@@ -440,6 +440,7 @@ role_id = EXCLUDED.role_id,
          LEFT JOIN scorecards s ON s.room_id = i.id
          WHERE i.status = 'completed'
            AND s.room_id IS NULL
+           AND i.outcome->>'noReportReason' IS NULL
            AND i.completed_at < now() - make_interval(mins => $1)
            AND i.completed_at > now() - interval '24 hours'
          ORDER BY i.completed_at ASC

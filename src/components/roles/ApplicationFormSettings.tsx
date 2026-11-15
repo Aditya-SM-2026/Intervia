@@ -368,12 +368,14 @@ export function ApplicationFormSettings({
         ? "Closed: the application limit was reached."
         : status.closedReason === "expired"
           ? "Closed: the time limit was reached."
-          : "Closed by you."
+          : status.closedReason === "role_closed"
+            ? "Closed with the role. Make the role active to take applications again."
+            : "Closed by you."
       : null;
 
 
   function toggleOpen() {
-    if (saving) return;
+    if (saving || status?.closedReason === "role_closed") return;
     if (isOpen) void revoke();
     else if (status?.closedReason === "revoked") void reEnable();
     else openPanel("limits");

@@ -601,7 +601,7 @@ export function CreateInterviewForm({
           {isSubmitting ? submittingLabel : submitLabel}
         </button>
         <p className="mt-3 text-xs leading-5 text-muted">
-          {footerNote ?? "You see the interview plan before sending. The link stays valid for 24 hours."}
+          {footerNote ?? "Creating sends the invitation email. The link stays valid for 24 hours, and you can edit the interview until the candidate joins."}
         </p>
       </aside>
 

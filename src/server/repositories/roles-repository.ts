@@ -403,6 +403,7 @@ CREATE TABLE IF NOT EXISTS role_applications (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS resume_update_token TEXT;
+ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS resume_updated_at TIMESTAMPTZ;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS education TEXT;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS cgpa NUMERIC;
@@ -1285,8 +1286,8 @@ export function getPostgresRolesRepository(): RoleRepository {
         const result = await getPool().query(
           `INSERT INTO role_applications
              (id, role_id, name, phone, email, college_id, education, cgpa, answers,
-              resume_file_name, resume_text, resume_object_path, resume_update_token)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13)
+              resume_file_name, resume_text, resume_object_path, resume_update_token, consent_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, now())
            RETURNING ${APPLICATION_COLUMNS}`,
           [
             input.id,
@@ -1783,11 +1784,13 @@ export function getPostgresRolesRepository(): RoleRepository {
     ): Promise<{ id: string; roleId: string }[]> {
       await ensureSchema();
       const result = await getPool().query(
-        `SELECT id, role_id FROM role_applications
-         WHERE screening_at IS NULL
-           AND created_at < now() - make_interval(mins => $1)
-           AND created_at > now() - interval '7 days'
-         ORDER BY created_at ASC
+        `SELECT a.id, a.role_id FROM role_applications a
+         JOIN roles r ON r.id = a.role_id
+         WHERE a.screening_at IS NULL
+           AND r.screening_enabled IS DISTINCT FROM FALSE
+           AND a.created_at < now() - make_interval(mins => $1)
+           AND a.created_at > now() - interval '7 days'
+         ORDER BY a.created_at ASC
          LIMIT $2`,
         [Math.max(0, Math.round(olderThanMinutes)), Math.min(Math.max(limit, 1), 200)],
       );
@@ -2692,6 +2695,7 @@ export function getInMemoryRolesRepository(): RoleRepository {
       return [...getStore().applications.values()]
         .filter((application) => {
           if (application.screening) return false;
+          if (getStore().roles.get(application.roleId)?.screeningEnabled === false) return false;
           const age = now - Date.parse(application.createdAt);
           return age > olderThanMinutes * 60_000 && age < 7 * 24 * 60 * 60_000;
         })

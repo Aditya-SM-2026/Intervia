@@ -45,6 +45,7 @@ export function reportCell(summary: DashboardInterviewSummary): { state: ReportC
   if (status === "active") return { state: "processing", detail: "Interview in progress" };
   if (status === "waiting") return { state: "processing", detail: "Candidate joining" };
   if (status === "completed") {
+    if (room.outcome?.noReportReason) return { state: "not-started", detail: "Too short for a report" };
     return { state: "processing", detail: "Awaiting analysis, ready when first opened" };
   }
   if (status === "scheduled") return { state: "not-started", detail: "Not started" };
@@ -252,6 +253,9 @@ function ScoreCell({ summary }: { summary: DashboardInterviewSummary }) {
   }
   if (cell.state === "ready") return <span className="text-sm text-muted">Report ready</span>;
   if (cell.state === "processing") return <span className="text-shimmer text-sm font-medium">{summary.room.status === "completed" ? "Writing report" : cell.detail}</span>;
+  if (summary.room.status === "completed") {
+    return <span className="text-sm text-muted" title={summary.room.outcome?.noReportReason}>{cell.detail}</span>;
+  }
   return <span className="text-muted">—</span>;
 }
 

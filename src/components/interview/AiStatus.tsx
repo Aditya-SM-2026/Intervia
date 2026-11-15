@@ -21,12 +21,12 @@ const STATE_STYLES = {
 } as const;
 
 const STATE_LABELS = {
-  connecting: "Sreemedhas Agent: connecting…",
-  listening: "Sreemedhas Agent: listening",
-  processing: "Sreemedhas Agent: thinking…",
-  speaking: "Sreemedhas Agent: speaking",
-  error: "Sreemedhas Agent: problem",
-  disconnected: "Sreemedhas Agent: disconnected",
+  connecting: "Interviewer: connecting…",
+  listening: "Interviewer: listening",
+  processing: "Interviewer: thinking…",
+  speaking: "Interviewer: speaking",
+  error: "Interviewer: problem",
+  disconnected: "Interviewer: disconnected",
 } as const;
 
 export function AiStatus({ state, detail }: AiStatusProps) {

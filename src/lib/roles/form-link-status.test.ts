@@ -65,3 +65,9 @@ test("each closed reason explains itself to the applicant", () => {
   assert.match(closedReasonMessage("revoked"), /turned off/i);
   assert.match(closedReasonMessage(null), /no longer accepting/i);
 });
+
+test("a closed role closes its form, before any other reason", () => {
+  const status = formLinkStatus(link(), 0, START + 1000, true);
+  assert.equal(status.open, false);
+  assert.equal(status.closedReason, "role_closed");
+});

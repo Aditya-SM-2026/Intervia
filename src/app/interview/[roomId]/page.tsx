@@ -1,3 +1,4 @@
+import { ORGANIZATION_NAME } from "@/lib/brand";
 import { validateRoomAccess } from "@/lib/interviews/interview.service";
 import { InterviewRoom } from "@/components/interview/InterviewRoom";
 import { JoinError } from "@/components/interview/JoinError";
@@ -9,7 +10,7 @@ export default async function InterviewPage({
   const result = await validateRoomAccess(roomId);
 
   if (!result.ok) {
-    return <JoinError code={result.code} message={result.message} />;
+    return <JoinError code={result.code} message={result.message} finished={result.finished} />;
   }
 
   return (
@@ -17,7 +18,8 @@ export default async function InterviewPage({
       roomId={result.room.id}
       roomTitle={result.room.title}
       candidateName={result.room.candidateName}
-      recruiterName={result.room.recruiterName}
+      // Candidates see the organisation, never an internal login name.
+      recruiterName={ORGANIZATION_NAME}
       durationMinutes={result.room.durationMinutes}
     />
   );

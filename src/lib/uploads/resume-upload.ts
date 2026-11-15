@@ -62,3 +62,21 @@ export function validateResumeUpload(file: { name: string; size: number }): Resu
   if (!ext) return { ok: false, reason: "unsupported_type" };
   return { ok: true, kind: ext.slice(1) as ResumeUploadFileKind, fileName: file.name };
 }
+/**
+ * The file's first bytes match its type: PDF starts with "%PDF-", DOCX is a
+ * zip ("PK"), DOC is an OLE compound file. A file renamed to look like a
+ * resume (a web page called resume.pdf) is refused before it is stored.
+ */
+export function resumeBytesMatch(kind: ResumeUploadFileKind, data: Uint8Array): boolean {
+  const starts = (...bytes: number[]) => bytes.every((byte, index) => data[index] === byte);
+  if (kind === "pdf") {
+    // A few writers put a short header before the signature; it must appear early.
+    const head = Buffer.from(data.subarray(0, 1024)).toString("latin1");
+    return head.includes("%PDF-");
+  }
+  if (kind === "docx") return starts(0x50, 0x4b, 0x03, 0x04);
+  return starts(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1);
+}
+
+export const RESUME_CONTENT_MISMATCH =
+  "This file is not a real PDF, DOC or DOCX. Export your resume again and attach that file.";

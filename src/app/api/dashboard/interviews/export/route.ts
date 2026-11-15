@@ -1,3 +1,4 @@
+import { ORGANIZATION_SLUG } from "@/lib/brand";
 import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
@@ -131,7 +132,7 @@ export async function GET(request: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="sreemedhas-reports-${stamp}.csv"`,
+        "Content-Disposition": `attachment; filename="${ORGANIZATION_SLUG}-interviews-${stamp}.csv"`,
         "Cache-Control": "no-store",
       },
     });

@@ -1,3 +1,4 @@
+import { ORGANIZATION_NAME } from "@/lib/brand";
 import "server-only";
 import { randomBytes } from "node:crypto";
 import type {
@@ -39,7 +40,7 @@ export type RoomAccessErrorCode = Exclude<
 
 export type RoomAccessResult =
   | { ok: true; room: InterviewRoom }
-  | { ok: false; code: RoomAccessErrorCode; message: string };
+  | { ok: false; code: RoomAccessErrorCode; message: string; finished?: boolean };
 
 export function generateRoomId(): string {
   return randomBytes(ROOM_ID_RANDOM_BYTES).toString("base64url");
@@ -254,11 +255,19 @@ export async function validateRoomAccess(roomId: string): Promise<RoomAccessResu
       message: "This interview link has expired. Please ask your recruiter for a new link.",
     };
   }
-  if (room.status === "completed" || room.status === "cancelled") {
+  if (room.status === "completed") {
     return {
       ok: false,
       code: "ROOM_UNAVAILABLE",
-      message: "This interview is no longer available.",
+      message: `Thank you. It was sent to ${ORGANIZATION_NAME}, who will be in touch about next steps. You can close this page.`,
+      finished: true,
+    };
+  }
+  if (room.status === "cancelled") {
+    return {
+      ok: false,
+      code: "ROOM_UNAVAILABLE",
+      message: "This interview was cancelled. Ask the person who invited you if you think this is a mistake.",
     };
   }
 
@@ -280,7 +289,7 @@ export async function activateRoom(roomId: string): Promise<void> {
 
 export type EmailVerifyResult =
   | { ok: true; room: InterviewRoom }
-  | { ok: false; code: RoomAccessErrorCode | "EMAIL_MISMATCH"; message: string };
+  | { ok: false; code: RoomAccessErrorCode | "EMAIL_MISMATCH"; message: string; finished?: boolean };
 
 /**
  * Email gate: checks the candidate's email against the session, and on
@@ -309,11 +318,19 @@ export async function verifyCandidateEmail(
       message: "This interview link has expired. Please ask your recruiter for a new link.",
     };
   }
-  if (room.status === "completed" || room.status === "cancelled") {
+  if (room.status === "completed") {
     return {
       ok: false,
       code: "ROOM_UNAVAILABLE",
-      message: "This interview is no longer available.",
+      message: `Thank you. It was sent to ${ORGANIZATION_NAME}, who will be in touch about next steps. You can close this page.`,
+      finished: true,
+    };
+  }
+  if (room.status === "cancelled") {
+    return {
+      ok: false,
+      code: "ROOM_UNAVAILABLE",
+      message: "This interview was cancelled. Ask the person who invited you if you think this is a mistake.",
     };
   }
 

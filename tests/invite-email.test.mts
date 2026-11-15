@@ -47,7 +47,8 @@ check("html has link", msg.html.includes("https://intervia.ai/interview/room-1")
 check("text has link", msg.text.includes("https://intervia.ai/interview/room-1"));
 check("html has scheduled time", /20 October 2026|Monday, 20 October/i.test(msg.html), msg.html.match(/When: <strong>[^<]+/)?.[0]);
 check("html has duration", msg.html.includes("15"));
-check("html has recruiter", msg.html.includes("Priya Sharma"));
+// Candidates see the organisation, never the recruiter's login name.
+check("html names the organisation", msg.html.includes("Organised by: <strong>Medhas Academy</strong>") && !msg.html.includes("Priya Sharma"));
 check("html escapes name", buildInvitationEmail({ ...input, candidateName: "<b>x</b>" }).html.includes("&lt;b&gt;x&lt;/b&gt;"));
 
 // 2. Unscheduled room renders the expiry line

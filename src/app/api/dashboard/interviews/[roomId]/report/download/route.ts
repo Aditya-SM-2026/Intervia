@@ -1,3 +1,4 @@
+import { ORGANIZATION_SLUG } from "@/lib/brand";
 import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
@@ -44,7 +45,7 @@ export async function GET(
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="sreemedhas-scorecard-${slug}-${roomId}.pdf"`,
+        "Content-Disposition": `attachment; filename="${ORGANIZATION_SLUG}-report-${slug}-${roomId}.pdf"`,
         "Cache-Control": "no-store",
       },
     });

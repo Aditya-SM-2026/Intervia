@@ -1,3 +1,4 @@
+import { clientAddress } from "@/lib/auth/accounts.logic";
 /**
  * Best-effort, per-instance rate limit for the public application endpoints.
  *
@@ -23,11 +24,10 @@ export function overPublicRateLimit(key: string, max: number = DEFAULT_MAX): boo
   return false;
 }
 
-/** The client's address as the proxy chain reports it. */
+/**
+ * The client's address. Google's front end appends the address it saw, so the
+ * last X-Forwarded-For entry is the one a client cannot choose.
+ */
 export function clientIp(headers: Headers): string {
-  return (
-    headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    headers.get("x-real-ip") ||
-    "unknown"
-  );
+  return clientAddress(headers.get("x-forwarded-for"));
 }

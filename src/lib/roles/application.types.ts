@@ -211,7 +211,7 @@ export interface RoleFormLink {
 }
 
 /** Why a form link is not accepting applications. */
-export type FormLinkClosedReason = "revoked" | "expired" | "limit";
+export type FormLinkClosedReason = "revoked" | "expired" | "limit" | "role_closed";
 
 /** Live state of one link: whether it is open, why not, and how many arrived. */
 export interface FormLinkStatus {

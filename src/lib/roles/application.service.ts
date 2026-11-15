@@ -1,3 +1,4 @@
+import { RESUME_CONTENT_MISMATCH, resumeBytesMatch } from "@/lib/uploads/resume-upload";
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { ZodError } from "zod";
@@ -105,11 +106,12 @@ async function formLinkResponse(
   origin: string,
 ): Promise<RoleFormLinkResponse> {
   const received = await repository().countApplicationsSince(link.roleId, link.roundStartedAt);
+  const role = await repository().getRole(link.roleId);
   return {
     token: link.token,
     url: originUrl(origin, link.token),
     fields: resolveApplicationFormFields(link.fields),
-    status: formLinkStatus(link, received),
+    status: formLinkStatus(link, received, Date.now(), role?.status === "completed"),
   };
 }
 
@@ -222,7 +224,7 @@ export async function getPublicApplicationState(
   // A rotated link replaces the token, so an old URL must not resolve.
   if (!link || link.token !== token) return { form: null, closedReason: null };
   const received = await repository().countApplicationsSince(role.id, link.roundStartedAt);
-  const status = formLinkStatus(link, received);
+  const status = formLinkStatus(link, received, Date.now(), role.status === "completed");
   if (!status.open) return { form: null, closedReason: status.closedReason };
   return {
     form: {
@@ -268,7 +270,7 @@ export async function submitApplication(
     role.id,
     activeLink.roundStartedAt,
   );
-  const linkStatus = formLinkStatus(activeLink, receivedSoFar);
+  const linkStatus = formLinkStatus(activeLink, receivedSoFar, Date.now(), role.status === "completed");
   if (!linkStatus.open) {
     return {
       ok: false,
@@ -300,6 +302,12 @@ export async function submitApplication(
   const answerErrors = validateAnswers(customApplicationFields(fields), answers);
   if (answerErrors.length > 0) {
     return { ok: false, code: "invalid", message: answerErrors[0] };
+  }
+
+  // Consent is required by the server, not only by the form: an application
+  // is never stored without the candidate agreeing to it.
+  if (form.get("consent") !== "true") {
+    return { ok: false, code: "invalid", message: "Please confirm consent to submit your application." };
   }
 
   const file = form.get("resume");
@@ -337,6 +345,9 @@ export async function submitApplication(
 
   const applicationId = existing?.id ?? newApplicationId();
   const data = Buffer.from(await file.arrayBuffer());
+  if (!resumeBytesMatch(validation.kind, data)) {
+    return { ok: false, code: "invalid", message: RESUME_CONTENT_MISMATCH };
+  }
   const stored = await storeResumeFile(
     applicationId,
     validation.kind as ResumeUploadFileKind,
@@ -561,6 +572,9 @@ export async function replaceApplicationResume(
   }
 
   const data = Buffer.from(await file.arrayBuffer());
+  if (!resumeBytesMatch(validation.kind, data)) {
+    return { ok: false, code: "invalid", message: RESUME_CONTENT_MISMATCH };
+  }
   const stored = await storeResumeFile(
     application.id,
     validation.kind as ResumeUploadFileKind,

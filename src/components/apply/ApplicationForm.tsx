@@ -426,6 +426,7 @@ export function ApplicationForm({
     if (cgpaField && cgpa.trim()) body.set("cgpa", cgpa.trim());
     body.set("answers", JSON.stringify(answers));
     body.set("resume", resume!);
+    body.set("consent", consent ? "true" : "false");
 
     setSubmitting(true);
     try {

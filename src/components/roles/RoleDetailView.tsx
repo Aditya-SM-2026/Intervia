@@ -794,7 +794,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
       </header>
 
       {/* ------------------------------------------------- application form */}
-      <ApplicationFormSettings roleId={roleId} roleTitle={role.title} roleDescription={role.description} />
+      {/* Keyed on the role's status: closing or reopening the role reloads the form's state. */}
+      <ApplicationFormSettings key={role.status} roleId={roleId} roleTitle={role.title} roleDescription={role.description} />
 
       <div className="mt-4">
         <ScreeningSettings roleId={roleId} />
