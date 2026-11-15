@@ -32,3 +32,31 @@ def test_a_session_with_nothing_said_yet_still_forbids_a_second_greeting() -> No
     note = continuation_note(llm.ChatContext.empty())
     assert "never greet them" in note
     assert "The last thing you said" not in note
+
+
+def test_a_topic_change_session_asks_the_new_question_instead_of_waiting() -> None:
+    ctx = llm.ChatContext.empty()
+    ctx.add_message(role="assistant", content="Could you introduce yourself?")
+    ctx.add_message(role="user", content="I'm Ravi, a backend developer.")
+    note = continuation_note(ctx, answered=True)
+    assert "never greet them" in note
+    assert "Ask the opening question of the current step now" in note
+    assert "The candidate is answering that now" not in note
+
+
+def test_start_next_topic_is_refused_until_the_new_step_is_answered() -> None:
+    import time
+
+    from intervia_agent.worker import InterviewRuntime
+
+    runtime = InterviewRuntime.__new__(InterviewRuntime)
+    runtime._step_opened_at = 0.0
+    runtime._last_candidate_turn_at = 0.0
+    assert not runtime.step_unanswered()  # no topic change yet: the intro step
+    runtime._step_opened_at = time.monotonic()
+    assert runtime.step_unanswered()
+    runtime._last_candidate_turn_at = time.monotonic() + 0.001
+    assert not runtime.step_unanswered()
+    runtime._last_candidate_turn_at = 0.0
+    runtime._step_opened_at = time.monotonic() - 60
+    assert not runtime.step_unanswered()  # never stuck for good

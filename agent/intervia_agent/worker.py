@@ -88,6 +88,8 @@ ROLLING_CARRY_OVER_TURNS = 12
 # After the interviewer stops speaking, wait this long before renewing the
 # session, in case it is only pausing before a tool call.
 ROLLING_SETTLE_SECONDS = 0.25
+# How long a new step refuses start_next_topic while unanswered.
+STEP_ANSWER_GRACE_SECONDS = 25.0
 # The candidate's audio is never held back longer than this during a renewal.
 GATE_MAX_HOLD_SECONDS = 4.0
 
@@ -188,6 +190,14 @@ class InterviewerAgent(Agent):
         assert runtime.controller is not None
         if runtime.closing:
             return "The interview is closing. Say nothing more."
+        if runtime.step_unanswered():
+            # Seen in testing: a fresh session called this again straight away
+            # and said a filler line ("Let's start with the first topic")
+            # instead of the new step's question.
+            return (
+                "You have just moved to this step and the candidate has not answered it yet. "
+                "Do not call start_next_topic now. Ask the question for the current step, then listen."
+            )
         before = runtime.controller.step_key()
         briefing = runtime.next_topic(summary_of_last_answer, evidence)
         if runtime.fresh_sessions and runtime.controller.step_key() != before:
@@ -241,6 +251,10 @@ class InterviewRuntime:
         self._gate: GatedAudioInput | None = None
         self._session_started_at = time.monotonic()
         self._sessions_opened = 0
+        # When the current plan step opened, and the candidate's latest answer:
+        # start_next_topic is refused until the new step has been answered.
+        self._step_opened_at = 0.0
+        self._last_candidate_turn_at = 0.0
         self._renewing = False
 
         # Speech timing, from session state changes (epoch seconds).
@@ -514,10 +528,20 @@ class InterviewRuntime:
         finally:
             self._renewing = False
 
+    def step_unanswered(self) -> bool:
+        """True while a step opened by a topic change has had no answer yet."""
+        opened = self._step_opened_at
+        return (
+            opened > 0
+            and self._last_candidate_turn_at < opened
+            and time.monotonic() - opened < STEP_ANSWER_GRACE_SECONDS
+        )
+
     def agent_for_current_step(self, previous: llm.ChatContext) -> InterviewerAgent:
         """The interviewer for the step the controller has just moved to."""
         assert self.controller is not None
         self._session_started_at = time.monotonic()
+        self._step_opened_at = time.monotonic()
         self.backend.add_event(
             "voice_session_renewed",
             {
@@ -528,7 +552,7 @@ class InterviewRuntime:
         )
         return InterviewerAgent(
             self,
-            self.instructions_for_current_step() + continuation_note(previous),
+            self.instructions_for_current_step() + continuation_note(previous, answered=True),
             chat_ctx=carry_over_context(previous, self.controller.summary_so_far()),
             entering_note=(
                 "Continue the interview with the current step now. The candidate's last answer "
@@ -844,6 +868,7 @@ class InterviewRuntime:
             "competencyId": snapshot["competencyId"],
         }
         if item.role == "user":
+            self._last_candidate_turn_at = time.monotonic()
             started = self._user_speaking_since or created_at
             ended = self._user_stopped_at or created_at
             turn.update(
@@ -1192,7 +1217,7 @@ class InterviewRuntime:
             self.backend.add_event("recording_failed", {"error": str(error)[:300]})
 
 
-def continuation_note(previous: llm.ChatContext) -> str:
+def continuation_note(previous: llm.ChatContext, answered: bool = False) -> str:
     """Standing instructions for a fresh session that continues an interview.
 
     Without it, a new session handed the conversation as text could start
@@ -1213,6 +1238,15 @@ def continuation_note(previous: llm.ChatContext) -> str:
         "greeted the candidate and introduced yourself: never greet them or introduce yourself "
         "again, and never start the interview over."
     )
+    if answered:
+        # A topic change: the last question is done. Telling this session the
+        # candidate was still answering it made the model stall after an
+        # acknowledgement, or call start_next_topic a second time.
+        return note + (
+            " The candidate has finished answering your last question and that step is closed. "
+            "Ask the opening question of the current step now. Do not call start_next_topic "
+            "until the candidate has answered it."
+        )
     if last:
         quoted = last if len(last) <= 400 else last[-400:]
         note += (
