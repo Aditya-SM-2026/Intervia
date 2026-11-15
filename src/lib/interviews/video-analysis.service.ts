@@ -181,6 +181,7 @@ const PROMPT_TAIL = [
   "",
   "Set `faceVisible` to false if no face can be seen in the clip.",
   "Do not comment on appearance, emotion, nervousness, accent, ethnicity, gender, age, disability or surroundings, and do not say whether the candidate cheated.",
+  "Refer to the candidate as \"the candidate\" or \"they\". Never use he, she, him, her, his or hers.",
   "Reply with a single JSON object: { faceVisible, answers: [{ id, whileListening, whileAnswering, steady, reading, note }], moments: [{ at, durationSeconds, kind, description }] }.",
 ].join("\n");
 
