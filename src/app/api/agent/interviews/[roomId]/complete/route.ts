@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAgent } from "@/lib/auth/guards";
 import { recordSessionOutcome } from "@/lib/interviews/interview.service";
 import {
@@ -8,15 +8,14 @@ import {
   roomIdSchema,
 } from "@/lib/interviews/interview.validation";
 import { interviewErrorResponse } from "@/lib/interviews/interview-errors";
-import { buildMixedRecording } from "@/lib/recordings/mix";
-import { scoreInterview } from "@/lib/interviews/scorecard.service";
+import { enqueueJob } from "@/lib/jobs/queue";
 
 type RouteParams = { params: Promise<{ roomId: string }> };
 
 /**
  * The agent worker reports that the live interview has ended. The outcome is
- * stored and the scorecard is generated after the response is sent, so the
- * worker is never held up by scoring.
+ * stored and the scorecard and mixed recording are queued as jobs, so the
+ * worker is never held up by them.
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   const denied = requireAgent(request);
@@ -43,17 +42,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if (!room) return interviewErrorResponse("ROOM_NOT_FOUND", "Interview not found.");
 
   if (room.status === "completed") {
-    after(async () => {
-      // Build the mixed recording (candidate video + the agent's audio) in
-      // parallel with scoring; a mix failure never blocks the scorecard.
-      const mixing = buildMixedRecording(roomId).catch((error) => {        console.error(
-          `[recording] mix step failed for ${roomId}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      });
-      await Promise.allSettled([mixing, scoreInterview(roomId)]);
-    });
+    // Two separate jobs, so a mix failure never blocks or re-runs the
+    // scorecard. Queued before replying; the work itself runs as its own
+    // request with full CPU.
+    await Promise.allSettled([
+      enqueueJob({ kind: "score-interview", roomId }),
+      enqueueJob({ kind: "mix-recording", roomId }),
+    ]);
   }
   return NextResponse.json({ ok: true, status: room.status });
 }

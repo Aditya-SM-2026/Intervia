@@ -399,6 +399,22 @@ role_id = EXCLUDED.role_id,
       return result.rows.map((row) => row.id);
     },
 
+    async listUnscoredCompleted(olderThanMinutes: number, limit: number): Promise<string[]> {
+      await ensureSchema();
+      const result = await getPool().query<{ id: string }>(
+        `SELECT i.id FROM interviews i
+         LEFT JOIN scorecards s ON s.room_id = i.id
+         WHERE i.status = 'completed'
+           AND s.room_id IS NULL
+           AND i.completed_at < now() - make_interval(mins => $1)
+           AND i.completed_at > now() - interval '24 hours'
+         ORDER BY i.completed_at ASC
+         LIMIT $2`,
+        [Math.max(0, Math.round(olderThanMinutes)), Math.min(Math.max(limit, 1), 200)],
+      );
+      return result.rows.map((row) => row.id);
+    },
+
     async get(id: string): Promise<InterviewRoom | null> {
       await ensureSchema();
       const result = await getPool().query<InterviewRow>(

@@ -5,7 +5,7 @@ import { getLiveKitRoomName } from "@/lib/livekit/room";
 import { getInterviewRepository } from "@/server/repositories";
 import { recordSessionOutcome } from "./interview.service";
 import { pauseStateFor } from "./pause.logic";
-import { scoreInterview } from "./scorecard.service";
+import { enqueueJob } from "@/lib/jobs/queue";
 import type { InterviewRoom } from "./interview.types";
 
 /**
@@ -132,9 +132,9 @@ export async function closeInterview(
     };
     const room2 = await recordSessionOutcome(room.id, outcome, true);
     if (agentWasPresent && room2?.status === "completed") {
-      // Scoring runs in the background, exactly as the agent path does.
-      void scoreInterview(room.id).catch((error) => {
-        console.error(`[watchdog] scoring failed for ${room.id}:`, error);
+      // Scoring is queued, exactly as the agent path does.
+      await enqueueJob({ kind: "score-interview", roomId: room.id }).catch((error) => {
+        console.error(`[watchdog] scoring not queued for ${room.id}:`, error);
       });
     }
   } else {

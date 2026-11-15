@@ -222,7 +222,8 @@ interface InFlight {
 const inFlight = (globalThis as unknown as InFlight).__scorecardInFlight ??
   ((globalThis as unknown as InFlight).__scorecardInFlight = new Map());
 
-type ScoreOutcome = { scorecard: Scorecard | null; reason: string | null };
+/** `retryable`: generation itself failed, so trying again may work. */
+type ScoreOutcome = { scorecard: Scorecard | null; reason: string | null; retryable?: boolean };
 
 /**
  * How long a queued video job may stay queued before it is treated as lost.
@@ -657,7 +658,11 @@ export async function scoreInterview(
       const queuedJob = pendingVideoJobs.get(roomId);
       if (queuedJob) {
         pendingVideoJobs.delete(roomId);
-        void deliverVideoJob(roomId, queuedJob);
+        // Awaited: this runs inside a request (the scoring job), and work
+        // left running after it would be throttled or lost.
+        await deliverVideoJob(roomId, queuedJob).catch((error: unknown) => {
+          console.error(`[scorecard] video job for ${roomId} not delivered:`, error);
+        });
       }
       return { scorecard, reason: null };
     } catch (error) {
@@ -667,6 +672,7 @@ export async function scoreInterview(
       return {
         scorecard: null,
         reason: "The scorecard could not be generated just now. Use Regenerate to try again.",
+        retryable: true,
       };
     }
   })();

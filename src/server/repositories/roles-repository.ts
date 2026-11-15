@@ -228,6 +228,17 @@ export interface RoleRepository {
     roleId: string,
     roleTitle: string,
   ): Promise<AutoInviteApplicationRow[]>;
+  /**
+   * Atomically marks the application "pending" before an invitation is sent.
+   * False when another run already holds it (a claim older than 15 minutes
+   * is treated as abandoned and can be taken over).
+   */
+  claimAutoInvite(applicationId: string): Promise<boolean>;
+  /** Applications never screened, oldest first, across all roles (the sweep's safety net). */
+  listStaleUnscreenedApplications(
+    olderThanMinutes: number,
+    limit: number,
+  ): Promise<{ id: string; roleId: string }[]>;
   /** Records the outcome of one automatic invitation attempt. */
   markAutoInvite(
     applicationId: string,
@@ -1750,6 +1761,41 @@ export function getPostgresRolesRepository(): RoleRepository {
       }));
     },
 
+    async claimAutoInvite(applicationId: string): Promise<boolean> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `UPDATE role_applications
+         SET auto_invite_status = 'pending', auto_invite_note = NULL, auto_invited_at = now()
+         WHERE id = $1
+           AND (auto_invite_status IS NULL
+                OR (auto_invite_status = 'pending'
+                    AND auto_invited_at < now() - interval '15 minutes'))
+         RETURNING id`,
+        [applicationId],
+      );
+      return (result.rowCount ?? 0) > 0;
+    },
+
+    async listStaleUnscreenedApplications(
+      olderThanMinutes: number,
+      limit: number,
+    ): Promise<{ id: string; roleId: string }[]> {
+      await ensureSchema();
+      const result = await getPool().query(
+        `SELECT id, role_id FROM role_applications
+         WHERE screening_at IS NULL
+           AND created_at < now() - make_interval(mins => $1)
+           AND created_at > now() - interval '7 days'
+         ORDER BY created_at ASC
+         LIMIT $2`,
+        [Math.max(0, Math.round(olderThanMinutes)), Math.min(Math.max(limit, 1), 200)],
+      );
+      return (result.rows as { id: string; role_id: string }[]).map((row) => ({
+        id: row.id,
+        roleId: row.role_id,
+      }));
+    },
+
     async markAutoInvite(
       applicationId: string,
       result: { status: string; interviewId: string | null; note: string | null },
@@ -2620,6 +2666,37 @@ export function getInMemoryRolesRepository(): RoleRepository {
             autoInvitedAt: attempt?.at ?? null,
           };
         });
+    },
+
+    async claimAutoInvite(applicationId: string): Promise<boolean> {
+      const store = getStore();
+      const current = store.autoInvites.get(applicationId);
+      const stale =
+        current?.status === "pending" && Date.now() - Date.parse(current.at) >= 15 * 60_000;
+      if (current && !stale) return false;
+      store.autoInvites.set(applicationId, {
+        status: "pending",
+        interviewId: null,
+        note: null,
+        at: new Date().toISOString(),
+      });
+      return true;
+    },
+
+    async listStaleUnscreenedApplications(
+      olderThanMinutes: number,
+      limit: number,
+    ): Promise<{ id: string; roleId: string }[]> {
+      const now = Date.now();
+      return [...getStore().applications.values()]
+        .filter((application) => {
+          if (application.screening) return false;
+          const age = now - Date.parse(application.createdAt);
+          return age > olderThanMinutes * 60_000 && age < 7 * 24 * 60 * 60_000;
+        })
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .slice(0, limit)
+        .map((application) => ({ id: application.id, roleId: application.roleId }));
     },
 
     async markAutoInvite(

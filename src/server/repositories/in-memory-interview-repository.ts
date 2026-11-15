@@ -100,6 +100,20 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
       return claimed;
     },
 
+    async listUnscoredCompleted(olderThanMinutes: number, limit: number): Promise<string[]> {
+      const now = Date.now();
+      return [...store.rooms.values()]
+        .filter((room) => {
+          if (room.status !== "completed" || !room.completedAt) return false;
+          if (store.scorecards.has(room.id)) return false;
+          const age = now - Date.parse(room.completedAt);
+          return age > olderThanMinutes * 60_000 && age < 24 * 60 * 60_000;
+        })
+        .sort((a, b) => (a.completedAt ?? "").localeCompare(b.completedAt ?? ""))
+        .slice(0, limit)
+        .map((room) => room.id);
+    },
+
     async list(filter?: DashboardListFilter): Promise<InterviewRoom[]> {
       let rooms = [...store.rooms.values()];
       if (filter?.status && filter.status.length > 0) {

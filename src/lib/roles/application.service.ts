@@ -44,7 +44,7 @@ import {
   resumeUpdateExpiresAt,
   samePhone,
 } from "@/lib/roles/resume-update";
-import { screenApplication } from "@/lib/screening/screening.service";
+import { enqueueJob } from "@/lib/jobs/queue";
 
 /**
  * The shareable application form on top of the roles repository. All input
@@ -378,7 +378,7 @@ export async function submitApplication(
       };
     }
     if (role.screeningEnabled !== false) {
-      queueScreening(role.id, updated.id);
+      await queueScreening(role.id, updated.id);
     }
     return {
       ok: true,
@@ -413,7 +413,7 @@ export async function submitApplication(
     };
   }
   if (role.screeningEnabled !== false) {
-    queueScreening(role.id, created.id);
+    await queueScreening(role.id, created.id);
   }
   return {
     ok: true,
@@ -425,15 +425,15 @@ export async function submitApplication(
 }
 
 /**
- * Screens a freshly received application in the background. The candidate's
+ * Queues the screening of a freshly received application. The candidate's
  * confirmation must not wait 2-6 seconds for a model call, and a failure here
- * is not their problem: the application is already stored, and the recruiter
- * can re-run it from the role page.
+ * is not their problem: the application is already stored, the queue retries,
+ * and the every-minute sweep picks up anything still unscreened.
  */
-export function queueScreening(roleId: string, applicationId: string): void {
-  void screenApplication(roleId, applicationId).catch((error: unknown) => {
+export async function queueScreening(roleId: string, applicationId: string): Promise<void> {
+  await enqueueJob({ kind: "screen-application", roleId, applicationId }).catch((error: unknown) => {
     console.warn(
-      `[screening] ${applicationId} could not be screened: ${
+      `[screening] ${applicationId} could not be queued: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );

@@ -3,12 +3,17 @@ import { NextResponse } from "next/server";
 import { requireAgent } from "@/lib/auth/guards";
 import { runReminderScanOnce } from "@/lib/emails/reminder-scheduler";
 import { runInterviewWatchdogOnce } from "@/lib/interviews/watchdog.service";
+import { jobsQueueEnabled } from "@/lib/jobs/queue";
+import { queueSweepJobs } from "@/lib/jobs/sweep";
+import { runAutoInviteScanOnce } from "@/lib/roles/auto-invite.service";
 
 /**
- * Cron entry point for the background jobs (interview reminders and the
- * interview time-limit watchdog). The in-process timers only tick while a
- * Cloud Run instance is warm, so a scheduler (Cloud Scheduler) calls this
- * every minute: the request itself keeps an instance alive to do the work.
+ * Cron entry point for the background jobs: interview reminders, the
+ * interview time-limit watchdog, automatic invitations, and re-queuing
+ * anything the normal path missed. The in-process timer only ticks while a
+ * Cloud Run instance is awake, so Cloud Scheduler calls this every minute and
+ * the request itself gives the instance CPU to do the work. With the job queue
+ * on, the slow parts are queued as jobs so this request stays short.
  * Authorised with the agent API secret.
  */
 export async function POST(request: NextRequest) {
@@ -24,5 +29,18 @@ export async function POST(request: NextRequest) {
     return -1;
   });
 
-  return NextResponse.json({ ok: true, reminders, watchdogClosed: closed });
+  const jobs = jobsQueueEnabled()
+    ? await queueSweepJobs().catch((cause) => {
+        console.error("[cron] queueing sweep jobs failed:", cause);
+        return null;
+      })
+    : null;
+  const autoInvite = jobsQueueEnabled()
+    ? null
+    : await runAutoInviteScanOnce().catch((cause) => {
+        console.error("[cron] auto-invite scan error:", cause);
+        return null;
+      });
+
+  return NextResponse.json({ ok: true, reminders, watchdogClosed: closed, jobs, autoInvite });
 }

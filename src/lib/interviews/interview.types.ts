@@ -278,6 +278,11 @@ export interface InterviewRepository {
    */
   claimDueReminders(now: string): Promise<string[]>;
   /**
+   * Completed interviews with no scorecard yet, finished between
+   * `olderThanMinutes` and 24 hours ago (the sweep's safety net).
+   */
+  listUnscoredCompleted(olderThanMinutes: number, limit: number): Promise<string[]>;
+  /**
    * Inserts a new room while holding a per-duplicate-key lock, so two
    * simultaneous identical creations cannot both succeed. Returns the
    * existing room when another creation of the same slot won the race.

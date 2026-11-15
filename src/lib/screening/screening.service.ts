@@ -107,7 +107,8 @@ function toSectionResult(entry: {
 }
 
 export type ScreenResult =
-  | { ok: true; snapshot: ScreeningSnapshot; skipped: boolean }
+  /** `retryable`: the model call itself failed, so trying again may work. */
+  | { ok: true; snapshot: ScreeningSnapshot; skipped: boolean; retryable?: boolean }
   | { ok: false; code: "not_found"; message: string };
 
 /**
@@ -244,7 +245,7 @@ export async function screenApplication(
       weightedSections: RESUME_SECTION_IDS.filter((id) => (weights[id] ?? 0) > 0).length,
     };
     await repository().saveApplicationScreening(applicationId, snapshot);
-    return { ok: true, snapshot, skipped: true };
+    return { ok: true, snapshot, skipped: true, retryable: true };
   }
 }
 

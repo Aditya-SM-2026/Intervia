@@ -6,6 +6,7 @@ import {
 import { getInterviewRepository } from "@/server/repositories";
 import { runInterviewWatchdogOnce } from "@/lib/interviews/watchdog.service";
 import { runAutoInviteScanOnce } from "@/lib/roles/auto-invite.service";
+import { externalCron } from "@/lib/jobs/job.logic";
 
 /** How often the reminder scan runs. */
 const SCAN_INTERVAL_MS = 60_000;
@@ -65,6 +66,12 @@ const globalFlags = globalThis as unknown as { __reminderSchedulerStarted?: bool
 export function startReminderScheduler(): void {
   if (globalFlags.__reminderSchedulerStarted) return;
   globalFlags.__reminderSchedulerStarted = true;
+  if (externalCron(process.env)) {
+    // Cloud Scheduler calls /api/cron/sweep every minute instead; a second
+    // clock in every instance would only repeat the same work.
+    console.info("[reminders] in-process scheduler off (CRON_MODE=external)");
+    return;
+  }
 
   const timer = setInterval(() => {
     runReminderScanOnce().catch((cause) => {

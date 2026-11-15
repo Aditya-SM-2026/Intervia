@@ -417,7 +417,13 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
                       }
                       title={entry.note ?? undefined}
                     >
-                      {entry.status === "sent" ? "Invitation sent" : entry.status === "email_failed" ? "Email failed" : "Not sent"}
+                      {entry.status === "sent"
+                        ? "Invitation sent"
+                        : entry.status === "email_failed"
+                          ? "Email failed"
+                          : entry.status === "pending"
+                            ? "Sending"
+                            : "Not sent"}
                     </span>
                   </li>
                 ))}

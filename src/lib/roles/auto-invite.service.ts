@@ -14,6 +14,7 @@ import {
   type AutoInviteDifficulty,
 } from "@/lib/roles/auto-invite";
 import { describeRoleError } from "@/lib/roles/role-errors";
+import { enqueueJob } from "@/lib/jobs/queue";
 import type { Role } from "@/lib/roles/role.types";
 import {
   getRolesRepository,
@@ -76,9 +77,20 @@ function storedSettings(role: Role): AutoInviteSettings {
   return sanitizeAutoInviteSettings(role.autoInvite ?? DEFAULT_AUTO_INVITE_SETTINGS);
 }
 
+/**
+ * A claim older than this was left by a run that died mid-invite (an instance
+ * stopped), so the candidate is offered again instead of waiting forever.
+ */
+export const STALE_CLAIM_MS = 15 * 60_000;
+
 /** True when a stored row already counts as handled. */
-function alreadyAttempted(row: AutoInviteApplicationRow): boolean {
-  return row.autoInviteStatus !== null;
+function alreadyAttempted(row: AutoInviteApplicationRow, now = Date.now()): boolean {
+  if (row.autoInviteStatus === null) return false;
+  if (row.autoInviteStatus === "pending") {
+    const at = row.autoInvitedAt ? Date.parse(row.autoInvitedAt) : Number.NaN;
+    return Number.isFinite(at) && now - at < STALE_CLAIM_MS;
+  }
+  return true;
 }
 
 function scoreFor(row: AutoInviteApplicationRow, weightSource: unknown): number | null {
@@ -183,6 +195,10 @@ export async function runAutoInvite(
       eligible += 1;
       if (sent + failed >= limit) continue;
 
+      // Claimed in the database first: two runs at once (two server
+      // instances, or a job retry) can never invite the same candidate twice.
+      if (!(await repository().claimAutoInvite(row.applicationId))) continue;
+
       try {
         const resumeText = await repository().getApplicationResumeText(
           roleId,
@@ -260,6 +276,37 @@ export async function runAutoInvite(
   } finally {
     running.delete(roleId);
   }
+}
+
+/** Whether the role exists and has automatic invitations switched on. */
+export async function autoInviteEnabledFor(roleId: string): Promise<boolean> {
+  const role = await repository().getRole(roleId);
+  return role ? storedSettings(role).enabled : false;
+}
+
+/**
+ * The queued job for one role: a small batch of invitations, then the next
+ * batch is queued when more candidates are waiting, so a role with many
+ * eligible candidates never needs one long request.
+ */
+export async function runAutoInviteJob(roleId: string): Promise<void> {
+  const result = await runAutoInvite(roleId, { limit: MAX_PER_SCAN_ROLE });
+  if (!result) return;
+  const handled = result.invited + result.failed + result.skipped;
+  if (handled > 0 && result.eligible > handled) {
+    // A unique name, so it is not mistaken for the batch that just ran.
+    await enqueueJob({ kind: "auto-invite-role", roleId }, { windowMs: 1 });
+  }
+}
+
+/** For the every-minute sweep: one job per role with the automation on. */
+export async function queueAutoInviteScan(): Promise<number> {
+  const roles = await repository().listRoles({});
+  const enabled = roles.filter((role) => storedSettings(role).enabled);
+  for (const role of enabled) {
+    await enqueueJob({ kind: "auto-invite-role", roleId: role.id });
+  }
+  return enabled.length;
 }
 
 /**

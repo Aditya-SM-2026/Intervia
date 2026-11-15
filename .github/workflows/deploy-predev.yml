@@ -24,6 +24,10 @@ env:
   # email gate, it runs one interview on its own machine and exits.
   AGENT_JOB: intervia-predev-agent
   WEB_SERVICE: intervia-predev-web
+  # Background jobs (screening, invites, scorecards, mixing) come back to the
+  # web app through this Cloud Tasks queue; Cloud Scheduler job
+  # intervia-predev-sweep calls /api/cron/sweep every minute.
+  JOBS_QUEUE: intervia-predev-jobs
   WORKER_SERVICE: intervia-predev-video-worker
   # Public URL written into shareable links. Request origins inside the
   # container are 0.0.0.0:8080, so it has to be stated explicitly.
@@ -88,7 +92,8 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --image ${{ env.AR_REPO }}/web:predev \
             --region ${{ env.REGION }} \
-            --update-env-vars APP_BASE_URL=${{ env.APP_BASE_URL }},AGENT_JOB_NAME=${{ env.AGENT_JOB }},AGENT_JOB_PROJECT=${{ env.PROJECT_ID }},AGENT_JOB_REGION=${{ env.REGION }} \
+            --timeout 900 \
+            --update-env-vars APP_BASE_URL=${{ env.APP_BASE_URL }},AGENT_JOB_NAME=${{ env.AGENT_JOB }},AGENT_JOB_PROJECT=${{ env.PROJECT_ID }},AGENT_JOB_REGION=${{ env.REGION }},TASKS_JOBS_QUEUE=${{ env.JOBS_QUEUE }},CRON_MODE=external \
             --update-secrets INTERNAL_SECRET=predev-internal-secret:latest \
             --quiet
 
