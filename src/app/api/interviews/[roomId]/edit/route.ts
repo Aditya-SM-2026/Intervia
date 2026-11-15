@@ -159,7 +159,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const candidateUrl = new URL(`/interview/${room.id}`, publicOrigin(request)).toString();
 
   try {
-    await ensureRoleForTitle(parsed.data.roleTitle, jobDescription?.text);
+    // Only a role name changed on this edit can introduce a new role. The
+    // form always resends the interview's stored name, and after a role is
+    // renamed that old name would otherwise come back as a duplicate role.
+    if (changes.some((change) => change.startsWith("Role: "))) {
+      await ensureRoleForTitle(parsed.data.roleTitle, jobDescription?.text);
+    }
   } catch (error) {
     console.error(`[interviews] role auto-create failed for edit: ${describeRoleError(error)}`);
   }
