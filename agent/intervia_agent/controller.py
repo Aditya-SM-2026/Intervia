@@ -17,6 +17,7 @@ from enum import Enum
 from typing import Literal
 
 from .plan import Competency, InterviewContext
+from .prompts import spoken_name
 
 # Follow-up questions allowed per topic, by interviewer style.
 PROBE_LIMITS = {"easy": 1, "medium": 2, "hard": 3, "extra-hard": 4}
@@ -35,6 +36,8 @@ CLOSING_LEAD_SECONDS = 10.0
 CLOSING_OVERRUN_SECONDS = 3.0
 # Inside this last stretch no new topic or question block is started.
 CLOSING_WINDOW_SECONDS = 30.0
+# With this much time left after the planned topics, the candidate is invited to ask questions.
+QUESTIONS_INVITE_SECONDS = 80.0
 # The interviewer may not leave a topic before this share of its time budget
 # is used: it is asked to probe deeper instead (at most MAX_HOLDS times).
 FORCE_AFTER_NOTE_SECONDS = 60.0
@@ -99,6 +102,7 @@ class InterviewController:
         self._intro_nudged = False
         # Set once the closing phase is due: the next topic request ends the topics.
         self._closing_due = False
+        self._questions_invited = False
 
         self.total_seconds = context.duration_minutes * 60.0
         # Capped at a fifth of the interview so very short (test) interviews
@@ -347,11 +351,12 @@ class InterviewController:
             )
         minutes = max(1, int(remaining // 60))
         return (
-            "All planned topics are done, but interview time remains — the interview is NOT "
-            f"ending yet. First ask whether the candidate has any questions for you, and answer "
-            "briefly from the job description only (for anything else, say the recruiter will "
-            f"follow up). Then keep the interview going for the remaining {minutes} minute"
-            f"{'s' if minutes != 1 else ''}: return to the candidate's earlier answers and go "
+            "All planned topics are done, but interview time remains: the interview is NOT "
+            f"ending yet. Keep the interview going for the remaining {minutes} minute"
+            f"{'s' if minutes != 1 else ''}. Do not ask yet whether the candidate has questions "
+            "for you; the system tells you when. If the candidate asks you something, answer "
+            "briefly from the job description (for anything else, say the recruiter will follow "
+            "up), then continue. Return to the candidate's earlier answers and go "
             "deeper, or ask new questions drawn from the job description and the candidate's "
             "resume — areas the plan has not covered yet (specific projects, tools, past "
             "challenges, how they work with a team). One question at a time, building on what "
@@ -361,13 +366,14 @@ class InterviewController:
 
     def opening_instructions(self) -> str:
         context = self.context
-        name = context.candidate_name or "the candidate"
+        name = spoken_name(context.candidate_name) or "there"
         role = f"the {context.role_title} role" if context.role_title else "this role"
         return (
             f"The candidate has just joined. Open with exactly this, short and plain: "
             f"\"Hey {name}, I am the Medhas Academy interviewer, and I am going to take your "
             f"interview for {role}.\" Say nothing else first: no small talk, no mention of "
-            "recording, length or next steps. Then go straight into your first question."
+            "recording, length or next steps. Then ask them to introduce themselves in a few "
+            "sentences, and wait."
         )
 
     # --- time enforcement ------------------------------------------------
@@ -397,6 +403,20 @@ class InterviewController:
                     "start_next_topic. Do not say goodbye: the system closes the interview.",
                 )
             return None
+
+        if (
+            self.phase == Phase.CANDIDATE_QUESTIONS
+            and not self._questions_invited
+            and self.total_seconds - elapsed <= QUESTIONS_INVITE_SECONDS
+        ):
+            self._questions_invited = True
+            return Directive(
+                "note",
+                "About a minute of the interview remains. When the candidate finishes their "
+                "current answer, ask whether they have any questions for you about the role, and "
+                "answer briefly from the job description (for anything else, say the recruiter "
+                "will follow up). Do not say goodbye: the system closes the interview.",
+            )
 
         if self.phase == Phase.INTRO:
             overrun = elapsed - self.intro_seconds - INTRO_OVERRUN_GRACE_SECONDS

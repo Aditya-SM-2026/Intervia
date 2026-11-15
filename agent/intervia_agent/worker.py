@@ -494,7 +494,7 @@ class InterviewRuntime:
             self.session.update_agent(
                 InterviewerAgent(
                     self,
-                    self.instructions_for_current_step(),
+                    self.instructions_for_current_step() + continuation_note(previous),
                     chat_ctx=carry_over_context(
                         previous, self.controller.summary_so_far(), turns=ROLLING_CARRY_OVER_TURNS
                     ),
@@ -528,7 +528,7 @@ class InterviewRuntime:
         )
         return InterviewerAgent(
             self,
-            self.instructions_for_current_step(),
+            self.instructions_for_current_step() + continuation_note(previous),
             chat_ctx=carry_over_context(previous, self.controller.summary_so_far()),
             entering_note=(
                 "Continue the interview with the current step now. The candidate's last answer "
@@ -1190,6 +1190,37 @@ class InterviewRuntime:
         except Exception as error:  # noqa: BLE001
             logger.warning("recording not started: %s", error)
             self.backend.add_event("recording_failed", {"error": str(error)[:300]})
+
+
+def continuation_note(previous: llm.ChatContext) -> str:
+    """Standing instructions for a fresh session that continues an interview.
+
+    Without it, a new session handed the conversation as text could start
+    over: greet the candidate again or re-ask the question they are already
+    answering (seen in testing, and the "repeated questions" candidates
+    reported). Kept in the instructions, not the conversation, so the model
+    does not reply to it out loud.
+    """
+    last = ""
+    for item in reversed(previous.items):
+        if getattr(item, "type", None) == "message" and item.role == "assistant":
+            text = (item.text_content or "").strip()
+            if text and not text.startswith(SYSTEM_NOTE_PREFIX):
+                last = text
+                break
+    note = (
+        "\n\nThis session continues an interview already in progress. You have already "
+        "greeted the candidate and introduced yourself: never greet them or introduce yourself "
+        "again, and never start the interview over."
+    )
+    if last:
+        quoted = last if len(last) <= 400 else last[-400:]
+        note += (
+            f' The last thing you said was: "{quoted}" The candidate is answering that now. When '
+            "they finish, respond to what they actually said; do not repeat or re-ask your last "
+            "question unless they ask you to."
+        )
+    return note
 
 
 def carry_over_context(

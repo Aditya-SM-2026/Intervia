@@ -4,9 +4,10 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import Link from "next/link";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, FileText, LogOut, Monitor, Moon, Plus, Search, Settings, Sun } from "lucide-react";
+import { Bell, FileText, LogOut, Monitor, Moon, Plus, Settings, Sun } from "lucide-react";
 import type { DashboardAnalytics } from "@/lib/dashboard/dashboard.types";
 import { Avatar } from "./primitives";
+import { HeaderSearch } from "./HeaderSearch";
 import { Menu } from "./menu";
 import { useTheme } from "./theme";
 
@@ -93,12 +94,6 @@ export function TopNav() {
       .catch(() => setAnalyticsError(true));
   }, []);
 
-  function submitSearch(event: React.FormEvent) {
-    event.preventDefault();
-    const query = new FormData(event.target as HTMLFormElement).get("q");
-    const term = typeof query === "string" ? query.trim() : "";
-    router.push(term ? `/dashboard?q=${encodeURIComponent(term)}` : "/dashboard");
-  }
 
   // The server cannot know the visitor's keyboard. Render the same label on
   // both sides first and switch after hydration, or React rebuilds the page
@@ -144,20 +139,7 @@ export function TopNav() {
         </div>
 
         <div className="flex items-center gap-2">
-          <form role="search" onSubmit={submitSearch} className="relative hidden sm:block">
-            <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
-            <input
-              ref={searchRef}
-              type="search"
-              name="q"
-              placeholder="Search…"
-              aria-label="Search candidates, roles, or reports"
-              className="h-9 w-52 rounded-lg border border-border bg-background/60 pl-9 pr-12 text-sm outline-none transition placeholder:text-muted hover:border-foreground/20 focus:w-72 focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/15 lg:w-64"
-            />
-            <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-surface px-1.5 py-0.5 font-sans text-[10px] font-medium text-muted">
-              {shortcutHint}
-            </kbd>
-          </form>
+          <HeaderSearch inputRef={searchRef} shortcutHint={shortcutHint} />
 
           <Link
             href="/recruiter"

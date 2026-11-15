@@ -1020,7 +1020,9 @@ async function buildScorecard(
     concerns: grading.concerns,
     competencies,
     overallScore,
-    suggestion: suggestionFor(overallScore, enoughCoverage),
+    // From the final score (after the read-out penalty), so the verdict never
+    // says "positive" next to a 39: same thresholds on the 0-100 scale.
+    suggestion: suggestionFor(overall?.score != null ? overall.score / 20 : overallScore, enoughCoverage),
     integrity,
     notes,
     needsHumanReview:
