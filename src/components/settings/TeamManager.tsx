@@ -22,6 +22,7 @@ function generatePassword(): string {
   return `${chunk(0)}-${chunk(4)}-${chunk(8)}-${(bytes[12] * 256 + bytes[13]) % 9000 + 1000}`;
 }
 
+// Server and browser time zones differ; the browser's rendering wins.
 function formatDate(value: string | null): string {
   if (!value) return "Never";
   return new Date(value).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
@@ -117,8 +118,8 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
               <dl className="grid grid-cols-2 gap-x-6 text-sm">
                 <dt className="text-xs text-muted">Last sign-in</dt>
                 <dt className="text-xs text-muted">Added</dt>
-                <dd className="tabular-nums">{formatDate(member.lastSignInAt)}</dd>
-                <dd className="tabular-nums">{formatDate(member.createdAt).replace(/, \d+:\d+ [AP]M$/, "")}</dd>
+                <dd suppressHydrationWarning className="tabular-nums">{formatDate(member.lastSignInAt)}</dd>
+                <dd suppressHydrationWarning className="tabular-nums">{formatDate(member.createdAt).replace(/, \d+:\d+ [AP]M$/, "")}</dd>
               </dl>
               <span
                 className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
