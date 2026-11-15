@@ -60,3 +60,27 @@ def test_start_next_topic_is_refused_until_the_new_step_is_answered() -> None:
     runtime._last_candidate_turn_at = 0.0
     runtime._step_opened_at = time.monotonic() - 60
     assert not runtime.step_unanswered()  # never stuck for good
+
+
+def test_model_markers_are_removed_from_speech_text() -> None:
+    from intervia_agent.worker import strip_model_markers
+
+    assert strip_model_markers("<no speech>{pause}") == ""
+    assert strip_model_markers("Okay. {pause} How would you retry it?") == "Okay. How would you retry it?"
+    assert strip_model_markers("Use a WHERE x < 5 filter") == "Use a WHERE x < 5 filter"
+
+
+def test_captions_drop_markers_split_across_pieces() -> None:
+    import asyncio
+
+    from intervia_agent.worker import InterviewerAgent
+
+    async def pieces():
+        for piece in ["Got it. ", "<no sp", "eech>", "{pau", "se}", " Next question?"]:
+            yield piece
+
+    async def run() -> str:
+        agent = InterviewerAgent.__new__(InterviewerAgent)
+        return "".join([p async for p in agent.transcription_node(pieces(), None)])
+
+    assert asyncio.run(run()) == "Got it.  Next question?"

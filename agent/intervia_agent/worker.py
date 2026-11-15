@@ -12,7 +12,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
+from collections.abc import AsyncIterable
 from typing import Any
 
 from google.genai import types as genai_types
@@ -169,6 +171,32 @@ class InterviewerAgent(Agent):
         self._runtime.on_session_started()
         if self._entering_note and not self._runtime.closing:
             self._runtime.instruct(self._entering_note)
+
+    async def transcription_node(self, text: AsyncIterable[str], model_settings: Any) -> Any:
+        """The candidate's captions, without the model's own markers.
+
+        Gemini Live sometimes transcribes a silent turn as "<no speech>{pause}";
+        it reached the candidate's captions and the report in testing.
+        """
+        pending = ""
+        async for delta in text:
+            if not pending and "<" not in delta and "{" not in delta:
+                yield delta
+                continue
+            pending += delta
+            # Hold a marker until it closes, but never hold text for long.
+            if (pending.count("<") > pending.count(">") or pending.count("{") > pending.count("}")) and len(
+                pending
+            ) < 60:
+                continue
+            cleaned = strip_model_markers(pending, keep_spacing=True)
+            pending = ""
+            if cleaned:
+                yield cleaned
+        if pending:
+            cleaned = strip_model_markers(pending, keep_spacing=True)
+            if cleaned:
+                yield cleaned
 
     @function_tool
     async def start_next_topic(
@@ -859,6 +887,10 @@ class InterviewRuntime:
         # System notes travel as conversation messages but are not speech.
         if not text or text.startswith(SYSTEM_NOTE_PREFIX):
             return
+        if item.role == "assistant":
+            text = strip_model_markers(text)
+            if not text:
+                return
 
         snapshot = self.controller.state_snapshot()
         turn: dict[str, Any] = {
@@ -1215,6 +1247,17 @@ class InterviewRuntime:
         except Exception as error:  # noqa: BLE001
             logger.warning("recording not started: %s", error)
             self.backend.add_event("recording_failed", {"error": str(error)[:300]})
+
+
+MODEL_MARKER = re.compile(r"<[a-z _-]{1,30}>|\{[a-z _-]{1,30}\}", re.IGNORECASE)
+
+
+def strip_model_markers(text: str, keep_spacing: bool = False) -> str:
+    """Removes model markers such as "<no speech>" or "{pause}" from speech text."""
+    cleaned = MODEL_MARKER.sub("", text)
+    if keep_spacing:
+        return cleaned if cleaned.strip() else ""
+    return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 
 def continuation_note(previous: llm.ChatContext, answered: bool = False) -> str:
