@@ -1,7 +1,7 @@
 // Run with: npm test  (node --test, no model or network involved)
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hasRecording, listRecordings, type RecordingEvent } from "./recording-refs.ts";
+import { hasRecording, listRecordings, storedRecordingForAnalysis, type RecordingEvent } from "./recording-refs.ts";
 
 function event(type: string, data: Record<string, unknown>): RecordingEvent {
   return { roomId: "room-1", type, at: "2026-10-14T10:00:00.000Z", data };
@@ -65,4 +65,19 @@ test("the uploaded GCS copy keeps the recording's real start time", () => {
   const gcs = listRecordings([started, uploaded]).filter((ref) => ref.kind === "gcs");
   assert.equal(gcs.length, 1);
   assert.equal(gcs[0].startedAt, "2026-10-14T10:00:00.000Z");
+});
+test("video analysis reads the candidate's own recording, not the mixed copy", () => {
+  const refs = listRecordings([
+    event("recording_started", { storage: "gcs", recordingId: "candidate-abc", mimeType: "video/webm" }),
+    event("recording_uploaded", { storage: "gcs", bucket: "b", path: "room-1/candidate-abc.play.webm", recordingId: "candidate-abc", mimeType: "video/webm" }),
+    event("recording_mixed", { storage: "gcs", bucket: "b", path: "interviews/room-1/mixed-room-1.webm", recordingId: "candidate-abc", mimeType: "video/webm" }),
+  ]);
+  assert.equal(storedRecordingForAnalysis(refs)?.object.path, "room-1/candidate-abc.play.webm");
+});
+
+test("video analysis falls back to the mixed copy when it is the only one stored", () => {
+  const refs = listRecordings([
+    event("recording_mixed", { storage: "gcs", bucket: "b", path: "interviews/room-1/mixed-room-1.webm", mimeType: "video/webm" }),
+  ]);
+  assert.equal(storedRecordingForAnalysis(refs)?.object.path, "interviews/room-1/mixed-room-1.webm");
 });

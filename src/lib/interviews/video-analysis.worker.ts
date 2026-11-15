@@ -1,5 +1,5 @@
 import "server-only";
-import { listRecordings, type RecordingRef } from "./recording-refs";
+import { listRecordings, storedRecordingForAnalysis, type RecordingRef } from "./recording-refs";
 import { pickRecording } from "./video-analysis.service";
 import {
   combineSegmentReports,
@@ -66,10 +66,7 @@ export interface VideoJob {
 function storedRecording(
   events: readonly InterviewEvent[],
 ): Extract<RecordingRef, { kind: "gcs" }> | null {
-  const stored = listRecordings(events).filter(
-    (ref): ref is Extract<RecordingRef, { kind: "gcs" }> => ref.kind === "gcs",
-  );
-  return stored.at(-1) ?? null;
+  return storedRecordingForAnalysis(listRecordings(events));
 }
 
 /** Where the worker should read the recording from. */

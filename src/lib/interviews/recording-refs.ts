@@ -110,3 +110,16 @@ export function listRecordings(events: readonly RecordingEvent[]): RecordingRef[
 export function hasRecording(events: readonly RecordingEvent[]): boolean {
   return listRecordings(events).length > 0;
 }
+/**
+ * The stored (bucket) recording video analysis should read: the candidate's
+ * own recording, not the mixed playback copy. The mix carries the
+ * interviewer's voice too, which skews lip sync, the words per answer and the
+ * same-voice check (a re-run on a mixed copy dropped a real lip-sync flag in
+ * testing). The mix is used only when nothing else is stored.
+ */
+export function storedRecordingForAnalysis(
+  refs: readonly RecordingRef[],
+): Extract<RecordingRef, { kind: "gcs" }> | null {
+  const stored = refs.filter((ref): ref is Extract<RecordingRef, { kind: "gcs" }> => ref.kind === "gcs");
+  return stored.filter((ref) => !ref.mixed).at(-1) ?? stored.at(-1) ?? null;
+}
