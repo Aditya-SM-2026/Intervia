@@ -160,17 +160,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // Each interview can get its own interviewer machine (a Cloud Run job),
     // started now so it boots while the candidate checks camera and
-    // microphone. If that cannot start, the token dispatches the shared
-    // worker instead, so the candidate is never left without an interviewer.
+    // microphone. There is no shared worker behind it, so a launch that fails
+    // twice ends in the "try again shortly" error instead of a room with no
+    // interviewer. Without job mode the token dispatches the shared worker.
     const roomName = getLiveKitRoomName(roomId);
     const jobConfig = agentJobConfig();
-    let ownInterviewer = false;
     if (jobConfig) {
       try {
         await ensureInterviewAgent(jobConfig, roomId, roomName);
-        ownInterviewer = true;
       } catch (error) {
-        console.error("Interviewer job did not start, dispatching the shared worker:", error);
+        console.error("Interviewer job did not start, retrying once:", error);
+        await ensureInterviewAgent(jobConfig, roomId, roomName);
       }
     }
     const credentials = await generateLiveKitToken({
@@ -178,7 +178,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       identity,
       displayName,
       dispatchInterviewId: roomId,
-      dispatchAgent: !ownInterviewer,
+      dispatchAgent: !jobConfig,
     });
     await activateRoom(roomId);
     return NextResponse.json({

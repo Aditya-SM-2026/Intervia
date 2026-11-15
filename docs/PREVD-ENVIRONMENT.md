@@ -1,8 +1,9 @@
 # predev environment
 
 Isolated stack for new-feature work, built 3 Nov 2026 in `siva-nikhil`. It runs
-the same code as `feature/roles-candidates`, on the same two paid machines, with
-its own database and its own recordings bucket. The data in them is a **copy of
+the same code as `feature/roles-candidates`, with no machine of its own that
+stays on: the website, each interview and each video run on Cloud Run only while
+needed. It has its own database and its own recordings bucket. The data in them is a **copy of
 production taken on 3 Nov 2026**, so predev looks like the real app without
 anything it does reaching production.
 
@@ -11,15 +12,15 @@ anything it does reaching production.
 | Branch | `features/predev` (from `feature/roles-candidates`) |
 | Web | https://intervia-predev-web-199504026920.asia-south1.run.app |
 | Video worker | `intervia-predev-video-worker` (private) |
-| Cost | about $2–4/month on top of the existing VM and Cloud SQL instance |
+| Interviewer | Cloud Run job `intervia-predev-agent`, one execution per interview |
+| Cost | pay per use, on top of the shared Cloud SQL instance |
 
 ## Shared with production
 
 | Shared | How predev stays separate |
 |---|---|
-| VM `meetingbot-agent-vm` | Second container `agent-predev`, image `agent:predev`, no published ports, `--memory=800m`; stop it with `scripts/predev-agent.ps1 stop` when not testing |
 | Cloud SQL `meetingbot-db` | **Separate database `intervia_predev`**, holding a copy of the production rows; production stays on `meetingbot` |
-| LiveKit project | Agent registers as `predev-interviewer`; the web dispatches that name only |
+| LiveKit project | Room prefix `predev-interview-`; each job joins only its own interview's room |
 | Artifact Registry `meetingbot` | Tags `web:predev`, `agent:predev`, `worker:predev`; `:latest` is never written |
 
 ## Own resources
@@ -27,6 +28,7 @@ anything it does reaching production.
 | Resource | Name |
 |---|---|
 | Cloud Run web | `intervia-predev-web` (1 vCPU / 2 GiB, min 0, max 3, gcsfuse volume) |
+| Cloud Run job | `intervia-predev-agent` (2 vCPU / 4 GiB, gen2, 2 h limit, no retries), started by the web app at the email gate; exits after the interview |
 | Cloud Run worker | `intervia-predev-video-worker` (2 vCPU / 2 GiB, invoker = `tasks-invoker`) |
 | Cloud Tasks queue | `intervia-predev-video-analysis` |
 | Database | `intervia_predev` on `meetingbot-db` |
@@ -72,9 +74,8 @@ invitation or reminder mail leaves the app.
 
 Pushing to `features/predev` runs `.github/workflows/deploy-predev.yml`, which
 builds only the images whose paths changed and deploys only predev services.
-The agent step copies `scripts/predev-agent-vm.sh` to the VM and runs it, which
-pulls `agent:predev` and recreates the `agent-predev` container. It never calls
-`instances reset`, so a production interview is never interrupted.
+The agent step updates the `intervia-predev-agent` job. An interview already
+running keeps the image it started with, so a deploy never interrupts one.
 
 First-time image build (all three, no deploy):
 
@@ -84,18 +85,6 @@ gcloud builds submit --config cloudbuild-predev.yaml --project siva-nikhil .
 
 Sign in at the predev URL with `ADMIN_USERNAME` default `admin` and the
 password stored in `predev-recruiter-password`.
-
-The predev agent shares the production VM, so give it back when you are not
-testing:
-
-```powershell
-.\scripts\predev-agent.ps1 status
-.\scripts\predev-agent.ps1 stop
-.\scripts\predev-agent.ps1 start
-```
-
-`stop` leaves the production container alone; `start` re-pulls `agent:predev`
-and recreates only `agent-predev`.
 
 ## The one code change needed
 
@@ -126,7 +115,7 @@ production recordings bucket are not in the list on purpose.
 gcloud run services delete intervia-predev-web --region asia-south1 --quiet
 gcloud run services delete intervia-predev-video-worker --region asia-south1 --quiet
 gcloud tasks queues delete intervia-predev-video-analysis --location asia-south1 --quiet
-gcloud compute ssh meetingbot-agent-vm --zone asia-south1-a --command "sudo docker rm -f agent-predev"
+gcloud run jobs delete intervia-predev-agent --region asia-south1 --quiet
 # predev-only copies, safe to drop:
 gcloud sql databases delete intervia_predev --instance meetingbot-db --quiet
 gcloud storage rm -r gs://siva-nikhil-intervia-predev-recordings

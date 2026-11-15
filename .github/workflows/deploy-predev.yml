@@ -20,9 +20,6 @@ env:
   AR_REPO: asia-south1-docker.pkg.dev/siva-nikhil/meetingbot
   WIF_PROVIDER: projects/199504026920/locations/global/workloadIdentityPools/github-intervia/providers/github
   SA: 199504026920-compute@developer.gserviceaccount.com
-  # The predev interviewer's own VM (2 vCPU, 8 GB). The shared e2-small ran
-  # out of CPU and memory when interviews overlapped.
-  VM: meetingbot-agent-predev-2
   # One Cloud Run job execution per interview: started by the web app at the
   # email gate, it runs one interview on its own machine and exits.
   AGENT_JOB: intervia-predev-agent
@@ -53,7 +50,6 @@ jobs:
               - '.github/workflows/deploy-predev.yml'
             agent:
               - 'agent/**'
-              - 'scripts/predev-agent-vm.sh'
               - '.github/workflows/deploy-predev.yml'
             worker:
               - 'worker/**'
@@ -176,16 +172,3 @@ jobs:
             --set-env-vars INTERVIA_ONE_SHOT=1,AGENT_NAME=predev-interviewer,AGENT_TTS_PROVIDER=cloud,NEXT_PUBLIC_VOICE_PROVIDER=cascade,NODE_ENV=production,INTERVIA_WEB_URL=${{ env.APP_BASE_URL }} \
             --set-secrets AGENT_API_SECRET=predev-agent-api-secret:latest,GEMINI_API_KEY=meetingbot-gemini-api-key:latest,OMINIBOT_API_KEY=meetingbot-ominibot-api-key:latest,LIVEKIT_URL=meetingbot-livekit-url:latest,LIVEKIT_API_KEY=meetingbot-livekit-api-key:latest,LIVEKIT_API_SECRET=meetingbot-livekit-api-secret:latest \
             --quiet
-      - name: Restart the predev fallback worker on its VM
-        # The job above is what interviews use; a failure here only leaves the
-        # fallback worker on its previous image. (The VM needs the
-        # cloud-platform access scope to read its secrets.)
-        continue-on-error: true
-        run: |
-          # The long-running worker the web app falls back to when a job cannot
-          # start. Never `instances reset`.
-          gcloud compute scp scripts/predev-agent-vm.sh ${{ env.VM }}:predev-agent-vm.sh \
-            --project ${{ env.PROJECT_ID }} --zone ${{ env.ZONE }} --quiet
-          gcloud compute ssh ${{ env.VM }} \
-            --project ${{ env.PROJECT_ID }} --zone ${{ env.ZONE }} --quiet \
-            --command "sudo bash ~/predev-agent-vm.sh"
