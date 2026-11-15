@@ -431,7 +431,10 @@ export async function submitApplication(
  * and the every-minute sweep picks up anything still unscreened.
  */
 export async function queueScreening(roleId: string, applicationId: string): Promise<void> {
-  await enqueueJob({ kind: "screen-application", roleId, applicationId }).catch((error: unknown) => {
+  // A unique job name: a resume replaced minutes after the first one must be
+  // screened again, not folded into the first screening job. Repeats are
+  // cheap, an unchanged resume reuses its stored result.
+  await enqueueJob({ kind: "screen-application", roleId, applicationId }, { windowMs: 1 }).catch((error: unknown) => {
     console.warn(
       `[screening] ${applicationId} could not be queued: ${
         error instanceof Error ? error.message : String(error)

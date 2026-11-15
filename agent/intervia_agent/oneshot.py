@@ -50,6 +50,31 @@ async def _room_state(lk: api.LiveKitAPI, room: str) -> tuple[api.Room | None, l
     return rooms.rooms[0], list(participants.participants)
 
 
+def agent_token(key: str, secret: str, room: str, identity: str) -> str:
+    """The interviewer's join token.
+
+    simulate_job's own default token grants only join and the agent flag, so
+    the interviewer could not set its own attributes: `lk.agent.state` never
+    reached the candidate, whose screen stayed on "Connecting" through the
+    whole interview. A dispatched job's token can update its own metadata;
+    this one matches it.
+    """
+    return (
+        api.AccessToken(key, secret)
+        .with_identity(identity)
+        .with_kind("agent")
+        .with_grants(
+            api.VideoGrants(
+                room_join=True,
+                room=room,
+                agent=True,
+                can_update_own_metadata=True,
+            )
+        )
+        .to_jwt()
+    )
+
+
 def _is_agent(participant: api.ParticipantInfo) -> bool:
     return participant.kind == api.ParticipantInfo.Kind.AGENT
 
@@ -95,7 +120,7 @@ async def run_one_shot(server: AgentServer) -> int:
             room=room,
             fake_job=False,
             room_info=info,
-            agent_identity=utils.shortuuid("agent-"),
+            token=agent_token(key, secret, room, utils.shortuuid("agent-")),
         )
         logger.info("interviewer started for %s", room)
 
