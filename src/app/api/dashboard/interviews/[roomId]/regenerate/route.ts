@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -22,5 +23,6 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
 
   const detail = await getInterviewDetail(roomId, { force: true });
   if (!detail) return interviewErrorResponse("ROOM_NOT_FOUND", "This interview does not exist.");
+  await logActivity({ action: "report.rescored", targetType: "interview", targetId: roomId, summary: `Re-scored the report for ${detail.session.candidateName ?? "a candidate"}` });
   return NextResponse.json(detail);
 }

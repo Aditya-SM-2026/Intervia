@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       console.error(`[screening] auto-invite failed: ${describeRoleError(error)}`);
       return null;
     });
+    await logActivity({ action: "application.screening_backfill", targetType: "role", targetId: roleId, summary: `Screened waiting applications: ${result.screened} scored`, details: { failed: result.failed } });
     return NextResponse.json({ ...result, autoInvite });
   } catch (error) {
     console.error(`[screening] backfill failed: ${describeRoleError(error)}`);

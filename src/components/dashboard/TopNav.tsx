@@ -51,14 +51,17 @@ export function TopNav() {
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
   const [analyticsError, setAnalyticsError] = useState(false);
   const [accountName, setAccountName] = useState("Admin");
+  const [accountDetail, setAccountDetail] = useState("Medhas Academy");
 
   // The signed-in account's name, shown on the avatar and in the user menu.
   useEffect(() => {
     let cancelled = false;
     fetch("/api/auth/me")
-      .then((response) => (response.ok ? (response.json() as Promise<{ name?: string }>) : null))
+      .then((response) => (response.ok ? (response.json() as Promise<{ name?: string; email?: string | null; admin?: boolean }>) : null))
       .then((data) => {
-        if (!cancelled && data?.name) setAccountName(data.name);
+        if (cancelled || !data?.name) return;
+        setAccountName(data.name);
+        setAccountDetail(data.admin ? "Admin · Medhas Academy" : data.email ?? "Medhas Academy");
       })
       .catch(() => {});
     return () => {
@@ -216,7 +219,7 @@ export function TopNav() {
             header={
               <div className="border-b border-border px-3 py-2.5">
                 <p className="text-sm font-semibold">{accountName}</p>
-                <p className="text-xs text-muted">Medhas Academy</p>
+                <p className="max-w-56 truncate text-xs text-muted">{accountDetail}</p>
                 <p className="mt-3 text-[11px] font-medium uppercase tracking-wider text-muted">Theme</p>
                 <ThemeControl />
               </div>

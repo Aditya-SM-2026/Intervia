@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -79,6 +80,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const result = await deleteRoleCandidates(roleId, ids);
     if (!result) return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
+    await logActivity({ action: "application.candidates_removed", targetType: "role", targetId: roleId, summary: `Removed ${ids.length} candidate${ids.length === 1 ? "" : "s"} from the role`, details: { candidates: ids } });
     return NextResponse.json(result);
   } catch (error) {
     console.error(`[roles] deleting candidates failed: ${describeRoleError(error)}`);

@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -26,5 +27,6 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
   if (!outcome.ok) {
     return interviewErrorResponse(outcome.code, outcome.reason);
   }
+  await logActivity({ action: "report.resume_rechecked", targetType: "interview", targetId: roomId, summary: "Re-checked the resume against the interview" });
   return NextResponse.json({ ok: true, score: outcome.score, reason: outcome.reason });
 }

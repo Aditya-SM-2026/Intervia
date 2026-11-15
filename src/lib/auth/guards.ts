@@ -1,10 +1,10 @@
 import "server-only";
 import { timingSafeEqual } from "node:crypto";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getAgentApiSecret, isProduction } from "@/lib/config/env";
-import { SESSION_COOKIE, isRecruiterSession } from "./session";
+import { getActor } from "./actor";
+import { isAdmin } from "./accounts.logic";
 
 /**
  * Route-handler guards. The proxy already redirects unauthenticated page
@@ -15,11 +15,24 @@ import { SESSION_COOKIE, isRecruiterSession } from "./session";
 
 /** Returns a 401 response when the caller is not a signed-in recruiter. */
 export async function requireRecruiter(): Promise<NextResponse | null> {
-  const cookieStore = await cookies();
-  if (await isRecruiterSession(cookieStore.get(SESSION_COOKIE)?.value)) return null;
+  if (await getActor()) return null;
   return NextResponse.json(
     { error: { code: "UNAUTHORIZED", message: "Sign in to continue." } },
     { status: 401 },
+  );
+}
+
+/**
+ * Returns 401 when signed out and 403 for team members: managing the team
+ * and reading the activity log are for the admin login only.
+ */
+export async function requireAdmin(): Promise<NextResponse | null> {
+  const actor = await getActor();
+  if (!actor) return requireRecruiter();
+  if (isAdmin(actor)) return null;
+  return NextResponse.json(
+    { error: { code: "FORBIDDEN", message: "Only the admin can do this." } },
+    { status: 403 },
   );
 }
 

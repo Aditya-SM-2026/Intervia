@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -48,6 +49,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
         result.failed[0]?.error ?? "This interview does not exist.",
       );
     }
+    if (result.deleted.length > 0) await logActivity({ action: "interview.deleted", targetType: "interview", targetId: roomId, summary: "Deleted an interview with its transcript and report" });
     return NextResponse.json({ deleted: result.deleted, failed: result.failed });
   } catch (error) {
     console.error(`[dashboard] delete failed: ${error instanceof Error ? error.message : String(error)}`);

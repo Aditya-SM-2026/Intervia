@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getInterviewDetail } from "@/lib/interviews/scorecard.service";
@@ -38,6 +39,7 @@ export async function GET(
         .replace(/(^-|-$)/g, "")
         .slice(0, 40) || "candidate";
 
+    await logActivity({ action: "export.report_pdf", targetType: "interview", targetId: roomId, summary: `Downloaded the PDF report for ${heading}` });
     return new NextResponse(Buffer.from(pdf), {
       status: 200,
       headers: {

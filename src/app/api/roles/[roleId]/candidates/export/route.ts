@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -53,6 +54,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       candidates,
     );
     const filename = exportFileName(exported.role.title, new Date());
+    await logActivity({ action: "export.candidates_csv", targetType: "role", targetId: roleId, summary: `Downloaded candidates of ${exported.role.title}` });
     return new NextResponse(csv, {
       status: 200,
       headers: {

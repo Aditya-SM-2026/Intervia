@@ -1,10 +1,11 @@
 /**
- * Recruiter session: a signed, expiring cookie. One shared password protects
- * the recruiter pages and the dashboard (RECRUITER_PASSWORD); there are no
- * individual accounts yet.
+ * Recruiter session cookie. The cookie carries a session id signed with
+ * SESSION_SECRET; the session itself (who, until when, ended or not) lives in
+ * the database, see src/lib/auth/actor.ts. The owner signs in with the
+ * deployment's admin login (ADMIN_USERNAME + RECRUITER_PASSWORD); team
+ * members the owner adds sign in with their email.
  *
- * Uses Web Crypto only, so the same code runs in the proxy and in route
- * handlers. No secrets are exported.
+ * Uses Web Crypto only. No secrets are exported.
  */
 
 export const SESSION_COOKIE = "intervia_session";
@@ -48,17 +49,20 @@ function safeEqual(a: string, b: string): boolean {
   return difference === 0;
 }
 
-export async function createSessionToken(): Promise<string> {
-  const expiresAt = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
-  return `${expiresAt}.${await hmacHex(`session:${expiresAt}`)}`;
+/** The cookie value for one stored session: "<id>.<signature>". */
+export async function signSessionId(sessionId: string): Promise<string> {
+  return `${sessionId}.${await hmacHex(`sid:${sessionId}`)}`;
 }
 
-export async function verifySessionToken(token: string | undefined): Promise<boolean> {
-  if (!token) return false;
-  const [expiry, signature] = token.split(".");
-  const expiresAt = Number(expiry);
-  if (!signature || !Number.isFinite(expiresAt) || expiresAt < Date.now() / 1000) return false;
-  return safeEqual(signature, await hmacHex(`session:${expiresAt}`));
+/** The session id in a cookie value, or null when it was not signed by us. */
+export async function sessionIdFromCookie(value: string | undefined): Promise<string | null> {
+  if (!value) return null;
+  const dot = value.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const sessionId = value.slice(0, dot);
+  const signature = value.slice(dot + 1);
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(sessionId)) return null;
+  return safeEqual(signature, await hmacHex(`sid:${sessionId}`)) ? sessionId : null;
 }
 
 export async function isPasswordCorrect(candidate: string): Promise<boolean> {
@@ -68,24 +72,15 @@ export async function isPasswordCorrect(candidate: string): Promise<boolean> {
   return safeEqual(await hmacHex(`password:${candidate}`), await hmacHex(`password:${expected}`));
 }
 
-/** True when a request carrying this cookie value may use recruiter features. */
-export async function isRecruiterSession(token: string | undefined): Promise<boolean> {
-  const mode = getAuthMode();
-  if (mode === "open") return true;
-  if (mode === "locked") return false;
-  return verifySessionToken(token);
-}
-
 /** The login ID an administrator signs in with. A name, not a secret. */
 export function expectedUsername(): string {
   return process.env.ADMIN_USERNAME?.trim() || "admin";
 }
 
 /**
- * The name of the signed-in account, used wherever the product says who
- * arranged an interview. There is one shared account for now, so this is
- * ADMIN_DISPLAY_NAME when set, otherwise the login ID ("admin" becomes
- * "Admin"). When individual accounts arrive, this becomes the user's name.
+ * The owner account's display name: ADMIN_DISPLAY_NAME when set, otherwise
+ * the login ID ("admin" becomes "Admin"). Team members have their own names;
+ * use the signed-in actor (src/lib/auth/actor.ts) wherever a person acted.
  */
 export function accountDisplayName(): string {
   const configured = process.env.ADMIN_DISPLAY_NAME?.trim();

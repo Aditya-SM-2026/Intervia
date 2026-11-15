@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -61,6 +62,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const personality = await saveAgentPersonality(parsed.data);
+    await logActivity({ action: "settings.agent_saved", summary: "Saved the interviewer's behaviour and voice", details: { voice: personality.voice, voiceMode: personality.voiceMode } });
     return NextResponse.json({ personality });
   } catch (error) {
     console.error(`[agent-settings] save failed: ${(error as Error).message}`);
@@ -74,6 +76,7 @@ export async function DELETE() {
 
   try {
     const personality = await resetAgentPersonality();
+    await logActivity({ action: "settings.agent_reset", summary: "Restored the interviewer's basic personality" });
     return NextResponse.json({ personality });
   } catch (error) {
     console.error(`[agent-settings] reset failed: ${(error as Error).message}`);

@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const result = await runAutoInvite(roleId, { origin: publicOrigin(request) });
     if (!result) return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
     const state = await getAutoInviteState(roleId);
+    await logActivity({ action: "interview.auto_invites_run", targetType: "role", targetId: roleId, summary: `Ran automatic invitations: ${result?.invited ?? 0} invited, ${result?.failed ?? 0} failed`, details: { results: result?.results?.map((item) => ({ email: item.candidateEmail, status: item.status })) } });
     return NextResponse.json({ ...result, state });
   } catch (error) {
     console.error(`[auto-invite] run failed: ${describeRoleError(error)}`);

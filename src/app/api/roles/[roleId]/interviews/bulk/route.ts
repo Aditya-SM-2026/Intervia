@@ -1,3 +1,5 @@
+import { getActor } from "@/lib/auth/actor";
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -87,8 +89,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     );
     if (scheduled.error) return roleErrorResponse("INVALID_INPUT", scheduled.error);
 
+    // Whoever is signed in arranged the interview.
+    const arrangedBy = (await getActor())?.name ?? accountDisplayName();
     const settings = createInterviewSchema.safeParse({
-      recruiterName: accountDisplayName(),
+      recruiterName: arrangedBy,
       candidateName: "placeholder",
       candidateEmail: "placeholder@example.com",
       roleTitle: role.title,
@@ -206,6 +210,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    await logActivity({ action: "interview.bulk_created", targetType: "role", targetId: roleId, summary: `Scheduled interviews for ${results.filter((item) => item.status === "created").length} of ${results.length} selected candidates`, details: { results: results.map((item) => ({ email: item.email, status: item.status })) } });
     return NextResponse.json({
       created: results.filter((item) => item.status === "created").length,
       skipped: results.filter((item) => item.status === "skipped").length,

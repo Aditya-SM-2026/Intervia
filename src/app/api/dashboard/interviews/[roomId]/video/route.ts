@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -25,5 +26,6 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
   if (!outcome.queued) {
     return interviewErrorResponse(outcome.code, outcome.reason);
   }
+  await logActivity({ action: "report.video_reanalysed", targetType: "interview", targetId: roomId, summary: "Asked for the video analysis again" });
   return NextResponse.json({ status: "queued" }, { status: 202 });
 }

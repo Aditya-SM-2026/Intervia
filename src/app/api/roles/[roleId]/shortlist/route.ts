@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -65,6 +66,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       if (!saved) {
         return roleErrorResponse("INVALID_INPUT", "This application does not exist on this role.");
       }
+      await logActivity({ action: body.shortlisted === true ? "application.shortlisted" : body.shortlisted === false ? "application.unshortlisted" : "application.shortlist_cleared", targetType: "application", targetId: body.applicationId, summary: body.shortlisted === true ? "Shortlisted an applicant" : body.shortlisted === false ? "Took an applicant off the shortlist" : "Cleared a manual shortlist tick", details: { roleId } });
       return NextResponse.json({ ok: true });
     }
 
@@ -73,6 +75,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return roleErrorResponse("INVALID_INPUT", "The cutoff must be a score between 0 and 100.");
     }
     const saved = await getRolesRepository().setRoleShortlistCutoff(roleId, clampCutoff(cutoff));
+    await logActivity({ action: "role.shortlist_cutoff_changed", targetType: "role", targetId: roleId, summary: `Set the shortlist cutoff to ${saved}`, details: { cutoff: saved } });
     return NextResponse.json({ cutoff: saved });
   } catch (error) {
     console.error(`[shortlist] saving failed: ${describeRoleError(error)}`);

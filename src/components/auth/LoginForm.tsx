@@ -40,7 +40,7 @@ export function LoginForm({ next }: { next: string }) {
     <form onSubmit={handleSubmit} className="grid gap-4">
       <div>
         <label htmlFor="username" className="mb-1.5 block text-sm font-medium">
-          Login ID
+          Email or login ID
         </label>
         <input
           id="username"

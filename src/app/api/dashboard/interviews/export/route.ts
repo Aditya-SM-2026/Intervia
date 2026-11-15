@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -125,6 +126,7 @@ export async function GET(request: NextRequest) {
     }
 
     const stamp = new Date().toISOString().slice(0, 10);
+    await logActivity({ action: "export.interviews_csv", summary: `Downloaded the interviews list (${lines.length - 1} rows)` });
     return new NextResponse(`\uFEFF${lines.join("\r\n")}\r\n`, {
       status: 200,
       headers: {

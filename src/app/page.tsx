@@ -3,7 +3,8 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { BrandEmblem, BrandMark } from "@/components/brand/BrandMark";
 import { HeroFilm } from "@/components/marketing/HeroFilm";
-import { SESSION_COOKIE, isRecruiterSession } from "@/lib/auth/session";
+import { SESSION_COOKIE } from "@/lib/auth/session";
+import { actorFromCookieValue } from "@/lib/auth/actor";
 
 const AVATARS = [
   { initials: "PR", tint: "bg-violet-500/15 text-violet-700" },
@@ -69,7 +70,7 @@ const OUTCOMES = [
 
 export default async function Home() {
   // Signed-in recruiters go straight to work instead of signing in.
-  const signedIn = await isRecruiterSession((await cookies()).get(SESSION_COOKIE)?.value);
+  const signedIn = Boolean(await actorFromCookieValue((await cookies()).get(SESSION_COOKIE)?.value));
   const primary = signedIn
     ? { href: "/recruiter", label: "Create an interview" }
     : { href: "/login", label: "Sign in to start" };

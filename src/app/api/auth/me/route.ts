@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { requireRecruiter } from "@/lib/auth/guards";
-import { accountDisplayName } from "@/lib/auth/session";
+import { getActor } from "@/lib/auth/actor";
+import { isAdmin } from "@/lib/auth/accounts.logic";
 
-/** The signed-in account's display name, for the top bar. */
+/** The signed-in person, for the top bar and the settings pages. */
 export async function GET() {
-  const denied = await requireRecruiter();
-  if (denied) return denied;
-  return NextResponse.json({ name: accountDisplayName() });
+  const actor = await getActor();
+  if (!actor) {
+    return NextResponse.json({ error: { code: "UNAUTHORIZED", message: "Sign in to continue." } }, { status: 401 });
+  }
+  return NextResponse.json({ id: actor.id, name: actor.name, email: actor.email, admin: isAdmin(actor) });
 }

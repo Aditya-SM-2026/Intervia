@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -57,6 +58,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ? roleErrorResponse("ROLE_NOT_FOUND", saved.message)
         : roleErrorResponse("INVALID_INPUT", saved.message);
     }
+    await logActivity({ action: "role.screening_changed", targetType: "role", targetId: roleId, summary: "Changed resume screening settings", details: { settings: saved.settings } });
     return NextResponse.json(saved.settings);
   } catch (error) {
     console.error(`[screening] saving settings failed: ${describeRoleError(error)}`);

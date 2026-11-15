@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -59,6 +60,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const settings = await saveAutoInviteSettings(roleId, body);
     if (!settings) return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
+    await logActivity({ action: "role.auto_invite_changed", targetType: "role", targetId: roleId, summary: `Automatic invitations ${settings.enabled ? "on" : "off"}: Match ${settings.threshold}+, ${settings.durationMinutes} min, ${settings.difficulty}`, details: { settings } });
     return NextResponse.json({ settings });
   } catch (error) {
     console.error(`[auto-invite] save failed: ${describeRoleError(error)}`);

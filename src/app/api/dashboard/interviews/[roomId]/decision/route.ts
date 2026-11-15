@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     decidedAt: new Date().toISOString(),
   });
   if (!room) return interviewErrorResponse("ROOM_NOT_FOUND", "This interview does not exist.");
+  await logActivity({ action: "decision.recorded", targetType: "interview", targetId: roomId, summary: `Decided ${parsed.data.outcome} for ${room.candidateName ?? "a candidate"}`, details: { note: parsed.data.note ?? null } });
   return NextResponse.json({ decision: room.decision });
 }
 
@@ -51,5 +53,6 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   }
   const room = await recordDecision(roomId, null);
   if (!room) return interviewErrorResponse("ROOM_NOT_FOUND", "This interview does not exist.");
+  await logActivity({ action: "decision.cleared", targetType: "interview", targetId: roomId, summary: "Cleared a hiring decision" });
   return NextResponse.json({ decision: null });
 }

@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     );
   }
 
+  await logActivity({ action: "report.asked_ai", targetType: "interview", targetId: roomId, summary: "Asked AI about a candidate", details: { question: parsed.data.message.slice(0, 300) } });
   try {
     if (parsed.data.stream) {
       const encoder = new TextEncoder();

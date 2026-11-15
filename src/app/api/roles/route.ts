@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const role = await createRole(payload);
+    await logActivity({ action: "role.created", targetType: "role", targetId: role.id, summary: `Created role ${role.title}` });
     return NextResponse.json({ role }, { status: 201 });
   } catch (error) {
     if (error instanceof ZodError) {
@@ -89,6 +91,7 @@ export async function DELETE(request: NextRequest) {
     if (result.roles === 0) {
       return roleErrorResponse("ROLE_NOT_FOUND", "None of those roles exist any more.");
     }
+    await logActivity({ action: "role.deleted", targetType: "role", targetId: ids.join(","), summary: `Deleted ${result.roles} role${result.roles === 1 ? "" : "s"} and ${result.interviews} interview${result.interviews === 1 ? "" : "s"}`, details: { roleIds: ids } });
     return NextResponse.json({ deleted: result.roles, interviews: result.interviews });
   } catch (error) {
     console.error(`[roles] delete failed: ${describeRoleError(error)}`);

@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -51,6 +52,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const rule = await setRoleAutoFilterRule(roleId, body);
     if (!rule) return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
+    await logActivity({ action: "role.auto_filter_changed", targetType: "role", targetId: roleId, summary: "Changed the automatic filter rule", details: { rule } });
     return NextResponse.json({ rule });
   } catch (error) {
     console.error(`[roles] auto filter save failed: ${describeRoleError(error)}`);

@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -180,6 +181,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         })
       : null;
 
+  await logActivity({ action: "interview.edited", targetType: "interview", targetId: room.id, summary: `Edited the interview for ${room.candidateName ?? "a candidate"}`, details: { changes } });
   return NextResponse.json({ room, candidateUrl, changes, inviteEmail });
 }
 

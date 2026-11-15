@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       parsed.data.note,
     );
     if (!result) return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
+    await logActivity({ action: "decision.candidates", targetType: "role", targetId: roleId, summary: `Marked ${parsed.data.candidateIds.length} candidate${parsed.data.candidateIds.length === 1 ? "" : "s"} as ${parsed.data.decision}`, details: { candidates: parsed.data.candidateIds, note: parsed.data.note ?? null } });
     return NextResponse.json(result);
   } catch (error) {
     console.error(`[roles] bulk decision failed: ${describeRoleError(error)}`);

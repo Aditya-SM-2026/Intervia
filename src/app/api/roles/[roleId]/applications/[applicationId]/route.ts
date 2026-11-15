@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -42,6 +43,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       interviewId,
     );
     if (!application) return roleErrorResponse("ROLE_NOT_FOUND", "This application no longer exists.");
+    await logActivity({ action: action === "reject" ? "application.rejected" : action === "restore" ? "application.restored" : "application.scheduled", targetType: "application", targetId: applicationId, summary: `${action === "reject" ? "Rejected" : action === "restore" ? "Restored" : "Marked as scheduled"} ${application.name ?? "an applicant"}`, details: { roleId } });
     return NextResponse.json({ application });
   } catch (error) {
     console.error(`[applications] update failed: ${describeRoleError(error)}`);

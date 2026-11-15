@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await deleteDashboardInterviews(parsed.data.ids);
+    await logActivity({ action: "interview.deleted", targetType: "interview", targetId: parsed.data.ids.join(",").slice(0, 400), summary: `Deleted ${result.deleted.length} interview${result.deleted.length === 1 ? "" : "s"}`, details: { ids: parsed.data.ids } });
     return NextResponse.json({ deleted: result.deleted, failed: result.failed });
   } catch (error) {
     console.error(`[dashboard] bulk delete failed: ${describeRoleError(error)}`);

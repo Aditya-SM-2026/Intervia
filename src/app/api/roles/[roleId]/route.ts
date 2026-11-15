@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -55,6 +56,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const role = await updateRole(roleId, payload);
     if (!role) return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
+    await logActivity({ action: "role.updated", targetType: "role", targetId: roleId, summary: `Updated role ${role.title}`, details: { fields: Object.keys((payload ?? {}) as object) } });
     return NextResponse.json({ role });
   } catch (error) {
     if (error instanceof ZodError) {
@@ -83,6 +85,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     if (result.roles === 0) {
       return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
     }
+    await logActivity({ action: "role.deleted", targetType: "role", targetId: roleId, summary: `Deleted a role and ${result.interviews} interview${result.interviews === 1 ? "" : "s"}` });
     return NextResponse.json({ deleted: result.roles, interviews: result.interviews });
   } catch (error) {
     console.error(`[roles] delete failed: ${describeRoleError(error)}`);

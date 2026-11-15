@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import { InfoTip } from "@/components/ui/InfoTip";
 import Link from "next/link";
-import { Bot, ChevronRight, Database, Mic, SlidersHorizontal } from "lucide-react";
+import { Bot, ChevronRight, Database, History, KeyRound, Mic, SlidersHorizontal, Users } from "lucide-react";
 import { BrandEmblem } from "@/components/brand/BrandMark";
 import { TopNav } from "@/components/dashboard/TopNav";
 import { ThemeProvider } from "@/components/dashboard/theme";
 import { readAgentPersonalityForSettings } from "@/lib/agent/personality.service";
 import { isDefaultPersonality } from "@/lib/agent/personality.types";
 import { findAgentVoice } from "@/lib/agent/agent-voices";
+import { isAdmin } from "@/lib/auth/accounts.logic";
+import { getActor } from "@/lib/auth/actor";
+import { getAccountsRepository } from "@/server/repositories/accounts-repository";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -21,6 +24,10 @@ export default async function SettingsPage() {
   const { personality, available } = await readAgentPersonalityForSettings();
   const basic = isDefaultPersonality(personality);
   const voice = findAgentVoice(personality.voice);
+  const actor = await getActor();
+  const admin = isAdmin(actor);
+  const members = admin ? await getAccountsRepository().listMembers().catch(() => []) : [];
+  const activeMembers = members.filter((member) => member.active).length;
 
   return (
     <ThemeProvider>
@@ -106,6 +113,35 @@ export default async function SettingsPage() {
             </Link>
           </div>
 
+          <div className="grid gap-6 sm:grid-cols-2">
+            {admin ? (
+              <>
+                <SettingsCard
+                  href="/dashboard/settings/team"
+                  icon={<Users className="size-5" aria-hidden />}
+                  title="Team"
+                  text="Give each person who hires with you their own login, reset passwords, and turn accounts off."
+                  badge={`${activeMembers + 1} ${activeMembers === 0 ? "person" : "people"} can sign in`}
+                />
+                <SettingsCard
+                  href="/dashboard/settings/activity"
+                  icon={<History className="size-5" aria-hidden />}
+                  title="Activity"
+                  text="Who did what and when: sign-ins, roles, invitations, interviews, decisions, settings and downloads."
+                  badge="Everyone's actions"
+                />
+              </>
+            ) : (
+              <SettingsCard
+                href="/dashboard/settings/account"
+                icon={<KeyRound className="size-5" aria-hidden />}
+                title="Your password"
+                text="Change the password you sign in with."
+                badge={actor?.email ?? "Your login"}
+              />
+            )}
+          </div>
+
           <section className="rounded-2xl border border-border bg-surface p-5">
             <h2 className="font-semibold tracking-tight">Interview agent</h2>
             <dl className="mt-4 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
@@ -158,5 +194,24 @@ function Row({ label, value }: { label: string; value: string }) {
       <dt className="text-xs text-muted">{label}</dt>
       <dd>{value}</dd>
     </div>
+  );
+}
+
+function SettingsCard({ href, icon, title, text, badge }: { href: string; icon: React.ReactNode; title: string; text: string; badge: string }) {
+  return (
+    <Link
+      href={href}
+      className="group flex flex-col justify-between gap-4 rounded-2xl border border-border bg-surface p-5 transition hover:border-accent/50"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-accent/30 bg-accent/10 text-accent">{icon}</span>
+        <ChevronRight className="size-5 shrink-0 text-muted transition group-hover:text-foreground" aria-hidden />
+      </div>
+      <div>
+        <p className="font-semibold tracking-tight">{title}</p>
+        <p className="mt-1 text-sm text-muted">{text}</p>
+        <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-muted">{badge}</p>
+      </div>
+    </Link>
   );
 }

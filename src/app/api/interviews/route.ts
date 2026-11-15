@@ -1,3 +1,5 @@
+import { getActor } from "@/lib/auth/actor";
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { createInterviewRoom, findDuplicateInterview, resolveScheduledAt } from "@/lib/interviews/interview.service";
@@ -49,10 +51,11 @@ export async function POST(request: NextRequest) {
     return typeof value === "string" ? value : undefined;
   };
 
+  // Whoever is signed in arranged the interview.
+  const arrangedBy = (await getActor())?.name ?? accountDisplayName();
   const parsed = createInterviewSchema.safeParse({
     title: text("title"),
-    // Whoever is signed in arranged the interview; the form does not ask.
-    recruiterName: accountDisplayName(),
+    recruiterName: arrangedBy,
     candidateName: text("candidateName"),
     candidateEmail: text("candidateEmail"),
     hrEmail: text("hrEmail"),
@@ -295,6 +298,7 @@ export async function POST(request: NextRequest) {
     ? new URL(`/upload/${room.uploadToken}`, publicOrigin(request)).toString()
     : null;
 
+  await logActivity({ action: "interview.created", targetType: "interview", targetId: room.id, summary: `Created an interview for ${room.candidateName ?? "a candidate"} (${room.roleTitle ?? room.title})`, details: { email: room.candidateEmail, minutes: room.durationMinutes, invited: inviteEmail?.status ?? null } });
   return NextResponse.json(
     { room, candidateUrl, hrUrl, uploadUrl, inviteEmail, hrInviteEmail },
     { status: 201 },

@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -87,6 +88,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       link = await getRoleFormLink(roleId, origin);
     }
     if (!link) return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
+    // Opening a role page also calls this (to make sure a link exists); only
+    // real changes are recorded.
+    const change = body?.rotate === true ? "made a new application link" : body?.reenable === true ? "reopened the application form"
+      : body && body.settings !== undefined ? "changed the application form limits" : body && "fields" in body ? "edited the application form questions" : null;
+    if (change) await logActivity({ action: "role.form_changed", targetType: "role", targetId: roleId, summary: `${change.charAt(0).toUpperCase()}${change.slice(1)}` });
     return NextResponse.json(link);
   } catch (error) {
     if (error instanceof ZodError) {
@@ -110,6 +116,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   try {
     const revoked = await revokeRoleFormLink(roleId);
     if (!revoked) return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
+    await logActivity({ action: "role.form_closed", targetType: "role", targetId: roleId, summary: "Closed the application form link" });
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error(`[applications] revoke failed: ${describeRoleError(error)}`);

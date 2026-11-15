@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -55,5 +56,6 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
       { status: 404 },
     );
   }
+  await logActivity({ action: "report.ai_conversation_deleted", targetType: "interview", targetId: roomId, summary: "Deleted an Ask AI conversation" });
   return NextResponse.json({ deleted: true });
 }

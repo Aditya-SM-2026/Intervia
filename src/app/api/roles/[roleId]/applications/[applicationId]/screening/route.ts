@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { requireRecruiter } from "@/lib/auth/guards";
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       console.error(`[screening] auto-invite failed: ${describeRoleError(error)}`);
       return null;
     });
+    await logActivity({ action: "application.rescreened", targetType: "application", targetId: applicationId, summary: "Re-ran resume screening for one applicant", details: { roleId } });
     return NextResponse.json({ screening: result.snapshot, autoInvite });
   } catch (error) {
     console.error(`[screening] rerun failed: ${describeRoleError(error)}`);
