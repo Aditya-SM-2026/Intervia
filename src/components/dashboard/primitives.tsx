@@ -10,11 +10,11 @@ import { TrendingDown, TrendingUp } from "lucide-react";
  * nothing here invents a number.
  */
 
-export function Avatar({ name, className }: { name: string | null; className?: string }) {
+export function Avatar({ name, className, single = false }: { name: string | null; className?: string; /** One letter, for small stacked avatars. */ single?: boolean }) {
   const label = (name ?? "?").trim();
   // Two initials in one calm tone: random colours told nobody apart and added noise.
   const words = label.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean);
-  const initial = ((words[0]?.charAt(0) ?? "?") + (words.length > 1 ? words[words.length - 1].charAt(0) : "")).toUpperCase();
+  const initial = ((words[0]?.charAt(0) ?? "?") + (!single && words.length > 1 ? words[words.length - 1].charAt(0) : "")).toUpperCase();
   return (
     <span
       aria-hidden

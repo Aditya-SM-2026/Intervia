@@ -26,7 +26,6 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         </div>
         <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-12">
           <h1 className="text-3xl font-semibold tracking-tight">Welcome back</h1>
-          <p className="mt-2 text-muted">Sign in with your team login.</p>
           <div className="mt-8">
             <LoginForm next={target} />
           </div>

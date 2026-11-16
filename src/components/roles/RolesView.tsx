@@ -275,6 +275,7 @@ function RoleCard({
             <Avatar
               key={person.candidateId}
               name={person.candidateName ?? person.candidateEmail}
+              single
               className="size-7 text-[11px] ring-2 ring-surface"
             />
           ))}

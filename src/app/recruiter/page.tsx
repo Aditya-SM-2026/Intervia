@@ -1,3 +1,4 @@
+import { InfoTip } from "@/components/ui/InfoTip";
 import type { Metadata } from "next";
 import { TopNav } from "@/components/dashboard/TopNav";
 import { ThemeProvider } from "@/components/dashboard/theme";
@@ -50,10 +51,10 @@ export default async function RecruiterPage({ searchParams }: PageProps<"/recrui
       <div aria-hidden className="bg-grid-fade pointer-events-none absolute inset-x-0 top-16 -z-10 h-[420px]" />
       <main className="relative mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6">
         <header className="pb-7 pt-9">
-          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em]">New interview</h1>
-          <p className="mt-1.5 max-w-xl text-sm text-muted">
-            The job description and resume become the interview plan. The candidate is emailed their link as soon as you create it.
-          </p>
+          <h1 className="flex items-center gap-2 text-[28px] font-semibold leading-tight tracking-[-0.02em]">
+            New interview
+            <InfoTip text="The job description and resume become the interview plan. The candidate is emailed their link as soon as you create it." />
+          </h1>
         </header>
         <CreateInterviewPanel
           initialRole={initialRole}

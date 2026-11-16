@@ -8,8 +8,8 @@ import type { DashboardAnalytics } from "@/lib/dashboard/dashboard.types";
 import { EASE_OUT, NumberTicker } from "@/components/ui/animated";
 
 /**
- * The page's one moment of motion: the last 14 days drawn as paired bars
- * (interviews held, reports ready) that rise in sequence, next to the three
+ * The page's one moment of motion: the last 14 days drawn as bars
+ * (interviews per day; the hover readout adds reports) that rise in sequence, next to the three
  * figures a recruiter checks first. One panel with ruled columns rather than
  * a row of identical cards.
  */
@@ -47,7 +47,7 @@ function ActivityChart({ analytics }: { analytics: DashboardAnalytics }) {
   const reduce = useReducedMotion();
   const [hover, setHover] = useState<number | null>(null);
   const series = analytics.series;
-  const max = Math.max(1, ...series.map((point) => Math.max(point.interviews, point.reports)));
+  const max = Math.max(1, ...series.map((point) => point.interviews));
   const active = hover !== null ? series[hover] : null;
 
   return (
@@ -67,23 +67,13 @@ function ActivityChart({ analytics }: { analytics: DashboardAnalytics }) {
               : "Last 14 days"}
           </p>
         </div>
-        <div className="flex items-center gap-4 text-xs text-muted">
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-accent" aria-hidden />
-            Interviews
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-gold" aria-hidden />
-            Reports
-          </span>
-        </div>
       </div>
 
       <div
-        className="mt-6 flex h-40 items-end gap-1.5 sm:gap-2"
+        className="mt-5 flex h-32 items-end gap-1.5 sm:gap-2"
         onPointerLeave={() => setHover(null)}
         role="img"
-        aria-label={`Interviews and reports per day over the last ${series.length} days`}
+        aria-label={`Interviews per day over the last ${series.length} days`}
       >
         {series.map((point, index) => {
           const dim = hover !== null && hover !== index;
@@ -102,12 +92,6 @@ function ActivityChart({ analytics }: { analytics: DashboardAnalytics }) {
                 delay={index * 0.035}
                 reduce={reduce}
                 className={`bg-accent ${dim ? "opacity-35" : ""}`}
-              />
-              <Bar
-                height={point.reports / max}
-                delay={index * 0.035 + 0.08}
-                reduce={reduce}
-                className={`bg-gold ${dim ? "opacity-35" : ""}`}
               />
             </div>
           );
@@ -133,7 +117,7 @@ function Bar({
   className: string;
 }) {
   // An empty day still shows a sliver, so the time axis reads as continuous.
-  const pct = height === 0 ? 3 : Math.max(8, height * 100);
+  const pct = height === 0 ? 4 : Math.max(10, height * 100);
   return (
     <motion.span
       aria-hidden
@@ -141,7 +125,7 @@ function Bar({
       animate={{ scaleY: 1 }}
       transition={{ duration: 0.7, delay, ease: EASE_OUT }}
       style={{ height: `${pct}%`, transformOrigin: "bottom" }}
-      className={`relative w-full max-w-3 rounded-full transition-opacity ${height === 0 ? "opacity-20" : ""} ${className}`}
+      className={`relative w-full max-w-5 rounded-md transition-opacity ${height === 0 ? "opacity-20" : ""} ${className}`}
     />
   );
 }
@@ -190,15 +174,13 @@ function Figure({
 function AwaitingFigure({ analytics }: { analytics: DashboardAnalytics }) {
   const items = analytics.awaitingRecent.slice(0, 2);
   return (
-    <div className="flex flex-col justify-center gap-2 px-6 py-5">
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="text-sm text-muted">Waiting for a report</p>
-        <span className="text-xl font-semibold leading-none text-foreground">{analytics.awaitingAnalysis}</span>
-      </div>
+    <div className="flex flex-col justify-center gap-1 px-6 py-5">
+      <p className="text-sm text-muted">Waiting for a report</p>
+      <span className="text-[28px] font-semibold leading-none tracking-[-0.02em] text-foreground">{analytics.awaitingAnalysis}</span>
       {items.length === 0 ? (
         <p className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400">
           <CheckCircle2 className="size-3.5" aria-hidden />
-          Every finished interview has its report
+          All caught up
         </p>
       ) : (
         <ul className="grid gap-1">
@@ -227,7 +209,7 @@ function ActivityStripSkeleton() {
     <div className="grid overflow-hidden rounded-3xl border border-border bg-surface lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]" aria-hidden>
       <div className="p-7">
         <div className="skeleton h-4 w-28 rounded" />
-        <div className="mt-6 flex h-40 items-end gap-2">
+        <div className="mt-5 flex h-32 items-end gap-2">
           {Array.from({ length: 14 }, (_, index) => (
             <div key={index} className="skeleton flex-1 rounded-full" style={{ height: `${20 + ((index * 37) % 70)}%` }} />
           ))}

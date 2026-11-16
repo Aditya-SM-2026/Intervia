@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { ArrowUpRight, Info, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, TriangleAlert } from "lucide-react";
 import type { DashboardStats, StatsRange } from "@/lib/dashboard/stats.types";
 import { EASE_OUT, NumberTicker, SegmentedTabs } from "@/components/ui/animated";
 import { InfoTip } from "@/components/ui/InfoTip";
@@ -146,10 +146,16 @@ function Funnel({ stats }: { stats: DashboardStats }) {
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="flex items-center gap-1.5 text-sm font-medium">
           From interview to decision
-          <InfoTip text="Percentages show how many moved on from the step above." />
+          <InfoTip
+            text={`Percentages show how many moved on from the step above. ${
+              applied > 0
+                ? `${plural(applied, "person")} applied through a role's application link in this period.`
+                : "Nobody applied through a role's application link in this period."
+            }`}
+          />
         </h2>
       </div>
-      <ol className="mt-6 grid gap-3">
+      <ol className="mt-6 grid gap-4">
         {steps.map((step, index) => {
           const previous = index > 0 ? steps[index - 1].value : null;
           const conversion = previous && previous > 0 ? Math.round((step.value / previous) * 100) : null;
@@ -157,9 +163,9 @@ function Funnel({ stats }: { stats: DashboardStats }) {
           return (
             <li key={step.key} className="grid grid-cols-[7.5rem_minmax(0,1fr)_6.5rem] items-center gap-4 sm:grid-cols-[9.5rem_minmax(0,1fr)_8rem]">
               <span className="text-sm text-muted">{step.label}</span>
-              <div className="relative h-9 overflow-hidden rounded-lg bg-foreground/[0.04]">
+              <div className="relative h-3 overflow-hidden rounded-full bg-foreground/[0.05]">
                 <motion.div
-                  className="absolute inset-y-0 left-0 rounded-lg"
+                  className="absolute inset-y-0 left-0 rounded-full"
                   style={{
                     background: step.key === "advanced" ? "var(--gold)" : "var(--accent)",
                     opacity: step.key === "advanced" ? 1 : 1 - index * 0.18,
@@ -177,12 +183,6 @@ function Funnel({ stats }: { stats: DashboardStats }) {
           );
         })}
       </ol>
-      <p className="mt-5 flex items-center gap-1.5 text-xs text-muted">
-        <Info className="size-3.5" aria-hidden />
-        {applied > 0
-          ? `${plural(applied, "person")} applied through a role's application link in this period.`
-          : "Nobody applied through a role's application link in this period."}
-      </p>
     </section>
   );
 }
@@ -215,7 +215,9 @@ function WeeklyChart({ stats }: { stats: DashboardStats }) {
             <strong className="font-medium">{active.completed}</strong> finished
           </>
         ) : (
-          <span className="text-muted">Point at a week for its numbers</span>
+          <span className="text-muted">
+            {weeks.reduce((sum, week) => sum + week.interviews, 0)} sent over {weeks.length} weeks
+          </span>
         )}
       </p>
       <div className="mt-4 flex h-44 items-end gap-1" onPointerLeave={() => setHover(null)} role="img" aria-label="Interviews sent and finished per week">
@@ -353,7 +355,9 @@ function CostSection({ stats }: { stats: DashboardStats }) {
       <div>
         <h2 className="flex items-center gap-1.5 text-sm font-medium">
           AI cost
-          <InfoTip text="Estimated from recorded usage at list prices." />
+          <InfoTip
+            text={`Estimated from recorded usage at list prices. Covers ${plural(cost.interviewsWithCost, "interview")} with recorded voice usage, plus Ask AI. Writing reports and interview plans isn't recorded yet, so it isn't included.`}
+          />
         </h2>
         <p className="mt-5 text-[32px] font-semibold leading-none tracking-[-0.02em]">{formatUsd(cost.totalUsd)}</p>
         <div className="mt-6 h-2.5 overflow-hidden rounded-full bg-gold/30">
@@ -395,11 +399,6 @@ function CostSection({ stats }: { stats: DashboardStats }) {
             );
           })}
         </div>
-        <p className="mt-5 flex items-start gap-1.5 text-xs leading-relaxed text-muted">
-          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          Covers {plural(cost.interviewsWithCost, "interview")} with recorded voice usage, plus Ask AI. Writing reports and
-          interview plans isn&apos;t recorded yet, so it isn&apos;t included.
-        </p>
       </div>
     </section>
   );

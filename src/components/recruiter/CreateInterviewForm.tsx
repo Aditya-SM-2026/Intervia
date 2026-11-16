@@ -440,15 +440,14 @@ export function CreateInterviewForm({
           </div>
 
           <div className="mt-5">
-            <span className="mb-1.5 block text-sm font-medium">
+            <span className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
               Resume <span className="font-normal text-muted">(optional)</span>
+              <InfoTip text="Without one, the candidate gets a link to upload it." />
             </span>
             <PdfPicker file={resume} onChange={setResume} prompt="or drop it here" />
-            <p className="mt-1.5 text-xs text-muted">
-              {initial?.existingResumeName && !resume
-                ? `On file: ${initial.existingResumeName}. Upload a PDF to replace it.`
-                : "Without one, the candidate gets a link to upload it."}
-            </p>
+            {initial?.existingResumeName && !resume && (
+              <p className="mt-1.5 text-xs text-muted">On file: {initial.existingResumeName}. Upload a PDF to replace it.</p>
+            )}
           </div>
         </Step>
 
@@ -462,10 +461,10 @@ export function CreateInterviewForm({
             onChange={setSkillFocus}
           />
           <fieldset className="mt-6">
-            <legend className="text-sm font-medium">Time split</legend>
-            <p className="mt-0.5 text-xs text-muted">
-              First their own projects, in depth. Then what this job needs, weighted by the skills above.
-            </p>
+            <legend className="flex items-center gap-1.5 text-sm font-medium">
+              Time split
+              <InfoTip text="First their own projects, in depth. Then what this job needs, weighted by the skills above." />
+            </legend>
             <div className="mt-2.5 grid grid-cols-3 gap-1.5">
               {PROJECT_SPLITS.map((option) => (
                 <button
@@ -633,11 +632,13 @@ function Step({
 function Field({ id, label, hint, children }: { id: string; label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label htmlFor={id} className={labelClasses}>
-        {label}
-      </label>
+      <span className="mb-1.5 flex items-center gap-1.5">
+        <label htmlFor={id} className="block text-sm font-medium">
+          {label}
+        </label>
+        {hint && <InfoTip text={hint} />}
+      </span>
       {children}
-      {hint && <p className="mt-1.5 text-xs text-muted">{hint}</p>}
     </div>
   );
 }
@@ -685,9 +686,7 @@ function FocusEditor({ rows, onChange }: { rows: SkillFocus[]; onChange: (rows: 
   return (
     <div>
       {rows.length === 0 ? (
-        <p className="rounded-xl bg-foreground/[0.03] px-4 py-3 text-sm text-muted">
-          No skills picked. The interviewer works from the job description. Add skills below to steer it.
-        </p>
+        <p className="text-sm text-muted">Working from the job description. Add skills to steer it.</p>
       ) : (
         <ul className="grid gap-2 xl:grid-cols-2">
           {rows.map((row, index) => {

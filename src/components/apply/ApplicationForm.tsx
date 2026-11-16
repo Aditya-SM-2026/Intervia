@@ -1,12 +1,12 @@
 "use client";
 
+import { InfoTip } from "@/components/ui/InfoTip";
 import {
   AlertCircle,
   ArrowRight,
   Check,
   ChevronDown,
   Clock,
-  FileText,
   GraduationCap,
   Hash,
   Loader2,
@@ -116,7 +116,7 @@ function RolePanel({
   return (
     <aside
       className={`relative isolate overflow-hidden rounded-[28px] bg-[#081a3d] text-white shadow-[0_24px_80px_-40px_rgba(8,26,61,0.65)] ring-1 ring-white/10 ${
-        preview ? "" : "lg:min-h-0"
+        preview ? "" : "lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain"
       }`}
     >
       <div
@@ -143,7 +143,7 @@ function RolePanel({
         className={`relative flex flex-col px-6 py-7 sm:px-8 sm:py-9 ${
           preview
             ? ""
-            : "lg:absolute lg:inset-0 lg:overflow-y-auto lg:overscroll-contain lg:px-9 lg:pt-10 lg:pb-24"
+            : "lg:px-9 lg:pt-10 lg:pb-10"
         }`}
       >
         <div className="flex flex-wrap items-center gap-2">
@@ -174,12 +174,7 @@ function RolePanel({
 
         {roleDescription.trim() !== "" && (
           <div className="mt-8 border-t border-white/10 pt-7">
-            <p className="text-[11px] font-medium tracking-[0.14em] text-white/45 uppercase">
-              About the role
-            </p>
-            <div className="mt-4">
-              <DocumentText text={roleDescription} onDark />
-            </div>
+            <DocumentText text={roleDescription} onDark />
           </div>
         )}
 
@@ -188,18 +183,13 @@ function RolePanel({
             <div className="flex items-center gap-2 text-sm font-medium text-white">
               <ShieldCheck className="size-4 text-emerald-400" aria-hidden />
               Your application stays private
+              <InfoTip text="It is shared only with the hiring team for this role." />
             </div>
-            <p className="mt-1.5 text-xs leading-5 text-white/50">
-              It is shared only with the hiring team for this role.
-            </p>
           </div>
         </div>
       </div>
       {/* On wide screens the description scrolls inside the panel; the fade
           shows there is more below instead of looking cut off. */}
-      {!preview && (
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-20 rounded-b-[28px] bg-gradient-to-t from-[#081a3d] to-transparent lg:block" />
-      )}
     </aside>
   );
 }
@@ -256,7 +246,6 @@ export function ApplicationForm({
   const educationField = byId("education");
   const cgpaField = byId("cgpa");
   const customFields = fields.filter((field) => !field.system);
-  const questionCount = fields.filter((field) => field.id !== "resume").length;
 
   // Real-time progress calculation
   const requiredFields = fields.filter((field) => field.required);
@@ -491,7 +480,7 @@ export function ApplicationForm({
   return (
     <div
       className={`grid items-start gap-5 ${
-        preview ? "" : "lg:items-stretch lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-6"
+        preview ? "" : "lg:items-start lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-6"
       }`}
     >
       <RolePanel roleTitle={roleTitle} roleDescription={roleDescription} preview={preview} />
@@ -609,38 +598,21 @@ export function ApplicationForm({
               </p>
             )}
 
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h2 className="text-[1.65rem] font-semibold tracking-[-0.03em] sm:text-[1.9rem]">
-                  Your application
-                </h2>
-                <p className="mt-1.5 text-sm text-muted">
-                  Fields marked <span className="text-rose-500 dark:text-rose-400">*</span> are
-                  required.
-                </p>
-              </div>
-              <span className="rounded-full border border-border bg-background/60 px-3 py-1 text-xs font-medium text-muted">
-                {questionCount} {questionCount === 1 ? "question" : "questions"}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <h2 className="flex items-center gap-2 text-[1.65rem] font-semibold tracking-[-0.03em] sm:text-[1.9rem]">
+                Your application
+                <InfoTip text="Fields marked * are required." />
+              </h2>
+              <span className="text-xs font-medium tabular-nums text-muted">
+                {completedCount} of {totalRequired} required
               </span>
             </div>
-
-            {/* Live Progress Bar */}
-            <div className="mt-6 rounded-2xl border border-border bg-background/50 p-3.5">
-              <div className="mb-2 flex items-center justify-between text-xs">
-                <span className="flex items-center gap-1.5 font-medium text-foreground">
-                  <Sparkles className="size-3.5 text-accent" />
-                  Application progress
-                </span>
-                <span className="font-medium tabular-nums text-muted">
-                  {completedCount} of {totalRequired} required filled ({progressPct}%)
-                </span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-border/60">
-                <div
-                  className="h-full rounded-full bg-accent transition-all duration-300 ease-out"
-                  style={{ width: `${progressPct}%` }}
-                />
-              </div>
+            {/* Progress as a thin line under the title: present, not a card of its own. */}
+            <div className="mt-4 h-1 w-full overflow-hidden rounded-full bg-border/60" aria-hidden>
+              <div
+                className="h-full rounded-full bg-accent transition-all duration-300 ease-out"
+                style={{ width: `${progressPct}%` }}
+              />
             </div>
 
             <div className="mt-8 space-y-6">
@@ -1189,9 +1161,9 @@ export function ApplicationForm({
                 </>
               )}
             </button>
-            <p className="mt-3 text-center text-xs text-muted">
-              One application per email address for this role. Applied before? Sending again with the
-              same email and phone replaces the resume on your existing application.
+            <p className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted">
+              One application per email address
+              <InfoTip text="Applied before? Sending again with the same email and phone replaces the resume on your existing application." />
             </p>
           </div>
         </form>
