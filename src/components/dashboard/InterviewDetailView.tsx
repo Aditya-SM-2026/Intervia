@@ -530,7 +530,7 @@ export function InterviewDetailView({
   );
 
   return (
-    <div className="mx-auto flex max-w-7xl gap-6 xl:items-start">
+    <div className="flex gap-6 xl:items-start">
       <div className="mx-auto grid w-full min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-6">
         {toastMessage && (
           <div

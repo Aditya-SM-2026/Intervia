@@ -84,7 +84,9 @@ export function DatePicker({
     const gap = 6;
     const below = window.innerHeight - rect.bottom;
     const top = below < POPOVER_HEIGHT + gap && rect.top > POPOVER_HEIGHT + gap ? rect.top - POPOVER_HEIGHT - gap : rect.bottom + gap;
-    const left = Math.min(Math.max(8, rect.left), window.innerWidth - POPOVER_WIDTH - 8);
+    // Open from the field's left edge, or line up with its right edge near the screen's edge.
+    const fitsRight = rect.left + POPOVER_WIDTH <= window.innerWidth - 8;
+    const left = Math.max(8, fitsRight ? rect.left : Math.min(rect.right, window.innerWidth - 8) - POPOVER_WIDTH);
     setPosition({ top, left });
   }, []);
 

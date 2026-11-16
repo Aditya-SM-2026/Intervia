@@ -35,8 +35,8 @@ export default async function EditInterviewPage({
   return (
     <ThemeProvider>
       <TopNav />
-      <main className="w-full px-4 pb-24 pt-8 sm:px-6">
-        <div className="mx-auto w-full max-w-7xl">
+      <main className="mx-auto w-full max-w-7xl px-4 pb-24 pt-8 sm:px-6">
+        <div className="w-full">
           <Link
             href="/dashboard"
             className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted transition hover:text-foreground"
