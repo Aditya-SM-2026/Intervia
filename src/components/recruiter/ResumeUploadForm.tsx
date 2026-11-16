@@ -79,7 +79,20 @@ export function ResumeUploadForm({ token }: { token: string }) {
   }
 
   if (info.alreadyUsed || (done !== null && info.resumeReceived)) {
-    return <StatusScreen icon={CircleCheck} tone="good" title="Resume received" message="Thank you. Your interview will use it. You can close this page." reason="received" />;
+    return (
+      <StatusScreen
+        icon={CircleCheck}
+        tone="good"
+        title="Resume received"
+        message="Thank you. You can close this page."
+        steps={[
+          { label: "Resume uploaded", done: true },
+          { label: "Your interview questions are prepared from it" },
+          { label: "Join your interview with the link you were sent" },
+        ]}
+        reason="received"
+      />
+    );
   }
 
   if (!info.valid) {

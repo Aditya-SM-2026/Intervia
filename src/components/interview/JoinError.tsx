@@ -19,7 +19,20 @@ const VIEWS: Record<JoinErrorProps["code"], { title: string; icon: LucideIcon; t
 /** Shown to a candidate whose interview link cannot be opened. */
 export function JoinError({ code, message, finished }: JoinErrorProps) {
   if (finished) {
-    return <StatusScreen icon={CircleCheck} tone="good" title="Your interview is complete" message={message} reason={code} />;
+    return (
+      <StatusScreen
+        icon={CircleCheck}
+        tone="good"
+        title="Your interview is complete"
+        message={message}
+        steps={[
+          { label: "Interview recorded", done: true },
+          { label: "The hiring team reviews it" },
+          { label: "They contact you about next steps" },
+        ]}
+        reason={code}
+      />
+    );
   }
   const view = VIEWS[code];
   return (
