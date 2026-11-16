@@ -1,5 +1,6 @@
 "use client";
 
+import { setupSectionClass, type SetupSummary } from "./setupSummary";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, Loader2, Mail, Send, Zap } from "lucide-react";
 import {
@@ -38,7 +39,15 @@ const DIFFICULTY_LABELS: Record<string, string> = {
  * the interview setup every invited candidate gets. Off by default; turning it
  * on sends nothing until a candidate clears the bar or HR presses Run now.
  */
-export function AutoInviteSettings({ roleId }: { roleId: string }) {
+export function AutoInviteSettings({
+  roleId,
+  grouped = false,
+  onSummary,
+}: {
+  roleId: string;
+  grouped?: boolean;
+  onSummary?: (summary: SetupSummary | null) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -226,12 +235,16 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
     ? `On · Match ${settings.threshold} and above · ${settings.durationMinutes} min · ${settings.difficulty}`
     : "Off · nobody is invited automatically";
 
+  useEffect(() => {
+    onSummary?.(loading ? null : { on: enabled, label: enabled ? `Auto invite from Match ${settings.threshold}` : "Auto invite off" });
+  }, [onSummary, loading, enabled, settings.threshold]);
+
   return (
     <section
       aria-label="Automatic interview invitations"
-      className="scroll-mt-24 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm shadow-black/[0.02]"
+      className={setupSectionClass(grouped)}
     >
-      <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-center">
+      <div className={`flex flex-col gap-4 lg:flex-row lg:items-center ${grouped ? "px-4 py-3.5 sm:px-5" : "p-4 sm:p-5"}`}>
         <div className="flex min-w-0 items-center gap-3.5 lg:shrink-0">
           <span
             className={`grid size-11 shrink-0 place-items-center rounded-xl ${

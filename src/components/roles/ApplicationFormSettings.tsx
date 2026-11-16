@@ -1,5 +1,6 @@
 "use client";
 
+import { setupSectionClass, type SetupSummary } from "./setupSummary";
 import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import {
@@ -83,10 +84,15 @@ export function ApplicationFormSettings({
   roleId,
   roleTitle,
   roleDescription = "",
+  grouped = false,
+  onSummary,
 }: {
   roleId: string;
   roleTitle: string;
   roleDescription?: string;
+  /** Drawn as a row inside the role page's shared setup card. */
+  grouped?: boolean;
+  onSummary?: (summary: SetupSummary | null) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [token, setToken] = useState<string>("");
@@ -381,13 +387,18 @@ export function ApplicationFormSettings({
     else openPanel("limits");
   }
 
+  const received = status?.applicationsReceived ?? 0;
+  useEffect(() => {
+    onSummary?.(loading ? null : { on: isOpen, label: isOpen ? `Form open · ${received} received` : "Form closed" });
+  }, [onSummary, loading, isOpen, received]);
+
   return (
     <section
       id="application-form"
       aria-label="Application form"
-      className="scroll-mt-24 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm shadow-black/[0.02]"
+      className={setupSectionClass(grouped)}
     >
-      <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-center">
+      <div className={`flex flex-col gap-4 lg:flex-row lg:items-center ${grouped ? "px-4 py-3.5 sm:px-5" : "p-4 sm:p-5"}`}>
         {/* what it is + state */}
         <div className="flex min-w-0 items-center gap-3.5 lg:shrink-0">
           <span

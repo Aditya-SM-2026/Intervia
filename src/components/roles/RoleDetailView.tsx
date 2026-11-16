@@ -1,6 +1,7 @@
 "use client";
 
 import { ScorePill } from "@/components/ui/ScorePill";
+import type { SetupSummary } from "./setupSummary";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -289,6 +290,85 @@ function StageStrip({
         })}
       </div>
     </div>
+  );
+}
+
+type SetupKey = "form" | "screening" | "invite";
+const SETUP_STORAGE_KEY = "intervia-role-setup-open";
+
+/**
+ * The application form, resume screening and automatic invitations as one
+ * card. Once a role has candidates it folds to a single line of status chips,
+ * so the candidates are the first thing on the page; a chip opens it again.
+ */
+function HiringSetup({
+  hasCandidates,
+  children,
+}: {
+  hasCandidates: boolean;
+  children: (report: Record<SetupKey, (summary: SetupSummary | null) => void>) => ReactNode;
+}) {
+  const [stored, setStored] = useState<boolean | null>(() => {
+    try {
+      const value = window.localStorage.getItem(SETUP_STORAGE_KEY);
+      return value === null ? null : value === "1";
+    } catch {
+      return null;
+    }
+  });
+  const open = stored ?? !hasCandidates;
+  const [summaries, setSummaries] = useState<Record<SetupKey, SetupSummary | null>>({ form: null, screening: null, invite: null });
+  const report = useMemo(
+    () => ({
+      form: (summary: SetupSummary | null) => setSummaries((current) => ({ ...current, form: summary })),
+      screening: (summary: SetupSummary | null) => setSummaries((current) => ({ ...current, screening: summary })),
+      invite: (summary: SetupSummary | null) => setSummaries((current) => ({ ...current, invite: summary })),
+    }),
+    [],
+  );
+  function setOpen(next: boolean) {
+    setStored(next);
+    try {
+      window.localStorage.setItem(SETUP_STORAGE_KEY, next ? "1" : "0");
+    } catch {
+      /* private window: the choice lasts for this visit */
+    }
+  }
+
+  return (
+    <section aria-label="Hiring setup" className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm shadow-black/[0.02]">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 sm:px-5">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="-ml-1.5 inline-flex h-8 items-center gap-1.5 rounded-lg px-1.5 text-sm font-semibold transition hover:bg-foreground/[0.04]"
+        >
+          <ChevronRight className={`size-4 text-muted transition-transform ${open ? "rotate-90" : ""}`} aria-hidden />
+          Hiring setup
+        </button>
+        {!open && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(["form", "screening", "invite"] as const).map((key) => {
+              const summary = summaries[key];
+              if (!summary) return <span key={key} className="skeleton h-7 w-28 rounded-full" />;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setOpen(true)}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs font-medium text-foreground/80 transition hover:border-foreground/25 hover:text-foreground"
+                >
+                  <span aria-hidden className={`size-1.5 rounded-full ${summary.on ? "bg-emerald-500" : "bg-foreground/25"}`} />
+                  {summary.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <div className={open ? "divide-y divide-border border-t border-border" : "hidden"}>{children(report)}</div>
+    </section>
   );
 }
 
@@ -824,17 +904,24 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
         </div>
       </header>
 
-      {/* ------------------------------------------------- application form */}
-      {/* Keyed on the role's status: closing or reopening the role reloads the form's state. */}
-      <ApplicationFormSettings key={role.status} roleId={roleId} roleTitle={role.title} roleDescription={role.description} />
-
-      <div className="mt-4">
-        <ScreeningSettings roleId={roleId} />
-      </div>
-
-      <div className="mt-4">
-        <AutoInviteSettings roleId={roleId} />
-      </div>
+      {/* ------------------------------------------------- hiring setup */}
+      <HiringSetup hasCandidates={(rows?.length ?? 0) > 0}>
+        {(report) => (
+          <>
+            {/* Keyed on the role's status: closing or reopening the role reloads the form's state. */}
+            <ApplicationFormSettings
+              key={role.status}
+              grouped
+              onSummary={report.form}
+              roleId={roleId}
+              roleTitle={role.title}
+              roleDescription={role.description}
+            />
+            <ScreeningSettings grouped onSummary={report.screening} roleId={roleId} />
+            <AutoInviteSettings grouped onSummary={report.invite} roleId={roleId} />
+          </>
+        )}
+      </HiringSetup>
 
       {/* ------------------------------------------------------------ views */}
       <section className="mt-8" aria-label="Candidates">

@@ -1,5 +1,6 @@
 "use client";
 
+import { setupSectionClass, type SetupSummary } from "./setupSummary";
 import { useEffect, useState } from "react";
 import { ChevronDown, Loader2, Sparkles, Wand2 } from "lucide-react";
 import {
@@ -57,7 +58,15 @@ function total(weights: ScreeningWeights): number {
   return SECTIONS.reduce((sum, section) => sum + (weights[section.id] ?? 0), 0);
 }
 
-export function ScreeningSettings({ roleId }: { roleId: string }) {
+export function ScreeningSettings({
+  roleId,
+  grouped = false,
+  onSummary,
+}: {
+  roleId: string;
+  grouped?: boolean;
+  onSummary?: (summary: SetupSummary | null) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [enabled, setEnabled] = useState(false);
@@ -218,12 +227,16 @@ export function ScreeningSettings({ roleId }: { roleId: string }) {
 
   const sum = total(weights);
 
+  useEffect(() => {
+    onSummary?.(loading ? null : { on: enabled, label: enabled ? "Screening on" : "Screening off" });
+  }, [onSummary, loading, enabled]);
+
   return (
     <section
       aria-label="Resume screening"
-      className="scroll-mt-24 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm shadow-black/[0.02]"
+      className={setupSectionClass(grouped)}
     >
-      <div className="flex flex-col gap-4 p-4 sm:p-5 lg:flex-row lg:items-center">
+      <div className={`flex flex-col gap-4 lg:flex-row lg:items-center ${grouped ? "px-4 py-3.5 sm:px-5" : "p-4 sm:p-5"}`}>
         <div className="flex min-w-0 items-center gap-3.5 lg:shrink-0">
           <span
             className={`grid size-11 shrink-0 place-items-center rounded-xl ${

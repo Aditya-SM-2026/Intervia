@@ -1,5 +1,6 @@
 "use client";
 
+import { ScorePill } from "@/components/ui/ScorePill";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { InfoTip } from "@/components/ui/InfoTip";
 import Link from "next/link";
@@ -31,7 +32,6 @@ import type {
 } from "@/lib/roles/role.types";
 import { countPipeline, PIPELINE_STEPS, type PipelineStep } from "@/lib/roles/pipeline";
 import { Avatar } from "@/components/dashboard/primitives";
-import { ScoreRing } from "@/components/ui/ScoreRing";
 import { Menu } from "@/components/dashboard/menu";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { FilterMenu } from "@/components/dashboard/Toolbar";
@@ -189,14 +189,9 @@ function RoleCard({
             <Link href={href} title={role.title} className="line-clamp-2 break-words text-[17px] font-semibold leading-snug tracking-[-0.015em] hover:text-accent">
               {role.title}
             </Link>
-            {role.status === "completed" ? (
+            {role.status === "completed" && (
               <span className="shrink-0 rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[11px] font-medium text-muted">
                 Closed
-              </span>
-            ) : (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-                <span aria-hidden className="size-1.5 rounded-full bg-emerald-500" />
-                Active
               </span>
             )}
           </div>
@@ -240,14 +235,21 @@ function RoleCard({
       </div>
 
       {/* headline figures */}
-      <div className="mt-5 flex items-center gap-4">
-        <ScoreRing score={score} size={60} stroke={5} label={score === null ? undefined : "avg"} delay={0.1 + index * 0.04} />
-        <div className="min-w-0 flex-1">
-          <p className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-semibold tabular-nums tracking-[-0.02em]">{counts === null ? "…" : total}</span>
-            <span className="text-sm text-muted">{total === 1 ? "candidate" : "candidates"}</span>
-          </p>
-          <div className="mt-2">
+      <div className="mt-5">
+        <div className="min-w-0">
+          <div className="flex items-end justify-between gap-3">
+            <p className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-semibold tabular-nums tracking-[-0.02em]">{counts === null ? "…" : total}</span>
+              <span className="text-sm text-muted">{total === 1 ? "candidate" : "candidates"}</span>
+            </p>
+            {score !== null && (
+              <span className="flex items-center gap-1.5 pb-0.5 text-xs text-muted">
+                Average
+                <ScorePill score={score} size="sm" />
+              </span>
+            )}
+          </div>
+          <div className="mt-2.5">
             {counts === null ? (
               <div className="skeleton h-1.5 w-full rounded-full" />
             ) : total === 0 ? (
@@ -654,22 +656,6 @@ export function RolesView() {
                 onToast={setToast}
               />
             ))}
-            {statusFilter === "open" && (
-            <li>
-              <button
-                type="button"
-                onClick={() => setSheet({ role: null })}
-                className="grid h-full min-h-[200px] w-full place-items-center rounded-2xl border border-dashed border-border text-sm text-muted transition hover:border-accent/50 hover:bg-accent-soft/40 hover:text-accent"
-              >
-                <span className="flex flex-col items-center gap-2">
-                  <span className="grid size-10 place-items-center rounded-full bg-foreground/[0.05]">
-                    <Plus className="size-4" aria-hidden />
-                  </span>
-                  New role
-                </span>
-              </button>
-            </li>
-            )}
           </ul>
         )}
       </section>
