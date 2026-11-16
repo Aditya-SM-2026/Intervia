@@ -338,6 +338,19 @@ export function RolesView() {
   const [deleting, setDeleting] = useState(false);
   const dismissToast = useCallback(() => setToast(null), []);
 
+  // "New role" from the command palette: ?new=1 on arrival, or an event when already here.
+  useEffect(() => {
+    const openNew = () => setSheet({ role: null });
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("new") === "1") {
+      openNew();
+      url.searchParams.delete("new");
+      window.history.replaceState(null, "", url.pathname + url.search);
+    }
+    window.addEventListener("intervia:new-role", openNew);
+    return () => window.removeEventListener("intervia:new-role", openNew);
+  }, []);
+
   function load() {
     fetchRoles()
       .then((result) => {

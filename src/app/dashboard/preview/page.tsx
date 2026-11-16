@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 
 export const metadata: Metadata = {
@@ -185,6 +186,8 @@ const VERDICT_STYLE: Record<string, string> = {
 const card = "rounded-2xl border border-border bg-surface p-5 sm:p-6";
 
 export default function AnalyticsPreviewPage() {
+  // Old design sample: local development only, like /report-preview.
+  if (process.env.NODE_ENV === "production") notFound();
   return (
     <AppShell current="interviews" wide>
       <p className="mb-5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">

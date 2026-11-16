@@ -14,8 +14,9 @@ const nextConfig: NextConfig = {
           // HTTPS only, for a year, on every subdomain.
           { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
           // No other site may show these pages inside a frame (clickjacking).
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'" },
+          // The app itself may, so the resume viewer can show the PDF in place.
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'" },
           // Files are served as the type we say, never guessed (a renamed file cannot become a page).
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },

@@ -66,6 +66,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
+  VideoOff,
   SlidersHorizontal,
   Sparkles,
   Trophy,
@@ -511,7 +512,8 @@ export function InterviewDetailView({
       durationSeconds={session.outcome?.elapsedSeconds ?? null}
       jumpRequest={citedTurn}
     >
-      {scorecard?.video && (
+      {/* No recording: the Transcript header already says so; no empty check underneath. */}
+      {scorecard?.video && hasRecording && (
         <VideoSection
           scorecard={scorecard}
           turns={turns}
@@ -585,7 +587,7 @@ export function InterviewDetailView({
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
           {scorecard ? (
             <>
-              <OverallAssessment scorecard={scorecard} insights={insights} peers={peers} roomId={roomId} />
+              <OverallAssessment scorecard={scorecard} insights={insights} peers={peers} roomId={roomId} hasRecording={hasRecording} />
               <SummarySection scorecard={scorecard} />
               <AnswerQualityTable
                 scorecard={scorecard}
@@ -869,11 +871,13 @@ function OverallAssessment({
   insights,
   peers,
   roomId,
+  hasRecording,
 }: {
   scorecard: Scorecard;
   insights: ReportInsights | null;
   peers: PeerSummary[];
   roomId: string;
+  hasRecording: boolean;
 }) {
   const reduce = useReducedMotion();
   const overall = scorecard.overall;
@@ -1000,7 +1004,7 @@ function OverallAssessment({
                 </div>
               );
             })}
-            {scorecard.integrityCheck && <OnCameraTile check={scorecard.integrityCheck} />}
+            {scorecard.integrityCheck && <OnCameraTile check={scorecard.integrityCheck} recorded={hasRecording} />}
           </div>
           <dl className="flex flex-wrap gap-x-8 gap-y-2 border-t border-border pt-4 text-sm">
             {outcomes.filter((item) => item.value !== "—").map((item) => (
@@ -1842,9 +1846,12 @@ const LEVEL_META: Record<IntegrityLevel, { label: string; tone: Tone; icon: Luci
   not_checked: { label: "Not checked", tone: "muted", icon: ShieldQuestion },
 };
 
+const NOT_RECORDED: { label: string; tone: Tone; icon: LucideIcon } = { label: "Not recorded", tone: "muted", icon: VideoOff };
+
 /** The On camera tile in the overview, beside the scored factors. */
-function OnCameraTile({ check }: { check: IntegrityCheck }) {
-  const meta = LEVEL_META[check.level];
+function OnCameraTile({ check, recorded }: { check: IntegrityCheck; recorded: boolean }) {
+  // Without a recording there is nothing to call clean: say so in a neutral tone.
+  const meta = recorded ? LEVEL_META[check.level] : NOT_RECORDED;
   const Icon = meta.icon;
   return (
     <div className="group relative -m-2 min-w-0 rounded-xl p-2 transition hover:bg-foreground/[0.03]">
@@ -1913,7 +1920,9 @@ function VideoSection({
   const meta = check ? LEVEL_META[check.level] : null;
   const badge: { label: string; tone: Tone } = running
     ? { label: "Processing video", tone: "muted" }
-    : meta
+    : !hasRecording
+      ? { label: NOT_RECORDED.label, tone: "muted" }
+      : meta
       ? { label: meta.label, tone: meta.tone }
       : factorChip("video", video.score ?? null);
 
@@ -2497,9 +2506,15 @@ function RecordingPanel({
       <CardHeading
         icon={Play}
         iconColor="indigo"
-        title="Recording"
+        title={hasRecording ? "Recording" : "Transcript"}
         subtitle="Watch the interview with the transcript in step. Below it: what the recording shows about eyes, lips, voice and who is in the picture."
         right={
+          !hasRecording ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-foreground/[0.05] px-2.5 py-1 text-xs font-medium text-muted">
+              <VideoOff className="size-3.5" aria-hidden />
+              Not recorded
+            </span>
+          ) : (
           <div className="flex items-center gap-2">
             <span className="hidden text-[11px] font-medium tabular-nums text-muted sm:inline">
               {hasRecording && !videoFailed && total > 0 ? `${formatClock(currentTime)} / ${formatClock(total)}` : ""}
@@ -2515,16 +2530,17 @@ function RecordingPanel({
               <span>{expanded ? "Collapse" : "Expand"}</span>
             </button>
           </div>
+          )
         }
       />
 
       <div
         className={`mt-5 grid grid-cols-1 gap-5 ${
-          expanded ? "" : "lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]"
+          expanded || !hasRecording ? "" : "lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]"
         }`}
       >
-        {/* Left: the recording, its controls and the shared timeline */}
-        <div className="min-w-0">
+        {/* Left: the recording, its controls and the shared timeline. No recording: the transcript takes the full width. */}
+        <div className={hasRecording ? "min-w-0" : "hidden"}>
           {hasRecording && !videoFailed ? (
             <video
               key={attempt}
@@ -2689,7 +2705,7 @@ function RecordingPanel({
             <div
               ref={listRef}
               className="relative min-h-[220px] flex-1 overflow-y-auto p-2"
-              style={{ maxHeight: expanded ? 300 : 290 }}
+              style={{ maxHeight: !hasRecording ? 520 : expanded ? 300 : 290 }}
             >
               {visible.length === 0 ? (
                 <p className="px-2 py-6 text-center text-xs text-muted">
@@ -2769,7 +2785,7 @@ function RecordingPanel({
 
           <p className="border-t border-border px-3.5 py-2 text-[11px] text-muted dark:border-border">
             {!hasRecording
-              ? "Transcript only. No recording is available for this interview."
+              ? "No recording was kept for this interview."
               : videoFailed
                 ? "Transcript only. The recording could not be loaded."
                 : "Click any line to jump the recording to that moment."}

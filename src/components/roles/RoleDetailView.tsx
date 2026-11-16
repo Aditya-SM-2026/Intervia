@@ -247,38 +247,64 @@ function StageStrip({
       bar,
     }));
   return (
-    <div role="group" aria-label="Filter by status" className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-      {tiles.map((item) => {
-        const active = item.id === value || (item.id === "applied" && value === "all");
-        return (
-          <button
-            key={item.id}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onChange(item.id === "applied" ? "all" : active ? "all" : item.id)}
-            className={`relative overflow-hidden rounded-xl px-3.5 py-3 text-left transition ${
-              item.count > 0 ? item.tile : "bg-foreground/[0.03] text-muted"
-            } ${active ? "ring-2 ring-accent ring-offset-2 ring-offset-background" : "hover:brightness-[0.97]"}`}
-          >
-            <span className="block text-2xl font-semibold leading-none tracking-[-0.02em] tabular-nums">
-              {counts === null ? "–" : item.count}
-            </span>
-            <span className="mt-1.5 block truncate text-xs font-medium">{item.label}</span>
-            {total > 0 && item.count > 0 && (
-              <span className="absolute inset-x-3.5 bottom-1.5 h-0.5 overflow-hidden rounded-full bg-current/10">
-                <motion.span
-                  className={`block h-full rounded-full ${item.bar}`}
-                  initial={reduce ? false : { width: 0 }}
-                  animate={{ width: `${(item.count / total) * 100}%` }}
-                  transition={{ duration: 0.7, delay: 0.15, ease: EASE_OUT }}
-                />
+    <div
+      role="group"
+      aria-label="Filter by status"
+      className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden"
+    >
+      <div className="flex min-w-max divide-x divide-border overflow-hidden rounded-xl border border-border bg-surface sm:grid sm:min-w-0 sm:grid-cols-6">
+        {tiles.map((item) => {
+          const active = item.id === value || (item.id === "applied" && value === "all");
+          return (
+            <button
+              key={item.id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onChange(item.id === "applied" ? "all" : active ? "all" : item.id)}
+              className={`relative min-w-[104px] px-4 py-3 text-left transition-colors focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-accent ${
+                active ? "bg-accent/[0.06]" : "hover:bg-foreground/[0.025]"
+              }`}
+            >
+              <span
+                className={`block text-xl font-semibold leading-none tracking-[-0.02em] tabular-nums ${
+                  active ? "text-accent" : item.count > 0 ? "text-foreground" : "text-muted/70"
+                }`}
+              >
+                {counts === null ? "–" : item.count}
               </span>
-            )}
-          </button>
-        );
-      })}
+              <span className={`mt-1.5 flex items-center gap-1.5 truncate text-xs font-medium ${active ? "text-accent" : "text-muted"}`}>
+                {item.id !== "applied" && <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${item.count > 0 ? item.bar : "bg-foreground/15"}`} />}
+                {item.label}
+              </span>
+              {active && (
+                <motion.span
+                  layoutId={reduce ? undefined : "stage-underline"}
+                  className="absolute inset-x-0 bottom-0 h-0.5 bg-accent"
+                  transition={{ duration: 0.25, ease: EASE_OUT }}
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
+}
+
+/** What the Outcome column says: the decision, the AI verdict, or where the candidate is. */
+function OutcomeText({ candidate }: { candidate: RoleCandidateSummary }) {
+  if (candidate.decision) {
+    return <span className={`font-medium ${DECISION_TEXT[candidate.decision.outcome]}`}>{DECISION_LABELS[candidate.decision.outcome]}</span>;
+  }
+  if (candidate.interviews > 0) {
+    return candidate.latestStatus === "completed" ? (
+      <span className="text-muted">{candidate.suggestion ? SUGGESTION_LABELS[candidate.suggestion] : "Not decided"}</span>
+    ) : (
+      <span className="text-muted">Interview not finished</span>
+    );
+  }
+  if (candidate.applicationStatus === "rejected") return <span className="font-medium text-rose-600 dark:text-rose-400">Rejected</span>;
+  return <span className="text-muted">Waiting for review</span>;
 }
 
 /** The date a row is shown and sorted by: when they applied or were interviewed. */
@@ -506,6 +532,9 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageRows = visibleRows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  // A column that is empty for every candidate in view only takes room.
+  const showMatch = visibleRows.some(({ candidate }) => candidate.screeningScore !== null && candidate.screeningScore !== undefined);
+  const showEducation = visibleRows.some(({ candidate }) => educationLabel(candidate.candidateEducation, candidate.candidateCgpa) !== null);
 
   function selectTab(next: StageTab) {
     setTab(next);
@@ -868,7 +897,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
             <StageStrip counts={stageCounts} total={rows?.length ?? 0} value={stageFilter} onChange={selectStage} />
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <div className="relative min-w-0 flex-1 sm:max-w-xs">
+              <div className="relative min-w-0 basis-full sm:max-w-xs sm:flex-1 sm:basis-auto">
                 <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
                 <input
                   type="search"
@@ -1040,8 +1069,56 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                   </button>
                 </div>
               ) : (
-                <div className="relative overflow-x-auto">
-                  <table className="w-full min-w-[860px] text-left text-sm">
+                <>
+                {/* Phones: one card per candidate instead of a table that runs off the screen. */}
+                <ul className="divide-y divide-border sm:hidden">
+                  {pageRows.map(({ candidate }) => {
+                    const isSelected = selected.has(candidate.candidateId);
+                    const score = candidate.overallScore;
+                    const open = () =>
+                      candidate.interviews > 0
+                        ? router.push(`/dashboard/${candidate.latestInterviewId}`)
+                        : setOpenApplication(candidate.applicationId ?? null);
+                    return (
+                      <li
+                        key={candidate.candidateId}
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest("a,button,input")) return;
+                          open();
+                        }}
+                        className={`flex cursor-pointer items-start gap-3 px-4 py-3.5 ${isSelected ? "bg-accent-soft/60" : "active:bg-foreground/[0.03]"}`}
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${candidate.candidateName ?? candidate.candidateEmail}`}
+                          checked={isSelected}
+                          onChange={() => toggle(candidate.candidateId)}
+                          className="mt-1 size-4 shrink-0 cursor-pointer accent-[var(--accent)]"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-3">
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
+                              <span className="block truncate text-xs text-muted">{candidate.candidateEmail}</span>
+                            </span>
+                            {score !== null && (
+                              <span className={`shrink-0 text-lg font-semibold tabular-nums ${scoreTone(score).text}`}>{score}</span>
+                            )}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${CANDIDATE_STATUS_STYLES[candidate.status]}`}>
+                              {CANDIDATE_STATUS_LABELS[candidate.status]}
+                            </span>
+                            <OutcomeText candidate={candidate} />
+                            <span className="text-muted">· {formatDay(rowDate(candidate)).day}</span>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <div className="relative hidden overflow-x-auto sm:block">
+                  <table className="w-full min-w-[760px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-border bg-foreground/[0.015] text-xs text-muted">
                         <th scope="col" className="w-10 py-2.5 pl-5">
@@ -1061,8 +1138,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                         <SortableHeader label="Candidate" column="candidate" sort={sort} onSort={toggleSort} />
                         <SortableHeader label="Status" column="status" sort={sort} onSort={toggleSort} />
                         <SortableHeader label="Interview" column="interviewState" sort={sort} onSort={toggleSort} />
-                        <SortableHeader label="Match" column="match" sort={sort} onSort={toggleSort} />
-                        <th scope="col" className="px-3 py-2.5 font-medium">Education</th>
+                        {showMatch && <SortableHeader label="Match" column="match" sort={sort} onSort={toggleSort} />}
+                        {showEducation && <th scope="col" className="px-3 py-2.5 font-medium">Education</th>}
                         <SortableHeader label="Score" column="score" sort={sort} onSort={toggleSort} />
                         <SortableHeader label="Date" column="applied" sort={sort} onSort={toggleSort} />
                         <th scope="col" className="px-3 py-2.5 font-medium">Outcome</th>
@@ -1120,7 +1197,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                                 {INTERVIEW_STATE_LABELS[candidate.interviewState]}
                               </span>
                             </td>
-                            <td className="px-3 py-3">
+                            {showMatch && <td className="px-3 py-3">
                               {candidate.screeningScore === null || candidate.screeningScore === undefined ? (
                                 <span className="text-muted">—</span>
                               ) : (
@@ -1128,8 +1205,8 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                                   {Math.round(candidate.screeningScore)}
                                 </span>
                               )}
-                            </td>
-                            <td className="px-3 py-3">
+                            </td>}
+                            {showEducation && <td className="px-3 py-3">
                               {educationLabel(candidate.candidateEducation, candidate.candidateCgpa) === null ? (
                                 <span className="text-muted">Not provided</span>
                               ) : (
@@ -1137,7 +1214,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                                   {educationLabel(candidate.candidateEducation, candidate.candidateCgpa)}
                                 </span>
                               )}
-                            </td>
+                            </td>}
                             <td className="px-3 py-3">
                               {score === null ? (
                                 <span className="text-muted">—</span>
@@ -1155,23 +1232,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                               <span className="block text-xs text-muted">{interviewed ? "Interview" : "Applied"}</span>
                             </td>
                             <td className="px-3 py-3">
-                              {candidate.decision ? (
-                                <span className={`font-medium ${DECISION_TEXT[candidate.decision.outcome]}`}>
-                                  {DECISION_LABELS[candidate.decision.outcome]}
-                                </span>
-                              ) : interviewed ? (
-                                candidate.latestStatus === "completed" ? (
-                                  <span className="text-muted">
-                                    {candidate.suggestion ? SUGGESTION_LABELS[candidate.suggestion] : "Not decided"}
-                                  </span>
-                                ) : (
-                                  <span className="text-muted">Interview not finished</span>
-                                )
-                              ) : candidate.applicationStatus === "rejected" ? (
-                                <span className="font-medium text-rose-600 dark:text-rose-400">Rejected</span>
-                              ) : (
-                                <span className="text-muted">Waiting for review</span>
-                              )}
+                              <OutcomeText candidate={candidate} />
                             </td>
                             <td className="px-3 py-3 pr-5 text-right">
                               <ChevronRight className="ml-auto size-4 text-muted" aria-hidden />
@@ -1182,6 +1243,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
 

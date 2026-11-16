@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, FileText, LogOut, Monitor, Moon, Plus, Settings, Sun } from "lucide-react";
+import { Bell, FileText, LogOut, Monitor, Moon, Plus, Search, Settings, Sun } from "lucide-react";
 import type { DashboardAnalytics } from "@/lib/dashboard/dashboard.types";
 import { Avatar } from "./primitives";
-import { HeaderSearch } from "./HeaderSearch";
+import { CommandPalette } from "./CommandPalette";
 import { Menu } from "./menu";
 import { useTheme } from "./theme";
 
@@ -47,7 +47,12 @@ function isActiveLink(pathname: string, href: string): boolean {
 export function TopNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const searchRef = useRef<HTMLInputElement | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteKey, setPaletteKey] = useState(0);
+  const openPalette = useCallback(() => {
+    setPaletteKey((key) => key + 1);
+    setPaletteOpen(true);
+  }, []);
   const [bellOpen, setBellOpen] = useState(false);
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
   const [analyticsError, setAnalyticsError] = useState(false);
@@ -70,18 +75,18 @@ export function TopNav() {
     };
   }, []);
 
-  // Focus the global search with ⌘K / Ctrl+K.
+  // ⌘K / Ctrl+K opens the command palette from anywhere.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        searchRef.current?.focus();
-        searchRef.current?.select();
+        if (paletteOpen) setPaletteOpen(false);
+        else openPalette();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [paletteOpen, openPalette]);
 
   const loadBellData = useCallback(() => {
     setAnalyticsError(false);
@@ -112,7 +117,8 @@ export function TopNav() {
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-surface/85 backdrop-blur-xl supports-[backdrop-filter]:bg-surface/70">
+    <header className="sticky top-0 z-40 border-b border-border bg-surface md:bg-surface/85 md:backdrop-blur-xl md:supports-[backdrop-filter]:bg-surface/75">
+      <CommandPalette key={paletteKey} open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6">
         <div className="flex items-center gap-6">
           <BrandMark href="/dashboard" />
@@ -139,7 +145,24 @@ export function TopNav() {
         </div>
 
         <div className="flex items-center gap-2">
-          <HeaderSearch inputRef={searchRef} shortcutHint={shortcutHint} />
+          <button
+            type="button"
+            onClick={openPalette}
+            aria-label="Search and commands"
+            className="hidden h-9 w-56 items-center gap-2 rounded-lg border border-border bg-background/60 pl-3 pr-2 text-sm text-muted transition hover:border-foreground/20 hover:text-foreground sm:flex lg:w-64"
+          >
+            <Search className="size-4" aria-hidden />
+            <span className="flex-1 text-left">Search…</span>
+            <kbd className="rounded border border-border bg-surface px-1.5 py-0.5 font-sans text-[10px] font-medium text-muted">{shortcutHint}</kbd>
+          </button>
+          <button
+            type="button"
+            onClick={openPalette}
+            aria-label="Search and commands"
+            className="grid size-9 place-items-center rounded-lg text-muted transition hover:bg-foreground/[0.05] hover:text-foreground sm:hidden"
+          >
+            <Search className="size-[18px]" aria-hidden />
+          </button>
 
           <Link
             href="/recruiter"
