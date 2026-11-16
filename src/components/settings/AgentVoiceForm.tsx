@@ -3,7 +3,6 @@
 import { InfoTip } from "@/components/ui/InfoTip";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { Check, Loader2, Play, Save, Sparkles, Square } from "lucide-react";
 import {
   AGENT_VOICES,
@@ -110,7 +109,6 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
     }
   }
 
-  const selected = AGENT_VOICES.find((option) => option.id === voice) ?? AGENT_VOICES[2];
 
   return (
     <div className="grid gap-6">
@@ -119,12 +117,10 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
           <div>
             <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">Agent voice<InfoTip text={`How the interviewer sounds during the call. Play a sample ("${VOICE_SAMPLE_TEXT}") to hear it, then pick the voice you want. The chosen voice is used for every interview from now on.`} /></h2>
           </div>
-          <span className="rounded-full border border-border px-3 py-1 text-xs text-muted">
-            {selected.name} · {selected.tone}
-          </span>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        {/* Five voices: one list, so none sits alone in a half-empty row. */}
+        <div className="mt-5 grid gap-2">
           {AGENT_VOICES.map((option) => {
             const isSelected = voice === option.id;
             const isPlaying = previewing === option.id;
@@ -239,39 +235,32 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      {error && (
+        <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+
+      <div className="sticky bottom-4 z-10 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-surface/95 px-4 py-3 shadow-lg shadow-black/[0.06] backdrop-blur">
+        {saved ? (
+          <span className="flex min-w-0 items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
+            <Check className="size-4 shrink-0" aria-hidden />
+            <span className="truncate">{saved}</span>
+          </span>
+        ) : (
+          <span className="text-sm text-muted">Applies to every interview from now on</span>
+        )}
+        <span className="grow" />
         <button
           type="button"
           onClick={save}
           disabled={saving}
-          className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+          className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 disabled:opacity-60"
         >
-          {saving ? (
-            <Sparkles className="size-4 animate-pulse" aria-hidden />
-          ) : (
-            <Save className="size-4" aria-hidden />
-          )}
-          {saving ? "Saving…" : "Save voice"}
+          {saving ? <Sparkles className="size-4 animate-pulse" aria-hidden /> : <Save className="size-4" aria-hidden />}
+          {saving ? "Saving…" : "Save"}
         </button>
-        <Link
-          href="/dashboard/settings"
-          className="ml-auto text-sm font-medium text-muted transition hover:text-foreground"
-        >
-          Back to settings
-        </Link>
       </div>
-
-      {saved && (
-        <p className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-600 dark:text-emerald-400">
-          <Check className="size-4" aria-hidden />
-          {saved}
-        </p>
-      )}
-      {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
     </div>
   );
 }

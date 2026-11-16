@@ -1,9 +1,5 @@
 import type { Metadata } from "next";
-import { InfoTip } from "@/components/ui/InfoTip";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-import { TopNav } from "@/components/dashboard/TopNav";
-import { ThemeProvider } from "@/components/dashboard/theme";
+import { SettingsPageHeader } from "@/components/settings/SettingsPageHeader";
 import { AgentBehaviourForm } from "@/components/settings/AgentBehaviourForm";
 import { readAgentPersonalityForSettings } from "@/lib/agent/personality.service";
 
@@ -19,22 +15,11 @@ export default async function AgentBehaviourPage() {
   const { personality, available } = await readAgentPersonalityForSettings();
 
   return (
-    <ThemeProvider>
-      <TopNav />
-      <main className="mx-auto w-full max-w-5xl px-4 pb-16 sm:px-6">
-        <div className="py-10">
-          <Link
-            href="/dashboard/settings"
-            className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-muted transition hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            Settings
-          </Link>
-          <h1 className="flex items-center gap-2 text-4xl font-semibold tracking-tight">
-            Modify agent behaviour
-            <InfoTip text="The interviewer's instructions, editable without a code change. Each part is optional: leave it empty to keep the built-in text." />
-          </h1>
-        </div>
+    <>
+        <SettingsPageHeader
+          title="Behaviour"
+          tip="The interviewer's instructions, editable without a code change. Each part is optional: leave it empty to keep the built-in text."
+        />
         {!available && (
           <p className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
             The saved behaviour could not be loaded just now, so the boxes show the built-in
@@ -42,7 +27,6 @@ export default async function AgentBehaviourPage() {
           </p>
         )}
         <AgentBehaviourForm initial={personality} />
-      </main>
-    </ThemeProvider>
+    </>
   );
 }

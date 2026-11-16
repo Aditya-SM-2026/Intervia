@@ -3,7 +3,6 @@
 import { InfoTip } from "@/components/ui/InfoTip";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Check, RotateCcw, Save, Sparkles } from "lucide-react";
 import {
   DEFAULT_CONDUCT,
@@ -108,39 +107,28 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
     }
   }
 
-  return (
-    <div className="grid gap-6">
-      <div className="rounded-2xl border border-border bg-surface p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">Agent behaviour<InfoTip text="These are the interviewer's instructions. Every box is optional: an empty box keeps the built-in text shown in grey, and a box you write in is marked Custom. A change applies to every interview from now on, including ones already scheduled." /></h2>
-          </div>
-          {/* The time zone differs between server and browser; the browser's wins. */}
-          <span suppressHydrationWarning className="rounded-full border border-border px-3 py-1 text-xs text-muted">
-            {initial.updatedAt
-              ? `Saved ${new Date(initial.updatedAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}`
-              : "Basic personality"}
-          </span>
-        </div>
-      </div>
+  const [level, setLevel] = useState<AgentDifficulty>("medium");
+  const savedAt = initial.updatedAt
+    ? `Saved ${new Date(initial.updatedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+    : "Built-in personality";
+  const textArea =
+    "mt-3 w-full resize-y rounded-xl border border-border bg-background px-3.5 py-3 text-sm leading-relaxed text-foreground outline-none transition placeholder:text-foreground/55 focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/15";
 
+  return (
+    <div className="grid gap-5">
       {TEXT_FIELDS.map((field) => (
         <section key={field.key} className="rounded-2xl border border-border bg-surface p-5">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="flex items-center gap-2 font-semibold tracking-tight">
               {field.label}
               <InfoTip text={field.hint} />
-              {values[field.key].trim() && (
-                <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">Custom</span>
-              )}
+              <SourceChip custom={values[field.key].trim().length > 0} />
             </h3>
-            <button
-              type="button"
-              onClick={() => setValue(field.key, field.placeholder)}
-              className="text-xs font-medium text-accent hover:underline"
-            >
-              Load the built-in text
-            </button>
+            <FieldAction
+              custom={values[field.key].trim().length > 0}
+              onEdit={() => setValue(field.key, field.placeholder)}
+              onReset={() => setValue(field.key, "")}
+            />
           </div>
           <textarea
             value={values[field.key]}
@@ -148,94 +136,124 @@ export function AgentBehaviourForm({ initial }: { initial: AgentPersonality }) {
             rows={field.rows}
             placeholder={field.placeholder}
             spellCheck={false}
-            className="mt-3 w-full resize-y rounded-xl border border-border bg-background px-3.5 py-3 font-mono text-[13px] leading-relaxed outline-none transition placeholder:text-muted/60 focus:border-accent focus:ring-2 focus:ring-accent/20"
+            aria-label={field.label}
+            className={textArea}
           />
         </section>
       ))}
 
       <section className="rounded-2xl border border-border bg-surface p-5">
-        <h3 className="font-semibold tracking-tight flex items-center gap-2">Interviewer style by difficulty<InfoTip text="The interview's difficulty picks one of these. Leave a box empty to keep the built-in style for that level, shown in grey." /></h3>
-        <div className="mt-4 grid gap-4">
-          {DIFFICULTIES.map((difficulty) => (
-            <div key={difficulty}>
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <label className="text-sm font-medium" htmlFor={`style-${difficulty}`}>
-                  {STYLE_LABELS[difficulty]}
-                </label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStyles((current) => ({
-                      ...current,
-                      [difficulty]: DEFAULT_STYLES[difficulty],
-                    }));
-                    setSaved(null);
-                  }}
-                  className="text-xs font-medium text-accent hover:underline"
-                >
-                  Load the built-in text
-                </button>
-              </div>
-              <textarea
-                id={`style-${difficulty}`}
-                value={styles[difficulty]}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setStyles((current) => ({ ...current, [difficulty]: value }));
-                  setSaved(null);
-                }}
-                rows={3}
-                placeholder={DEFAULT_STYLES[difficulty]}
-                spellCheck={false}
-                className="mt-2 w-full resize-y rounded-xl border border-border bg-background px-3.5 py-3 font-mono text-[13px] leading-relaxed outline-none transition placeholder:text-muted/60 focus:border-accent focus:ring-2 focus:ring-accent/20"
-              />
-            </div>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="flex items-center gap-2 font-semibold tracking-tight">
+            Style by difficulty
+            <InfoTip text="The interview's difficulty picks one of these. Leave a box empty to keep the built-in style for that level." />
+          </h3>
+          <div role="tablist" aria-label="Difficulty" className="inline-flex rounded-lg bg-foreground/[0.05] p-0.5">
+            {DIFFICULTIES.map((difficulty) => (
+              <button
+                key={difficulty}
+                type="button"
+                role="tab"
+                aria-selected={level === difficulty}
+                onClick={() => setLevel(difficulty)}
+                className={`relative rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                  level === difficulty ? "bg-surface text-foreground shadow-sm ring-1 ring-border" : "text-muted hover:text-foreground"
+                }`}
+              >
+                {STYLE_LABELS[difficulty]}
+                {styles[difficulty].trim() && <span aria-label="custom" className="absolute right-1 top-1 size-1.5 rounded-full bg-accent" />}
+              </button>
+            ))}
+          </div>
         </div>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <SourceChip custom={styles[level].trim().length > 0} />
+          <FieldAction
+            custom={styles[level].trim().length > 0}
+            onEdit={() => {
+              setStyles((current) => ({ ...current, [level]: DEFAULT_STYLES[level] }));
+              setSaved(null);
+            }}
+            onReset={() => {
+              setStyles((current) => ({ ...current, [level]: "" }));
+              setSaved(null);
+            }}
+          />
+        </div>
+        <textarea
+          id={`style-${level}`}
+          aria-label={`${STYLE_LABELS[level]} style`}
+          value={styles[level]}
+          onChange={(event) => {
+            const value = event.target.value;
+            setStyles((current) => ({ ...current, [level]: value }));
+            setSaved(null);
+          }}
+          rows={4}
+          placeholder={DEFAULT_STYLES[level]}
+          spellCheck={false}
+          className={textArea.replace("mt-3", "mt-2")}
+        />
       </section>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
-        >
-          {saving ? (
-            <Sparkles className="size-4 animate-pulse" aria-hidden />
-          ) : (
-            <Save className="size-4" aria-hidden />
-          )}
-          {saving ? "Saving…" : "Save behaviour"}
-        </button>
+      {error && (
+        <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      )}
+
+      {/* Always in reach on a long page. */}
+      <div className="sticky bottom-4 z-10 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-surface/95 px-4 py-3 shadow-lg shadow-black/[0.06] backdrop-blur">
+        {saved ? (
+          <span className="flex min-w-0 items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
+            <Check className="size-4 shrink-0" aria-hidden />
+            <span className="truncate">{saved}</span>
+          </span>
+        ) : (
+          <span suppressHydrationWarning className="text-sm text-muted">{savedAt}</span>
+        )}
+        <span className="grow" />
         <button
           type="button"
           onClick={restoreDefaults}
           disabled={saving}
-          className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-background disabled:opacity-60"
+          className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted transition hover:bg-foreground/[0.04] hover:text-foreground disabled:opacity-60"
         >
           <RotateCcw className="size-4" aria-hidden />
-          Restore basic personality
+          Restore built-in
         </button>
-        <Link
-          href="/dashboard/settings"
-          className="ml-auto text-sm font-medium text-muted transition hover:text-foreground"
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 disabled:opacity-60"
         >
-          Back to settings
-        </Link>
+          {saving ? <Sparkles className="size-4 animate-pulse" aria-hidden /> : <Save className="size-4" aria-hidden />}
+          {saving ? "Saving…" : "Save"}
+        </button>
       </div>
-
-      {saved && (
-        <p className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-600 dark:text-emerald-400">
-          <Check className="size-4" aria-hidden />
-          {saved}
-        </p>
-      )}
-      {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
     </div>
+  );
+}
+
+/** Whether a box holds your own text or shows the built-in one. */
+function SourceChip({ custom }: { custom: boolean }) {
+  return custom ? (
+    <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">Custom</span>
+  ) : (
+    <span className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[11px] font-medium text-muted">Built-in</span>
+  );
+}
+
+/** Built-in text: copy it into the box to change it. Your own text: go back to the built-in. */
+function FieldAction({ custom, onEdit, onReset }: { custom: boolean; onEdit: () => void; onReset: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={custom ? onReset : onEdit}
+      className="text-xs font-medium text-accent hover:underline"
+    >
+      {custom ? "Use the built-in text" : "Edit the built-in text"}
+    </button>
   );
 }

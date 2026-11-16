@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { TopNav } from "@/components/dashboard/TopNav";
-import { ThemeProvider } from "@/components/dashboard/theme";
 import { ActivityLog } from "@/components/settings/ActivityLog";
 import { AdminOnly, SettingsPageHeader } from "@/components/settings/SettingsPageHeader";
 import { OWNER_ID, isAdmin } from "@/lib/auth/accounts.logic";
@@ -19,15 +17,12 @@ export default async function ActivityPage() {
     ? [{ id: OWNER_ID, name: accountDisplayName() }, ...(await getAccountsRepository().listMembers()).map((m) => ({ id: m.id, name: m.name }))]
     : [];
   return (
-    <ThemeProvider>
-      <TopNav />
-      <main className="mx-auto w-full max-w-5xl px-4 pb-16 sm:px-6">
+    <>
         <SettingsPageHeader
           title="Activity"
           tip="Every change anyone made: sign-ins, roles, forms, invitations, interviews, decisions, settings and downloads, with the person, time and address."
         />
         {admin ? <ActivityLog people={people} /> : <AdminOnly />}
-      </main>
-    </ThemeProvider>
+    </>
   );
 }

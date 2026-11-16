@@ -107,10 +107,17 @@ export function ActivityLog({ people }: { people: Person[] }) {
     setNext(data.next);
   }
 
-  const rows = entries.map((entry, index) => {
+  // The same thing done several times in a row (sign-ins, mostly) is one line with a count.
+  const rows: { entry: Entry; day: string; showDay: boolean; count: number }[] = [];
+  for (const entry of entries) {
     const day = dayLabel(entry.at);
-    return { entry, day, showDay: index === 0 || dayLabel(entries[index - 1].at) !== day };
-  });
+    const last = rows.at(-1);
+    if (last && last.day === day && last.entry.actorName === entry.actorName && last.entry.summary === entry.summary && !targetHref(entry)) {
+      last.count += 1;
+      continue;
+    }
+    rows.push({ entry, day, showDay: !last || last.day !== day, count: 1 });
+  }
   return (
     <section className="rounded-2xl border border-border bg-surface">
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
@@ -138,14 +145,18 @@ export function ActivityLog({ people }: { people: Person[] }) {
 
       {entries.length > 0 && (
         <ol className="px-5 pb-2">
-          {rows.map(({ entry, day, showDay }) => {
+          {rows.map(({ entry, day, showDay, count }) => {
             const g = activityGroup(entry.action);
             const href = targetHref(entry);
             return (
               <li key={entry.id}>
                 {showDay && <p className="pb-2 pt-5 text-xs font-medium uppercase tracking-wider text-muted">{day}</p>}
-                <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-4 gap-y-1 border-t border-border py-3 sm:grid-cols-[4.5rem_10rem_minmax(0,1fr)_auto]">
-                  <time dateTime={entry.at} className="text-sm tabular-nums text-muted">
+                <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-4 gap-y-1 border-t border-border py-3 sm:grid-cols-[4.5rem_10rem_minmax(0,1fr)_4rem]">
+                  <time
+                    dateTime={entry.at}
+                    title={entry.ip && entry.ip !== "unknown" ? `From ${entry.ip}` : undefined}
+                    className="text-sm tabular-nums text-muted"
+                  >
                     {new Date(entry.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                   </time>
                   <p className="min-w-0 truncate text-sm font-medium" title={entry.actorEmail ?? undefined}>{entry.actorName}</p>
@@ -155,10 +166,10 @@ export function ActivityLog({ people }: { people: Person[] }) {
                         {ACTIVITY_GROUPS[g] ?? "Other"}
                       </span>
                       {entry.summary}
+                      {count > 1 && <span className="ml-1.5 text-xs font-medium tabular-nums text-muted">× {count}</span>}
                     </p>
                   </div>
                   <div className="col-span-2 flex items-center gap-3 text-xs text-muted sm:col-span-1 sm:justify-end">
-                    {entry.ip && entry.ip !== "unknown" && <span className="tabular-nums">{entry.ip}</span>}
                     {href && (
                       <Link href={href} className="inline-flex items-center gap-0.5 font-medium text-accent hover:underline">
                         Open <ArrowUpRight className="size-3" aria-hidden />

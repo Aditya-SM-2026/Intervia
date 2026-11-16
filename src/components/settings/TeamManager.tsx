@@ -102,7 +102,7 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
           )}
 
           {members.map((member) => (
-            <li key={member.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4">
+            <li key={member.id} className={`flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4 ${member.active ? "" : "bg-foreground/[0.015]"}`}>
               <span
                 className={`grid size-9 shrink-0 place-items-center rounded-full text-sm font-semibold ${
                   member.active ? "bg-foreground/[0.06]" : "bg-foreground/[0.03] text-muted"
@@ -112,7 +112,7 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
                 {member.name.charAt(0).toUpperCase()}
               </span>
               <div className="min-w-0 grow basis-56">
-                <p className={`font-medium ${member.active ? "" : "text-muted line-through decoration-1"}`}>{member.name}</p>
+                <p className={`font-medium ${member.active ? "" : "text-muted"}`}>{member.name}</p>
                 <p className="truncate text-sm text-muted">{member.email}</p>
               </div>
               <dl className="grid grid-cols-2 gap-x-6 text-sm">
@@ -141,10 +141,12 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
                   </>
                 ) : (
                   <>
-                    <button type="button" className={quietButton} onClick={() => setResetFor(member)} disabled={!member.active}>
-                      <KeyRound className="size-3.5" aria-hidden />
-                      Reset password
-                    </button>
+                    {member.active && (
+                      <button type="button" className={quietButton} onClick={() => setResetFor(member)}>
+                        <KeyRound className="size-3.5" aria-hidden />
+                        Reset password
+                      </button>
+                    )}
                     <button
                       type="button"
                       className={quietButton}
