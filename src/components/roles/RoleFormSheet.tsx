@@ -5,6 +5,7 @@ import type { RoleSummary } from "@/lib/roles/role.types";
 import { Sheet } from "@/components/ui/Sheet";
 import { DocumentText } from "@/components/ui/DocumentText";
 import { SegmentedTabs } from "@/components/ui/animated";
+import { DatePicker } from "@/components/ui/DatePicker";
 
 export const fieldClasses =
   "w-full rounded-xl border border-border bg-background/50 px-3.5 py-2.5 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/15";
@@ -118,18 +119,19 @@ function RoleForm({
             className={fieldClasses}
           />
         </label>
-        <label className="block text-sm">
+        <div className="block text-sm">
           <span className="mb-1.5 block font-medium">
             Deadline <span className="font-normal text-muted">(optional)</span>
           </span>
-          <input
+          <DatePicker
             name="deadline"
-            type="date"
+            aria-label="Deadline"
             value={deadline}
-            onChange={(event) => setDeadline(event.target.value)}
+            onChange={setDeadline}
+            placeholder="No deadline"
             className={fieldClasses}
           />
-        </label>
+        </div>
       </div>
 
       <div className="text-sm">

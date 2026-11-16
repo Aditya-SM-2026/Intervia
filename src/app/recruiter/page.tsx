@@ -49,7 +49,7 @@ export default async function RecruiterPage({ searchParams }: PageProps<"/recrui
     <ThemeProvider>
       <TopNav />
       <div aria-hidden className="bg-grid-fade pointer-events-none absolute inset-x-0 top-16 -z-10 h-[420px]" />
-      <main className="relative mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6">
+      <main className="relative mx-auto w-full max-w-7xl px-4 pb-24 sm:px-6">
         <header className="pb-7 pt-9">
           <h1 className="flex items-center gap-2 text-[28px] font-semibold leading-tight tracking-[-0.02em]">
             New interview

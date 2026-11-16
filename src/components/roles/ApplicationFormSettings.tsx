@@ -32,6 +32,8 @@ import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { Sheet } from "@/components/ui/Sheet";
 import { SegmentedTabs } from "@/components/ui/animated";
 import { Toast, type ToastMessage } from "@/components/ui/Toast";
+import { DatePicker } from "@/components/ui/DatePicker";
+import { InfoTip } from "@/components/ui/InfoTip";
 
 const inputClasses =
   "h-9 w-full rounded-lg border border-border bg-background/50 px-3 text-sm outline-none transition placeholder:text-muted focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/15";
@@ -706,10 +708,10 @@ export function ApplicationFormSettings({
             </div>
 
             <div>
-              <h3 className="text-sm font-semibold">Close the form automatically</h3>
-              <p className="mt-0.5 text-sm text-muted">
-                Whichever comes first. Leave a box empty for no limit. Closing times round to the hour.
-              </p>
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+                Close the form automatically
+                <InfoTip text="Whichever comes first. Leave a box empty for no limit. Closing times round to the hour." />
+              </h3>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label className="text-sm">
                   <span className="mb-1.5 block text-muted">After this many applications</span>
@@ -721,27 +723,35 @@ export function ApplicationFormSettings({
                     className={inputClasses}
                   />
                 </label>
-                <label className="text-sm">
-                  <span className="mb-1.5 flex items-center justify-between text-muted">
-                    On this date and time
-                    {closeAtInput && (
-                      <button
-                        type="button"
-                        onClick={() => setCloseAtInput("")}
-                        className="text-xs font-medium text-muted hover:text-foreground"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </span>
-                  <input
-                    type="datetime-local"
-                    value={closeAtInput}
-                    min={toLocalInput(new Date().toISOString())}
-                    onChange={(event) => setCloseAtInput(event.target.value)}
-                    className={`${inputClasses} ${closeAtInput ? "" : "text-muted"}`}
-                  />
-                </label>
+                <div className="text-sm">
+                  <span className="mb-1.5 block text-muted">On this date and time</span>
+                  <div className="grid grid-cols-[minmax(0,1fr)_6.5rem] gap-2">
+                    <DatePicker
+                      aria-label="Closing date"
+                      value={closeAtInput.slice(0, 10)}
+                      min={toLocalInput(new Date().toISOString()).slice(0, 10)}
+                      placeholder="No date"
+                      onChange={(date) => setCloseAtInput(date ? `${date}T${closeAtInput.slice(11, 16) || "18:00"}` : "")}
+                      className={inputClasses}
+                    />
+                    <select
+                      aria-label="Closing time"
+                      value={closeAtInput.slice(11, 16) || "18:00"}
+                      disabled={!closeAtInput}
+                      onChange={(event) => setCloseAtInput(`${closeAtInput.slice(0, 10)}T${event.target.value}`)}
+                      className={`${inputClasses} tabular-nums disabled:opacity-50`}
+                    >
+                      {Array.from({ length: 24 }, (_, hour) => {
+                        const value = `${String(hour).padStart(2, "0")}:00`;
+                        return (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </div>
               </div>
               {settingsError && (
                 <p role="alert" className="mt-3 text-sm text-rose-600 dark:text-rose-400">

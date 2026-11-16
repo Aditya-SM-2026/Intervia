@@ -1,5 +1,6 @@
 "use client";
 
+import { PdfPages } from "@/components/ui/PdfPages";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { EASE_OUT } from "@/components/ui/animated";
@@ -460,7 +461,7 @@ export function InterviewDetailView({
 
   if (!detail) {
     return (
-      <div className="mx-auto grid max-w-6xl gap-6 pt-6" aria-busy="true">
+      <div className="mx-auto grid max-w-7xl gap-6 pt-6" aria-busy="true">
         <div className="skeleton h-4 w-40 rounded" />
         <div className="flex items-center gap-4">
           <div className="skeleton size-14 rounded-full" />
@@ -529,8 +530,8 @@ export function InterviewDetailView({
   );
 
   return (
-    <div className="mx-auto flex max-w-[1500px] gap-6 xl:items-start">
-      <div className="mx-auto grid w-full min-w-0 max-w-6xl flex-1 grid-cols-[minmax(0,1fr)] gap-6">
+    <div className="mx-auto flex max-w-7xl gap-6 xl:items-start">
+      <div className="mx-auto grid w-full min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-6">
         {toastMessage && (
           <div
             role="status"
@@ -3133,11 +3134,9 @@ function ResumeModal({
 
         <div className="min-h-0 flex-1 bg-slate-100 dark:bg-background">
           {hasOriginal && isPdf ? (
-            <iframe
-              src={`${fileUrl}#toolbar=0&navpanes=0&view=FitH`}
-              title={`Resume of ${candidateName}`}
-              className="size-full border-0"
-            />
+            <div className="h-full overflow-y-auto p-3 sm:p-6">
+              <PdfPages url={fileUrl} title={`Resume of ${candidateName}`} />
+            </div>
           ) : (
             <div className="h-full overflow-y-auto p-4 sm:p-8">
               <div className="mx-auto max-w-2xl">

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, Mail, X } from "lucide-react";
+import { DatePicker } from "@/components/ui/DatePicker";
 
 interface BulkResult {
   email: string;
@@ -165,15 +166,16 @@ export function BulkScheduleDialog({
                   className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm outline-none focus:border-accent"
                 />
               </label>
-              <label className="text-sm">
+              <div className="text-sm">
                 <span className="mb-1 block font-medium">Date (optional)</span>
-                <input
-                  type="date"
+                <DatePicker
+                  aria-label="Date"
                   value={scheduledDate}
-                  onChange={(event) => setScheduledDate(event.target.value)}
+                  onChange={setScheduledDate}
+                  placeholder="Any day"
                   className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm outline-none focus:border-accent"
                 />
-              </label>
+              </div>
               <label className="text-sm">
                 <span className="mb-1 block font-medium">Time (optional)</span>
                 <input

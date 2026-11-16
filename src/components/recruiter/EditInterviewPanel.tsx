@@ -7,6 +7,7 @@ import { Check, Copy } from "lucide-react";
 import type { DifficultyLevel } from "@/lib/interviews/interview.types";
 import type { SkillFocus } from "@/lib/interviews/skill-focus";
 import { CreateInterviewForm, type CreateInterviewFormValues } from "./CreateInterviewForm";
+import { DatePicker } from "@/components/ui/DatePicker";
 
 interface InviteEmailStatus {
   status: "sent" | "failed" | "not_configured";
@@ -242,15 +243,16 @@ export function EditInterviewPanel({
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="grid gap-1.5 text-xs font-medium text-muted">
+          <div className="grid gap-1.5 text-xs font-medium text-muted">
             Date
-            <input
-              type="date"
+            <DatePicker
+              aria-label="Date"
               value={scheduledDate}
-              onChange={(event) => setScheduledDate(event.target.value)}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition focus:border-accent"
+              onChange={setScheduledDate}
+              placeholder="No date"
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm font-normal outline-none transition focus:border-accent"
             />
-          </label>
+          </div>
           <label className="grid gap-1.5 text-xs font-medium text-muted">
             Time
             <input
