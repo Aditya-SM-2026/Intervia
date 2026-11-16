@@ -167,7 +167,9 @@ export function CandidateDetailView({
 
       <Journey
         steps={[
-          { label: "Applied", done: Boolean(application), detail: application ? formatDateTime(application.createdAt) : "Invited directly" },
+          application
+            ? { label: "Applied", done: true, detail: formatDateTime(application.createdAt) }
+            : { label: "Invited", done: true, detail: "Directly, not through the form" },
           { label: "Resume checked", done: match !== null, detail: match !== null ? `Match ${match}` : "Not scored" },
           {
             label: "Interviewed",
@@ -251,7 +253,7 @@ export function CandidateDetailView({
             <div className="rounded-2xl border border-border bg-surface p-5">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                 <Fact label="How they came in" value="Invited directly" />
-                <Fact label="Email" value={candidate.candidateEmail} />
+                <Fact label="Resume" value={candidate.resume?.hasText ? "On file" : "Not uploaded"} />
               </dl>
             </div>
           )}
