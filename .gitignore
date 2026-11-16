@@ -57,3 +57,6 @@ video-analysis/.venv/
 # Python
 __pycache__/
 *.pyc
+
+# Local agent tool state
+.mux/

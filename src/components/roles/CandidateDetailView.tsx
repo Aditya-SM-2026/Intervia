@@ -1,5 +1,6 @@
 "use client";
 
+import { ScorePill } from "@/components/ui/ScorePill";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, ChevronRight, Download, FileText, Mail, Phone } from "lucide-react";
@@ -148,9 +149,9 @@ export function CandidateDetailView({
           </p>
         </div>
         {bestScore !== null && (
-          <div className="text-right">
-            <p className={`text-3xl font-semibold tabular-nums ${scoreTone(bestScore)}`}>{bestScore}<span className="text-base font-medium text-muted">/100</span></p>
-            <p className="text-xs text-muted">Best interview score</p>
+          <div className="flex items-center gap-2 text-sm text-muted">
+            Best interview
+            <ScorePill score={bestScore} size="lg" />
           </div>
         )}
         {candidate.resume?.hasText && (
@@ -164,33 +165,59 @@ export function CandidateDetailView({
         )}
       </section>
 
+      <Journey
+        steps={[
+          { label: "Applied", done: Boolean(application), detail: application ? formatDateTime(application.createdAt) : "Invited directly" },
+          { label: "Resume checked", done: match !== null, detail: match !== null ? `Match ${match}` : "Not scored" },
+          {
+            label: "Interviewed",
+            done: candidate.interviews.some((interview) => interview.status === "completed"),
+            detail: `${candidate.interviews.filter((interview) => interview.status === "completed").length} of ${candidate.interviews.length} finished`,
+          },
+          {
+            label: "Decided",
+            done: candidate.interviews.some((interview) => interview.decision),
+            detail: (() => {
+              const decided = candidate.interviews.find((interview) => interview.decision);
+              return decided?.decision ? DECISION_LABELS[decided.decision.outcome] : "Not yet";
+            })(),
+          },
+        ]}
+      />
+
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <section>
           <h2 className="mb-3 font-semibold tracking-tight">Interviews</h2>
           <ul className="grid gap-3">
             {candidate.interviews.map((interview: CandidateInterviewDetail) => (
-              <li key={interview.roomId} className="rounded-2xl border border-border bg-surface p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={interview.status} />
-                  {interview.needsHumanReview && (
-                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">Needs review</span>
-                  )}
-                  <span className="grow" />
-                  {interview.overallScore !== null && (
-                    <span className={`text-lg font-semibold tabular-nums ${scoreTone(interview.overallScore)}`}>{interview.overallScore}<span className="text-sm text-muted">/100</span></span>
-                  )}
-                </div>
-                <p className="mt-2 text-sm text-muted">
-                  {formatDateTime(interview.createdAt)}
-                  {interview.suggestion ? ` · ${SUGGESTION_LABELS[interview.suggestion]}` : ""}
-                  {interview.decision ? ` · ${DECISION_LABELS[interview.decision.outcome]}` : ""}
-                </p>
+              <li key={interview.roomId}>
                 <Link
                   href={`/dashboard/${interview.roomId}`}
-                  className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+                  className="group flex items-center gap-4 rounded-2xl border border-border bg-surface p-4 transition hover:border-foreground/20 hover:shadow-sm"
                 >
-                  {interview.status === "completed" ? "Open report" : "Open interview"}
-                  <ArrowUpRight className="size-3.5" aria-hidden />
+                  {interview.overallScore !== null ? (
+                    <ScorePill score={interview.overallScore} size="lg" />
+                  ) : (
+                    <StatusBadge status={interview.status} />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-2 font-medium">
+                      {interview.suggestion ? SUGGESTION_LABELS[interview.suggestion] : interview.status === "completed" ? "Report on the way" : "Interview"}
+                      {interview.decision && (
+                        <span className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-xs font-medium text-foreground/80">
+                          {DECISION_LABELS[interview.decision.outcome]}
+                        </span>
+                      )}
+                      {interview.needsHumanReview && (
+                        <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">Needs review</span>
+                      )}
+                    </p>
+                    <p className="mt-0.5 text-sm text-muted">{formatDateTime(interview.createdAt)}</p>
+                  </div>
+                  <span className="inline-flex items-center gap-1 text-sm font-medium text-accent">
+                    {interview.status === "completed" ? "Report" : "Open"}
+                    <ArrowUpRight className="size-3.5 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" aria-hidden />
+                  </span>
                 </Link>
               </li>
             ))}
@@ -221,13 +248,40 @@ export function CandidateDetailView({
               )}
             </div>
           ) : (
-            <p className="rounded-2xl border border-dashed border-border bg-surface p-5 text-sm text-muted">
-              Invited directly, not through the application form.
-            </p>
+            <div className="rounded-2xl border border-border bg-surface p-5">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                <Fact label="How they came in" value="Invited directly" />
+                <Fact label="Email" value={candidate.candidateEmail} />
+              </dl>
+            </div>
           )}
         </section>
       </div>
     </div>
+  );
+}
+
+/** Where the candidate is: four steps from applying to a decision. */
+function Journey({ steps }: { steps: { label: string; done: boolean; detail: string }[] }) {
+  return (
+    <ol className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-4">
+      {steps.map((step, index) => (
+        <li key={step.label} className="flex items-start gap-3 bg-surface px-4 py-3.5">
+          <span
+            className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${
+              step.done ? "bg-emerald-500 text-white" : "bg-foreground/[0.07] text-muted"
+            }`}
+            aria-hidden
+          >
+            {step.done ? "✓" : index + 1}
+          </span>
+          <span className="min-w-0">
+            <span className={`block text-sm font-medium ${step.done ? "" : "text-muted"}`}>{step.label}</span>
+            <span className="block truncate text-xs text-muted">{step.detail}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
