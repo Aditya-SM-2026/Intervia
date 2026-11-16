@@ -97,11 +97,17 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     latest.current = term;
     if (term.length < 2) return;
     const timer = setTimeout(async () => {
-      const q = encodeURIComponent(term);
-      const [interviews, roles] = await Promise.all([
-        fetch(`/api/dashboard/interviews?q=${q}&limit=6`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        fetch(`/api/roles?q=${q}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      ]);
+      // The list search matches whole words; while a word is half typed, fall back to the finished ones.
+      const lookUp = (text: string) =>
+        Promise.all([
+          fetch(`/api/dashboard/interviews?q=${encodeURIComponent(text)}&limit=6`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+          fetch(`/api/roles?q=${encodeURIComponent(text)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        ]);
+      let [interviews, roles] = await lookUp(term);
+      const finished = term.split(/\s+/).slice(0, -1).join(" ");
+      if (!interviews?.interviews?.length && !roles?.roles?.length && finished.length >= 2) {
+        [interviews, roles] = await lookUp(finished);
+      }
       if (latest.current !== term) return;
       const roleCommands: Command[] = ((roles?.roles ?? []) as { id: string; title: string; status: string }[]).slice(0, 5).map((role) => ({
         id: `role-${role.id}`,

@@ -36,7 +36,6 @@ import {
   AlertCircle,
   AlertTriangle,
   AppWindow,
-  Briefcase,
   Calendar,
   Check,
   CheckCircle2,
@@ -67,6 +66,9 @@ import {
   ShieldCheck,
   ShieldQuestion,
   VideoOff,
+  CircleArrowRight,
+  CirclePause,
+  CircleX,
   SlidersHorizontal,
   Sparkles,
   Trophy,
@@ -85,10 +87,10 @@ import type { LucideIcon } from "lucide-react";
 
 type Tone = "good" | "warn" | "bad" | "muted";
 
-const DECISION_OPTIONS: { value: HumanDecision["outcome"]; label: string }[] = [
-  { value: "advance", label: "Advance" },
-  { value: "hold", label: "Hold" },
-  { value: "reject", label: "Reject" },
+const DECISION_OPTIONS: { value: HumanDecision["outcome"]; label: string; icon: LucideIcon; tint: string }[] = [
+  { value: "advance", label: "Advance", icon: CircleArrowRight, tint: "text-emerald-600 dark:text-emerald-400" },
+  { value: "hold", label: "Hold", icon: CirclePause, tint: "text-amber-600 dark:text-amber-400" },
+  { value: "reject", label: "Reject", icon: CircleX, tint: "text-rose-600 dark:text-rose-400" },
 ];
 
 const DECISION_LABELS = { advance: "Advanced", hold: "On hold", reject: "Rejected" } as const;
@@ -784,10 +786,7 @@ function CandidateHeader({
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
               {session.candidateEmail && <span>{session.candidateEmail}</span>}
-              <span className="inline-flex items-center gap-1.5">
-                <Briefcase className="size-3.5" aria-hidden />
-                {session.roleTitle || session.title}
-              </span>
+              {/* The role is in the breadcrumb above; repeating it here pushed the meta onto two lines. */}
               {when && (
                 <span className="inline-flex items-center gap-1.5">
                   <Calendar className="size-3.5" aria-hidden />
@@ -1083,8 +1082,8 @@ function TakeawayItem({ text, mark, icon: Icon }: { text: string; mark: string; 
     <>
       <Icon className={`mt-[3px] size-4 shrink-0 ${mark}`} aria-hidden />
       <span className="min-w-0 flex-1">
-        <span className="block font-medium text-foreground">{head}</span>
-        {open && <span className="mt-1 block font-normal leading-6 text-foreground/70">{full}</span>}
+        {/* Opening shows the whole sentence in place of the short one, not both. */}
+        <span className={`block text-foreground ${open ? "font-normal" : "font-medium"}`}>{open ? full : head}</span>
       </span>
       {more && (
         <ChevronDown className={`mt-[3px] size-4 shrink-0 text-muted transition ${open ? "rotate-180" : ""}`} aria-hidden />
@@ -2651,8 +2650,13 @@ function RecordingPanel({
         >
           <div className="flex items-center justify-between gap-2 border-b border-border px-3.5 py-2.5 dark:border-border">
             <div className="flex min-w-0 items-center gap-2">
-              <ScrollText className="size-3.5 shrink-0 text-muted" />
-              <span className="text-sm font-semibold text-foreground">Transcript</span>
+              {/* Without a recording the card itself is titled Transcript. */}
+              {hasRecording && (
+                <>
+                  <ScrollText className="size-3.5 shrink-0 text-muted" />
+                  <span className="text-sm font-semibold text-foreground">Transcript</span>
+                </>
+              )}
               {playing && active ? (
                 <span className="inline-flex min-w-0 items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                   <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" />
@@ -2936,11 +2940,11 @@ function CommentsDecisionSection({
               type="button"
               aria-pressed={selected}
               onClick={() => setOutcome(selected ? null : option.value)}
-              className={`flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-medium transition ${
-                selected ? selectedClasses : "border-border text-foreground/80 hover:border-foreground/20 hover:bg-foreground/[0.03]"
+              className={`flex h-12 items-center justify-center gap-2 rounded-xl border text-sm font-semibold transition active:scale-[0.99] ${
+                selected ? `${selectedClasses} ring-4 ring-current/10` : "border-border bg-surface text-foreground hover:border-foreground/25 hover:bg-foreground/[0.03]"
               }`}
             >
-              {selected && <Check className="size-4 stroke-[2.5]" aria-hidden />}
+              <option.icon className={`size-[18px] ${selected ? "" : option.tint}`} aria-hidden />
               <span>{option.label}</span>
             </button>
           );

@@ -41,7 +41,7 @@ export function BrandMark({
     <span className="inline-flex items-center gap-2.5" aria-label="Medhas Academy">
       <BrandEmblem className={size === "sm" ? "size-7" : "size-9"} onDark={onDark} />
       <span className="flex flex-col leading-none">
-        <span className={`font-semibold tracking-tight ${onDark ? "text-white" : "text-foreground"} ${size === "sm" ? "text-[13px]" : "text-[15px]"}`}>
+        <span className={`whitespace-nowrap font-semibold tracking-tight ${onDark ? "text-white" : "text-foreground"} ${size === "sm" ? "text-[13px]" : "text-[15px]"}`}>
           Medhas Academy
         </span>
         <span className={`mt-0.5 text-[11px] ${onDark ? "text-white/60" : "text-muted"}`}>Interviews</span>
