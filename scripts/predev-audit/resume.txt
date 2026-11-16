@@ -1,0 +1,11 @@
+Ravi Kumar - Backend Developer (test persona, safe to delete)
+Hyderabad | ravi.test@example.com
+Experience: 3 years
+Backend Developer, PayLite Fintech (2023 - now)
+- Built the payment reconciliation service in Python (Django, Celery) that matches bank settlement files to orders; cut manual reconciliation from 6 hours to 20 minutes a day.
+- Designed REST APIs for merchant refunds used by 1,200 merchants; added idempotency keys after duplicate refunds.
+- Tuned PostgreSQL queries for the reporting dashboard: added composite indexes and moved a heavy report to a materialized view, p95 from 4.2 s to 380 ms.
+Junior Developer, CodeNest (2022 - 2023)
+- Wrote internal tools in Flask, unit tests with pytest, Docker images for CI.
+Skills: Python, Django, Flask, PostgreSQL, Redis, Celery, REST APIs, Docker, Git, pytest
+Education: B.Tech Computer Science, JNTU Hyderabad, 2022, CGPA 8.1

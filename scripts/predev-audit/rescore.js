@@ -1,0 +1,13 @@
+const { BASE, browser, signedInContext } = require("./lib");
+(async () => { const b = await browser(); const ctx = await signedInContext(b); const id = process.argv[2];
+  const g = async () => (await ctx.request.get(`${BASE}/api/dashboard/interviews/${id}`)).json();
+  const before = await g(); console.log("keys:", Object.keys(before).join(","));
+  const sc = before.scorecard || before.report; console.log("scorecard keys:", sc && Object.keys(sc).join(","));
+  const t0 = Date.now(); const r = await ctx.request.post(`${BASE}/api/dashboard/interviews/${id}/regenerate`, { timeout: 300000 });
+  const after = await r.json(); const sa = after.scorecard || after.report;
+  console.log("status", r.status(), ((Date.now()-t0)/1000).toFixed(0)+"s");
+  for (const k of ["generatedAt","createdAt","updatedAt","model"]) console.log(k, sc?.[k], "->", sa?.[k]);
+  console.log("overall", JSON.stringify(sc?.overall?.score), "->", JSON.stringify(sa?.overall?.score));
+  const act = await (await ctx.request.get(`${BASE}/api/activity?limit=3`)).json().catch(()=>null);
+  console.log("activity:", JSON.stringify(act).slice(0, 400));
+  await b.close(); })();

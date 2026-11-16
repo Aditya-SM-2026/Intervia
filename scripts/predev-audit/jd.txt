@@ -1,0 +1,11 @@
+About the role
+Backend Developer for our payments platform. You will build and run the services that move money for merchants.
+
+Responsibilities
+- Build REST APIs and background jobs in Python
+- Design PostgreSQL schemas and keep queries fast
+- Make payment flows safe to retry (idempotency, reconciliation)
+- Write tests and help with on-call
+
+Location: Hyderabad
+Experience: 2 to 4 years

@@ -1,0 +1,14 @@
+const { BASE, browser, signedInContext } = require("./lib");
+(async () => { const b = await browser(); const ctx = await signedInContext(b); const page = await ctx.newPage(); const id = process.argv[2];
+  const errors = []; page.on("pageerror", e => errors.push(e.message));
+  await page.goto(`${BASE}/dashboard/${id}`, { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /Ask AI/ }).first().click();
+  const box = page.locator("textarea").last();
+  await box.fill("Did the candidate explain how they prevent duplicate charges? Quote them.");
+  const t0 = Date.now();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await page.waitForTimeout(30000);
+  const panel = await page.locator("aside, [role=dialog]").last().innerText().catch(() => "");
+  console.log(((Date.now()-t0)/1000)+"s panel:", panel.replace(/\s+/g, " ").slice(0, 1500));
+  await page.screenshot({ path: `${__dirname}/actions-askai.png` });
+  console.log("page errors:", errors); await b.close(); })();
