@@ -10,28 +10,15 @@ import { TrendingDown, TrendingUp } from "lucide-react";
  * nothing here invents a number.
  */
 
-const AVATAR_TINTS = [
-  "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300",
-  "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
-  "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
-  "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300",
-  "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
-  "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300",
-];
-
-function tintFor(name: string): string {
-  let hash = 0;
-  for (let index = 0; index < name.length; index++) hash = (hash * 31 + name.charCodeAt(index)) | 0;
-  return AVATAR_TINTS[Math.abs(hash) % AVATAR_TINTS.length];
-}
-
 export function Avatar({ name, className }: { name: string | null; className?: string }) {
   const label = (name ?? "?").trim();
-  const initial = label.charAt(0).toUpperCase() || "?";
+  // Two initials in one calm tone: random colours told nobody apart and added noise.
+  const words = label.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean);
+  const initial = ((words[0]?.charAt(0) ?? "?") + (words.length > 1 ? words[words.length - 1].charAt(0) : "")).toUpperCase();
   return (
     <span
       aria-hidden
-      className={`grid shrink-0 place-items-center rounded-full text-sm font-semibold ring-1 ring-inset ring-black/5 dark:ring-white/10 ${tintFor(label)} ${className ?? "size-10"}`}
+      className={`grid shrink-0 place-items-center rounded-full bg-foreground/[0.06] font-semibold tracking-tight text-foreground/65 ring-1 ring-inset ring-foreground/[0.06] ${className ?? "size-10 text-sm"}`}
     >
       {initial}
     </span>

@@ -1,5 +1,6 @@
 "use client";
 
+import { ScorePill } from "@/components/ui/ScorePill";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -1101,9 +1102,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                               <span className="block truncate font-medium">{candidate.candidateName ?? "Unnamed candidate"}</span>
                               <span className="block truncate text-xs text-muted">{candidate.candidateEmail}</span>
                             </span>
-                            {score !== null && (
-                              <span className={`shrink-0 text-lg font-semibold tabular-nums ${scoreTone(score).text}`}>{score}</span>
-                            )}
+                            {score !== null && <ScorePill score={score} className="shrink-0" />}
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                             <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${CANDIDATE_STATUS_STYLES[candidate.status]}`}>
@@ -1201,9 +1200,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                               {candidate.screeningScore === null || candidate.screeningScore === undefined ? (
                                 <span className="text-muted">—</span>
                               ) : (
-                                <span className={`inline-flex min-w-9 justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${scoreTone(candidate.screeningScore).text} bg-foreground/[0.04]`}>
-                                  {Math.round(candidate.screeningScore)}
-                                </span>
+                                <ScorePill score={Math.round(candidate.screeningScore)} />
                               )}
                             </td>}
                             {showEducation && <td className="px-3 py-3">
@@ -1219,12 +1216,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
                               {score === null ? (
                                 <span className="text-muted">—</span>
                               ) : (
-                                <div className="flex items-center gap-2.5">
-                                  <span className={`w-7 text-[15px] font-semibold tabular-nums ${scoreTone(score).text}`}>{score}</span>
-                                  <span className="h-1.5 w-16 overflow-hidden rounded-full bg-foreground/[0.07]">
-                                    <span className={`block h-full rounded-full ${scoreTone(score).bar}`} style={{ width: `${score}%` }} />
-                                  </span>
-                                </div>
+                                <ScorePill score={score} />
                               )}
                             </td>
                             <td className="px-3 py-3 tabular-nums">
@@ -1393,7 +1385,7 @@ export function RoleDetailView({ roleId }: { roleId: string }) {
             <button
               type="button"
               onClick={() => setBulkScheduleOpen(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-3 text-sm font-medium text-background transition hover:opacity-90"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3 text-sm font-medium text-white transition hover:bg-accent/90"
             >
               <CalendarPlus className="size-3.5" aria-hidden />
               Schedule interviews

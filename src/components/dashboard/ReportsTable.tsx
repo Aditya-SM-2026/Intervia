@@ -2,11 +2,10 @@
 // Reports table: shows the 0-100 overall score; thin-transcript reports carry a cost-savings note.
 
 import { useEffect, useRef } from "react";
-import { motion, useReducedMotion } from "motion/react";
 import { ArrowDown, ArrowUp, ArrowUpRight, Download, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import type { DashboardInterviewSummary } from "@/lib/dashboard/dashboard.types";
 import type { InterviewStatus } from "@/lib/interviews/interview.types";
-import { EASE_OUT } from "@/components/ui/animated";
+import { ScorePill } from "@/components/ui/ScorePill";
 import { Avatar, StatusBadge } from "./primitives";
 import { Menu } from "./menu";
 
@@ -60,12 +59,6 @@ function scoreOf(summary: DashboardInterviewSummary): number | null {
   const card = summary.scorecard;
   if (!card) return null;
   return card.overall?.score ?? (card.overallScore !== null ? Math.round((card.overallScore / 5) * 100) : null);
-}
-
-function scoreTone(score: number): { bar: string; text: string } {
-  if (score >= 70) return { bar: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400" };
-  if (score >= 50) return { bar: "bg-amber-500", text: "text-amber-700 dark:text-amber-400" };
-  return { bar: "bg-rose-500", text: "text-rose-700 dark:text-rose-400" };
 }
 
 interface ReportsTableProps {
@@ -145,8 +138,7 @@ export function ReportsTable({
                 {sortDir === "asc" ? <ArrowUp className="size-3" aria-hidden /> : <ArrowDown className="size-3" aria-hidden />}
               </button>
             </th>
-            <th scope="col" className={TH}>Status</th>
-            <th scope="col" className={`${TH} w-44`}>Score</th>
+            <th scope="col" className={`${TH} w-52`}>Result</th>
             <th scope="col" className="w-24 py-3 pr-5"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
@@ -226,7 +218,6 @@ function MobileRow({
         </span>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pl-[4.25rem]">
-        <StatusBadge status={room.status as InterviewStatus} />
         <ScoreCell summary={summary} />
         <p className="w-full text-xs text-muted">
           {relativeDay(room.createdAt)}, {formatTime(room.createdAt)}
@@ -248,9 +239,8 @@ function Row({
   onToggle: () => void;
   onAction: ReportsTableProps["onAction"];
 }) {
-  const { room, scorecard } = summary;
+  const { room } = summary;
   const name = room.candidateName ?? "Unnamed candidate";
-  const status = room.status as InterviewStatus;
   const open = () => onAction("view", room.id);
 
   return (
@@ -281,9 +271,6 @@ function Row({
         </p>
       </td>
       <td className="px-4 py-3.5">
-        <StatusBadge status={status} />
-      </td>
-      <td className="px-4 py-3.5">
         <ScoreCell summary={summary} />
       </td>
       <td className="py-3.5 pr-5" onClick={(event) => event.stopPropagation()}>
@@ -308,33 +295,38 @@ function Row({
   );
 }
 
+const VERDICT_LABELS: Record<string, string> = {
+  strong: "Strong",
+  positive: "Positive",
+  mixed: "Mixed",
+  weak: "Weak",
+  insufficient: "Not enough to judge",
+};
+
+/**
+ * One cell for where an interview stands: the score and verdict once there is
+ * a report, the report's progress after the call, the session status before it.
+ */
 function ScoreCell({ summary }: { summary: DashboardInterviewSummary }) {
-  const reduce = useReducedMotion();
   const score = scoreOf(summary);
   const cell = reportCell(summary);
+  const status = summary.room.status as InterviewStatus;
 
   if (score !== null) {
-    const tone = scoreTone(score);
+    const verdict = summary.scorecard?.suggestion ? VERDICT_LABELS[summary.scorecard.suggestion] : null;
     return (
-      <div className="flex items-center gap-3">
-        <span className={`w-7 text-sm font-semibold ${tone.text}`}>{score}</span>
-        <span className="h-1.5 w-20 overflow-hidden rounded-full bg-foreground/[0.07]">
-          <motion.span
-            className={`block h-full rounded-full ${tone.bar}`}
-            initial={reduce ? false : { width: 0 }}
-            animate={{ width: `${score}%` }}
-            transition={{ duration: 0.8, ease: EASE_OUT, delay: 0.15 }}
-          />
-        </span>
-      </div>
+      <span className="inline-flex items-center gap-2.5">
+        <ScorePill score={score} />
+        {verdict && <span className="text-sm text-muted">{verdict}</span>}
+      </span>
     );
   }
   if (cell.state === "ready") return <span className="text-sm text-muted">Report ready</span>;
-  if (cell.state === "processing") return <span className="text-shimmer text-sm font-medium">{summary.room.status === "completed" ? "Writing report" : cell.detail}</span>;
-  if (summary.room.status === "completed") {
+  if (cell.state === "processing") return <span className="text-shimmer text-sm font-medium">{status === "completed" ? "Writing report" : cell.detail}</span>;
+  if (status === "completed") {
     return <span className="text-sm text-muted" title={summary.room.outcome?.noReportReason}>{cell.detail}</span>;
   }
-  return <span className="text-muted">—</span>;
+  return <StatusBadge status={status} />;
 }
 
 const Checkbox = function Checkbox({
@@ -375,8 +367,7 @@ function SkeletonRow() {
       </td>
       <td className="px-4 py-4"><div className="skeleton h-3.5 w-32 rounded" /></td>
       <td className="px-4 py-4"><div className="skeleton h-3.5 w-20 rounded" /></td>
-      <td className="px-4 py-4"><div className="skeleton h-6 w-24 rounded-full" /></td>
-      <td className="px-4 py-4"><div className="skeleton h-3.5 w-28 rounded" /></td>
+      <td className="px-4 py-4"><div className="skeleton h-6 w-28 rounded-md" /></td>
       <td className="py-4 pr-5"><div className="skeleton ml-auto size-8 rounded-lg" /></td>
     </tr>
   );

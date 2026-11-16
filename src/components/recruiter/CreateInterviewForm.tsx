@@ -475,8 +475,8 @@ export function CreateInterviewForm({
                   aria-pressed={projectShare === option.value}
                   className={`rounded-lg px-2.5 py-2 text-left text-xs transition ${
                     projectShare === option.value
-                      ? "bg-foreground text-background"
-                      : "bg-foreground/[0.05] text-foreground/75 hover:bg-foreground/[0.09] hover:text-foreground"
+                      ? "bg-accent/10 text-accent ring-1 ring-inset ring-accent/60"
+                      : "bg-surface text-foreground/80 ring-1 ring-inset ring-border hover:ring-foreground/25 hover:text-foreground"
                   }`}
                 >
                   <span className="block text-sm font-medium">{option.label}</span>
@@ -490,14 +490,14 @@ export function CreateInterviewForm({
         <Step number={4} title="How it runs">
           <div>
             <div className="flex items-baseline justify-between gap-3">
-              <label htmlFor="duration" className="text-sm font-medium">
+              <span id="duration-label" className="text-sm font-medium">
                 Length
-              </label>
-              <output htmlFor="duration" className="text-sm font-semibold tabular-nums">
+              </span>
+              <output className="text-sm font-semibold tabular-nums">
                 {durationMinutes} min
               </output>
             </div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div role="group" aria-labelledby="duration-label" className="mt-2 flex flex-wrap gap-1.5">
               {DURATION_PRESETS.map((minutes) => (
                 <button
                   key={minutes}
@@ -506,25 +506,14 @@ export function CreateInterviewForm({
                   aria-pressed={durationMinutes === minutes}
                   className={`h-8 rounded-lg px-3 text-sm font-medium tabular-nums transition ${
                     durationMinutes === minutes
-                      ? "bg-foreground text-background"
-                      : "bg-foreground/[0.05] text-foreground/75 hover:bg-foreground/[0.09] hover:text-foreground"
+                      ? "bg-accent/10 text-accent ring-1 ring-inset ring-accent/60"
+                      : "bg-surface text-foreground/80 ring-1 ring-inset ring-border hover:ring-foreground/25 hover:text-foreground"
                   }`}
                 >
                   {minutes}
                 </button>
               ))}
             </div>
-            <input
-              id="duration"
-              type="range"
-              min={MIN_DURATION_MINUTES}
-              max={MAX_DURATION_MINUTES}
-              step={1}
-              value={durationMinutes}
-              onChange={(event) => setDurationMinutes(Number(event.target.value))}
-              aria-label="Length in minutes"
-              className="mt-3 w-full accent-[var(--accent)]"
-            />
           </div>
 
           <fieldset className="mt-6">

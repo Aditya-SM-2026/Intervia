@@ -206,7 +206,7 @@ export function BulkScheduleDialog({
                 type="button"
                 onClick={() => void schedule()}
                 disabled={running}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-3.5 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3.5 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 disabled:opacity-50"
               >
                 {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Mail className="size-4" aria-hidden />}
                 {running
@@ -263,7 +263,7 @@ export function BulkScheduleDialog({
               <button
                 type="button"
                 onClick={onClose}
-                className="h-9 rounded-lg bg-foreground px-3.5 text-sm font-medium text-background transition hover:opacity-90"
+                className="h-9 rounded-lg bg-accent px-3.5 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90"
               >
                 Done
               </button>

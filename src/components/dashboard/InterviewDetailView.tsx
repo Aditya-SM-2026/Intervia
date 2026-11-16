@@ -1622,7 +1622,7 @@ function ResumeTable({
                   aria-selected={active}
                   onClick={() => setOpen(active ? null : group.id)}
                   className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm transition ${
-                    active ? "border-foreground bg-foreground text-background" : "border-border hover:border-foreground/25"
+                    active ? "border-accent/60 bg-accent/10 text-accent" : "border-border hover:border-foreground/25"
                   }`}
                 >
                   <span className={`size-2 rounded-full ${group.bar}`} aria-hidden />

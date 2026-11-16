@@ -85,6 +85,33 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visib
   outline: none;
 }
 
+/*
+ * Every dropdown looks the same: the browser's own arrow is replaced by one
+ * chevron, and the field keeps its native picker (best on phones). Selects
+ * that draw their own chevron opt out with the appearance-none class.
+ */
+select:not([multiple]):not([size]):not(.appearance-none) {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a93a6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 14px 14px;
+  padding-right: 2rem;
+  cursor: pointer;
+}
+
+/* Date fields match the text fields: the calendar icon is muted, not a black glyph. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  opacity: 0.45;
+  cursor: pointer;
+}
+.dark input[type="date"]::-webkit-calendar-picker-indicator,
+.dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
 /* Dialogs and panels take focus programmatically when they open; that is not a keyboard target to outline. */
 [role="dialog"][tabindex="-1"]:focus-visible,
 [role="alertdialog"][tabindex="-1"]:focus-visible {

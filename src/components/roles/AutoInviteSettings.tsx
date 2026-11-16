@@ -284,7 +284,7 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
             type="button"
             onClick={() => setOpen((value) => !value)}
             aria-expanded={open}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-foreground px-3 text-sm font-medium text-background transition hover:opacity-90"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-surface px-3 text-sm font-medium text-foreground transition hover:bg-foreground/[0.04]"
           >
             Set up
             <ChevronDown className={`size-4 transition ${open ? "rotate-180" : ""}`} aria-hidden />
@@ -400,7 +400,7 @@ export function AutoInviteSettings({ roleId }: { roleId: string }) {
               type="button"
               onClick={saveNumbers}
               disabled={saving}
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-foreground px-3.5 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-40"
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3.5 text-sm font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 disabled:opacity-40"
             >
               {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
               Save

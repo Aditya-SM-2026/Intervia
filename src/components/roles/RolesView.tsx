@@ -310,7 +310,7 @@ function RoleCard({
             <Link
               href={inviteHref}
               title="Send an interview for this role"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-2.5 text-xs font-medium text-background transition hover:bg-foreground/85"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 text-xs font-medium text-foreground transition hover:bg-foreground/[0.04]"
             >
               <UserPlus className="size-3.5" aria-hidden />
               Invite
