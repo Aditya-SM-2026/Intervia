@@ -448,7 +448,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS role_applications_role_email_idx
 CREATE INDEX IF NOT EXISTS role_applications_role_created_idx
   ON role_applications (role_id, created_at DESC);
 ALTER TABLE roles ADD COLUMN IF NOT EXISTS screening_enabled BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE roles ALTER COLUMN screening_enabled SET DEFAULT FALSE;
+ALTER TABLE roles ALTER COLUMN screening_enabled SET DEFAULT TRUE;
 ALTER TABLE roles ADD COLUMN IF NOT EXISTS screening_weights JSONB;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_status TEXT;
 ALTER TABLE role_applications ADD COLUMN IF NOT EXISTS screening_score INT;
@@ -2052,7 +2052,7 @@ export function getInMemoryRolesRepository(): RoleRepository {
         skills: [...input.skills],
         deadline: input.deadline,
         status: "open",
-        screeningEnabled: false,
+        screeningEnabled: true,
         screeningWeights: { ...DEFAULT_SCREENING_WEIGHTS },
         autoInvite: sanitizeAutoInviteSettings(undefined),
         createdAt: now,

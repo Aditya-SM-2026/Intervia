@@ -270,7 +270,7 @@ export function ScreeningSettings({
             className="inline-flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium transition hover:bg-foreground/[0.03] disabled:opacity-50"
           >
             {running ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Wand2 className="size-4" aria-hidden />}
-            Score Generator
+            Resume Analyzer
           </button>
           <button
             type="button"

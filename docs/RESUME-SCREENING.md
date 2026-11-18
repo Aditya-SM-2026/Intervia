@@ -5,8 +5,8 @@ Every application to a role can be scored against that role, in five separate pa
 ## 1. What the recruiter sees
 
 - A **Resume screening** card on the role page, under the application form bar.
-  - **Score Generator**: scores applications collected before screening was switched on, in batches of 10, after telling you how many there are and the rough bill.
-  - **Weights**: the five section weights, three ready-made presets, and an on/off switch for new applications. The switch is **off** for every new role; turn it on when you want applications scored as they arrive.
+  - **Resume Analyzer**: scores applications collected before screening was switched on, in batches of 10, after telling you how many there are and the rough bill.
+  - **Weights**: the five section weights, three ready-made presets, and an on/off switch for new applications. The switch is **on** for every new role; turn it off if you would rather score by hand.
 - A **Match** column in the candidate table, between Stage and Score. It is the resume total, 0-100. Interview score stays in its own Score column: one is what the resume claims, the other is what the interview showed.
 - Opening a candidate row shows **Resume screening** in the review sheet: the total, "scored on N of M sections", a short summary, the skills found and not found by name, each section with its score, one-line reason and the quoted lines from the resume, plus **Score again**.
 
@@ -77,7 +77,7 @@ Added automatically on the first request, no manual migration:
 
 Replacing a resume clears that application's screening so the new file is read next time.
 
-Candidates who never filled the form (invited straight to an interview) are scored from the resume uploaded for the interview, stored in `role_candidate_screenings` keyed by role and lowercased email. The **Score Generator** picks them up with the applications, and their Match score appears in the same column.
+Candidates who never filled the form (invited straight to an interview) are scored from the resume uploaded for the interview, stored in `role_candidate_screenings` keyed by role and lowercased email. The **Resume Analyzer** picks them up with the applications, and their Match score appears in the same column.
 
 The application form now captures **Education qualification** (a dropdown, so values stay filterable) and **CGPA or percentage**. Both are shown in one Education column beside Match, and the candidate toolbar has a minimum CGPA filter. Neither field is required, so an applicant without a CGPA is not blocked.
 
