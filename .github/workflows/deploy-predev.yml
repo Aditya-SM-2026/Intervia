@@ -1,12 +1,12 @@
 name: Build & Deploy (predev)
 
-# The predev stack: same code as feature/roles-candidates, its own Cloud Run
+# The predev stack: same code as dev, its own Cloud Run
 # services, database, bucket, queue and LiveKit agent name. Nothing here touches
 # production tags (:latest) or restarts the production agent container.
 
 on:
   push:
-    branches: [features/predev]
+    branches: [predev]
   workflow_dispatch:
 
 concurrency:

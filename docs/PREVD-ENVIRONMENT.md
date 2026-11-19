@@ -1,7 +1,7 @@
 # predev environment
 
 Isolated stack for new-feature work, built 3 Nov 2026 in `siva-nikhil`. It runs
-the same code as `feature/roles-candidates`, with no machine of its own that
+the same code as `dev`, with no machine of its own that
 stays on: the website, each interview and each video run on Cloud Run only while
 needed. It has its own database and its own recordings bucket. The data in them is a **copy of
 production taken on 3 Nov 2026**, so predev looks like the real app without
@@ -9,7 +9,7 @@ anything it does reaching production.
 
 | | |
 |---|---|
-| Branch | `features/predev` (from `feature/roles-candidates`) |
+| Branch | `predev` (from `dev`) |
 | Web | https://intervia-predev-web-199504026920.asia-south1.run.app |
 | Video worker | `intervia-predev-video-worker` (private) |
 | Interviewer | Cloud Run job `intervia-predev-agent`, one execution per interview |
@@ -72,7 +72,7 @@ invitation or reminder mail leaves the app.
 
 ## Deploy
 
-Pushing to `features/predev` runs `.github/workflows/deploy-predev.yml`, which
+Pushing to `predev` runs `.github/workflows/deploy-predev.yml`, which
 builds only the images whose paths changed and deploys only predev services.
 The agent step updates the `intervia-predev-agent` job. An interview already
 running keeps the image it started with, so a deploy never interrupts one.
@@ -101,10 +101,10 @@ had been added there earlier.
 
 ## Merging back
 
-`features/predev` is meant to be merged into `feature/roles-candidates` when the
+`predev` is meant to be merged into `dev` when the
 feature is ready. Everything above is safe to merge: both code changes are
 environment-driven and default to today's behaviour, and the workflow only
-triggers on `features/predev`.
+triggers on `predev`.
 
 ## Teardown
 

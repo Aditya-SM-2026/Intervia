@@ -1,6 +1,6 @@
 # Handoff: predev audit, fixes and end-to-end testing (Nov 15, 2026)
 
-Branch `features/predev`. Every change below is pushed. A push deploys web, video worker and agent to predev through `.github/workflows/deploy-predev.yml` (about 4 to 5 minutes).
+Branch `predev`. Every change below is pushed. A push deploys web, video worker and agent to predev through `.github/workflows/deploy-predev.yml` (about 4 to 5 minutes).
 
 The older handoff, `docs/HANDOFF.md` (Nov 8), covers scoring, the video analyser and the report redesign. This document picks up after it.
 
@@ -26,8 +26,8 @@ The older handoff, `docs/HANDOFF.md` (Nov 8), covers scoring, the video analyser
 ## 2. Rules from the owner (keep these)
 
 - **Branches and deployments:**
-  - Work only in **predev** (`features/predev`).
-  - Do not touch **dev** (`feature/roles-candidates`: the `meetingbot-web` service and the `meetingbot-agent-vm` VM) until the owner says so.
+  - Work only in **predev** (branch `predev`).
+  - Do not touch **dev** (branch `dev`, Cloud Run `meetingbot-web`) until the owner says so.
   - The old deployment must stay untouched.
 - **Infrastructure:** don't add infrastructure or raise costs without asking.
 - **Voice:**

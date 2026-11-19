@@ -2,7 +2,7 @@ name: Build & Deploy
 
 on:
   push:
-    branches: [feature/roles-candidates]
+    branches: [dev]
 
 env:
   PROJECT_ID: siva-nikhil

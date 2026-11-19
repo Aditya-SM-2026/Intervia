@@ -1,7 +1,7 @@
 # Intervia infrastructure in GCP project `siva-nikhil`
 
 What is running, how it is configured, and why each piece exists. Everything here was read
-live from the project on 27 Oct 2026 and cross-checked against the `feature/roles-candidates`
+live from the project on 27 Oct 2026 and cross-checked against the `dev` branch
 branch of `Aditya-SM-2026/Intervia`.
 
 | | |
@@ -9,7 +9,7 @@ branch of `Aditya-SM-2026/Intervia`.
 | Project | `siva-nikhil` (number `199504026920`) |
 | Billing account | `01F343-897928-949959` |
 | Primary region | `asia-south1` (Mumbai) |
-| Deployed branch | `feature/roles-candidates` |
+| Deployed branch | `dev` |
 | Public app URL | https://meetingbot-web-199504026920.asia-south1.run.app |
 
 ## 1. The shape of the system
@@ -180,7 +180,7 @@ Ten secrets, all consumed by name:
 
 ## 4. The deploy path, end to end
 
-1. Push to `feature/roles-candidates`.
+1. Push to `dev`.
 2. GitHub Actions authenticates with `google-github-actions/auth` through WIF.
 3. `dorny/paths-filter` decides whether `web`, `agent` or both changed.
 4. **Web changed** → `docker build -f Dockerfile.web` (with `NEXT_PUBLIC_VOICE_PROVIDER=cascade`),

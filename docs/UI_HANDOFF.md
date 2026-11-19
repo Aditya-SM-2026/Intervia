@@ -1,8 +1,8 @@
-# UI handoff (features/predev, Nov 2026)
+# UI handoff (predev, Nov 2026)
 
 A short record of the UI redesign, so it can be picked up again later.
 
-Predev: https://intervia-predev-web-199504026920.asia-south1.run.app (pushing to `features/predev` deploys it).
+Predev: https://intervia-predev-web-199504026920.asia-south1.run.app (pushing to `predev` deploys it).
 
 ## Ground rules the user set
 - Visual, outcome-first. No walls of text, no redundant controls, no UI bugs.

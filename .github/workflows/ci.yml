@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [feature/roles-candidates]
+    branches: [dev, predev]
   #pull_request:
-    #branches: [main, feature/roles-candidates]
+    #branches: [dev, predev]
 
 jobs:
   ci:
