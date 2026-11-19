@@ -29,6 +29,10 @@ function invalidInput(message: string) {
   return NextResponse.json(body, { status: 400 });
 }
 
+function tooLarge(message: string) {
+  return NextResponse.json({ error: { code: "PAYLOAD_TOO_LARGE", message } }, { status: 413 });
+}
+
 /**
  * Creates an interview session (signed-in recruiters only). Accepts multipart
  * form data so the resume (PDF) and optionally the job description (PDF) can
@@ -38,6 +42,12 @@ function invalidInput(message: string) {
 export async function POST(request: NextRequest) {
   const denied = await requireRecruiter();
   if (denied) return denied;
+
+  // Same caps as the create form: 20 MB per file, 28 MB for the whole request.
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (contentLength > 28 * 1024 * 1024) {
+    return tooLarge("The resume and job description together must be under 28 MB. Compress them and try again.");
+  }
 
   let form: FormData;
   try {
@@ -108,6 +118,11 @@ export async function POST(request: NextRequest) {
   }
   if (jdFile !== null && !(jdFile instanceof File)) {
     return invalidInput("Job description upload must be a file.");
+  }
+  for (const file of [resumeFile, jdFile]) {
+    if (file instanceof File && file.size > 20 * 1024 * 1024) {
+      return tooLarge("Each file must be under 20 MB. Compress the PDF, or paste the job description as text.");
+    }
   }
 
   let jobDescription: { source: "text" | "pdf"; text: string } | null = null;

@@ -80,6 +80,11 @@ const DURATION_PRESETS = [2, 5, 10, 15, 20, 30, 45].filter(
   (minutes) => minutes >= MIN_DURATION_MINUTES && minutes <= MAX_DURATION_MINUTES,
 );
 
+/** Per-file upload cap; the server enforces the same numbers. */
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+/** Combined cap: Cloud Run rejects requests over 32 MB before they reach the app. */
+const MAX_UPLOAD_TOTAL_BYTES = 28 * 1024 * 1024;
+
 function formatBytes(bytes: number): string {
   return bytes < 1024 * 1024
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`
@@ -249,6 +254,15 @@ export function CreateInterviewForm({
     }
     if (!jobDescriptionText.trim() && !jobDescriptionPdf) {
       setLocalError("Add the job description: paste the text or choose a PDF.");
+      return;
+    }
+    const uploads = [jobDescriptionPdf, resume].filter((file): file is File => file !== null);
+    if (uploads.some((file) => file.size > MAX_UPLOAD_BYTES)) {
+      setLocalError("Each file must be under 20 MB. Compress the PDF, or paste the job description as text.");
+      return;
+    }
+    if (uploads.reduce((total, file) => total + file.size, 0) > MAX_UPLOAD_TOTAL_BYTES) {
+      setLocalError("The resume and job description together must be under 28 MB. Compress them and try again.");
       return;
     }
 

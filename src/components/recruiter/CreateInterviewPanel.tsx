@@ -83,7 +83,15 @@ export function CreateInterviewPanel({
         router.replace("/login?next=/recruiter");
         return;
       }
-      const data = await response.json();
+      // An upload rejected in front of the app comes back as an HTML page, not JSON.
+      const data = await response.json().catch(() => null);
+
+      if (response.status === 413) {
+        throw new Error(
+          data?.error?.message ??
+            "The files are too large. Keep each file under 20 MB and both together under 28 MB.",
+        );
+      }
 
       if (response.status === 409 && data?.room && data?.candidateUrl) {
         // A double submit or a retry hit the same schedule: show the
