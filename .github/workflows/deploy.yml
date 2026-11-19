@@ -9,6 +9,7 @@ env:
   REGION: asia-south1
   ZONE: asia-south1-a
   AR_REPO: asia-south1-docker.pkg.dev/siva-nikhil/meetingbot
+  WEB_URL: https://meetingbot-web-199504026920.asia-south1.run.app
   # (gcloud projects describe siva-nikhil --format='value(projectNumber)' → 199504026920)
   WIF_PROVIDER: projects/199504026920/locations/global/workloadIdentityPools/github-intervia/providers/github
   SA: 199504026920-compute@developer.gserviceaccount.com
@@ -98,13 +99,21 @@ jobs:
         run: |
           docker build -t ${{ env.AR_REPO }}/agent:latest -f agent/Dockerfile agent
           docker push ${{ env.AR_REPO }}/agent:latest
-      - name: Restart agent VM container
+      - name: Deploy the per-interview interviewer job
         run: |
-          # The VM runs agent:latest via startup-script (docker pull + recreate on boot).
-          # Reset re-runs the startup script with the newly pushed image; start boots it if stopped.
-          gcloud compute instances reset meetingbot-agent-vm \
+          # Each interview runs its own execution of this job; the token is no
+          # longer dispatched to a worker on the agent VM. A running execution
+          # keeps the image it started with, so this never cuts a live
+          # interview: the next one picks up the new image.
+          gcloud run jobs deploy intervia-agent \
             --project ${{ env.PROJECT_ID }} \
-            --zone ${{ env.ZONE }} --quiet || \
-          gcloud compute instances start meetingbot-agent-vm \
-            --project ${{ env.PROJECT_ID }} \
-            --zone ${{ env.ZONE }} --quiet
+            --region ${{ env.REGION }} \
+            --image ${{ env.AR_REPO }}/agent:latest \
+            --command /app/.venv/bin/python \
+            --args main.py,one-shot \
+            --execution-environment gen2 \
+            --cpu 2 --memory 4Gi \
+            --task-timeout 2h --max-retries 0 --tasks 1 \
+            --set-env-vars INTERVIA_ONE_SHOT=1,AGENT_NAME=intervia-interviewer,AGENT_TTS_PROVIDER=cloud,NEXT_PUBLIC_VOICE_PROVIDER=cascade,NODE_ENV=production,INTERVIA_WEB_URL=${{ env.WEB_URL }} \
+            --set-secrets AGENT_API_SECRET=meetingbot-agent-api-secret:latest,GEMINI_API_KEY=meetingbot-gemini-api-key:latest,OMINIBOT_API_KEY=meetingbot-ominibot-api-key:latest,LIVEKIT_URL=meetingbot-livekit-url:latest,LIVEKIT_API_KEY=meetingbot-livekit-api-key:latest,LIVEKIT_API_SECRET=meetingbot-livekit-api-secret:latest \
+            --quiet
