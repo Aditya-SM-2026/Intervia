@@ -218,7 +218,9 @@ export async function runAutoInvite(
           roleId: role.id,
           durationMinutes: settings.durationMinutes,
           difficulty: settings.difficulty as AutoInviteDifficulty,
-          voiceMode: "standard",
+          // Rolling is the lower cost engine; automatic invitations should not
+          // quietly bill at the standard rate.
+          voiceMode: "rolling",
           scheduledAt: null,
           jobDescription: { source: "text", text: describeJob(role) },
           resume: resumeText

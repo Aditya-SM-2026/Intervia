@@ -1,19 +1,50 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { clientAddress } from "@/lib/auth/accounts.logic";
+import {
+  overRateLimits,
+  rateLimitedMessage,
+  rateLimitKey,
+} from "@/lib/http/rate-limit";
 import {
   getResumeUpdateState,
   replaceApplicationResume,
 } from "@/lib/roles/application.service";
-import { clientIp, overPublicRateLimit } from "@/lib/http/public-rate-limit";
 
 type RouteContext = { params: Promise<{ updateToken: string }> };
+
+/** A private link is used once or twice; a burst means something is wrong. */
+const UPLOADS_PER_HOUR_PER_LINK = 20;
+const UPLOADS_PER_HOUR_PER_ADDRESS = 100;
+const LOADS_PER_MINUTE_PER_ADDRESS = 60;
+
+function clientIp(request: NextRequest): string {
+  return clientAddress(request.headers.get("x-forwarded-for"));
+}
+
+function rateLimited(retryAfterSeconds: number) {
+  return NextResponse.json(
+    { error: { code: "RATE_LIMITED", message: rateLimitedMessage(retryAfterSeconds) } },
+    { status: 429, headers: { "retry-after": String(retryAfterSeconds) } },
+  );
+}
 
 /**
  * The candidate's private replace-resume link. GET says what is on record,
  * POST swaps the file. The token is the credential, so no sign-in is needed;
  * it is random, unguessable and expires a week after the last upload.
  */
-export async function GET(_request: NextRequest, context: RouteContext) {
+export async function GET(request: NextRequest, context: RouteContext) {
   const { updateToken } = await context.params;
+
+  const limit = await overRateLimits([
+    {
+      key: rateLimitKey(["resume", "load", clientIp(request)]),
+      limit: LOADS_PER_MINUTE_PER_ADDRESS,
+      windowSeconds: 60,
+    },
+  ]);
+  if (limit.limited) return rateLimited(limit.retryAfterSeconds);
+
   const state = await getResumeUpdateState(updateToken);
   if (!state) {
     return NextResponse.json(
@@ -26,12 +57,20 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const { updateToken } = await context.params;
-  if (overPublicRateLimit(`${clientIp(request.headers)}:resume:${updateToken.slice(0, 8)}`)) {
-    return NextResponse.json(
-      { error: { code: "RATE_LIMITED", message: "Too many uploads from this network. Try again later." } },
-      { status: 429 },
-    );
-  }
+
+  const limit = await overRateLimits([
+    {
+      key: rateLimitKey(["resume", "upload", "link", updateToken]),
+      limit: UPLOADS_PER_HOUR_PER_LINK,
+      windowSeconds: 3600,
+    },
+    {
+      key: rateLimitKey(["resume", "upload", "ip", clientIp(request)]),
+      limit: UPLOADS_PER_HOUR_PER_ADDRESS,
+      windowSeconds: 3600,
+    },
+  ]);
+  if (limit.limited) return rateLimited(limit.retryAfterSeconds);
 
   const form = await request.formData().catch(() => null);
   const file = form?.get("resume");
