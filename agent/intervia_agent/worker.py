@@ -38,6 +38,7 @@ from livekit.agents import (
 from livekit.agents.voice import io
 from livekit.plugins import google, silero
 
+from . import usage_ledger
 from .audio_track import InterviewAudio, InterviewHrAudio
 from .backend import Backend, iso_from_epoch, iso_now
 from .config import (
@@ -279,6 +280,7 @@ class InterviewRuntime:
         self._gate: GatedAudioInput | None = None
         self._session_started_at = time.monotonic()
         self._sessions_opened = 0
+        self._ledger: usage_ledger.UsageLedger | None = None
         # When the current plan step opened, and the candidate's latest answer:
         # start_next_topic is refused until the new step has been answered.
         self._step_opened_at = 0.0
@@ -308,6 +310,8 @@ class InterviewRuntime:
         payload = await self.backend.fetch_context()
         self.context = parse_context(self.interview_id, payload)
         self.controller = InterviewController(self.context)
+        # Every Gemini usage report, thinking and tool tokens included, for cost.
+        self._ledger = usage_ledger.start(self.config.live_model)
         self.rolling = self.context.voice_mode == "rolling"
         self.fresh_sessions = self.config.topic_reset or self.rolling
         logger.info(
@@ -676,14 +680,22 @@ class InterviewRuntime:
         await self._record_outcome("candidate_left" if self._candidate_gone else "session_closed")
 
     def _usage(self) -> list[dict[str, Any]]:
+        """LiveKit's own usage summary, then the full count of Gemini's reports.
+
+        The web app prices the full count when it is there; LiveKit's summary
+        stays alongside it for comparison."""
+        entries: list[dict[str, Any]] = []
         try:
             assert self.session is not None
-            return [
+            entries = [
                 item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(vars(item))
                 for item in self.session.usage.model_usage
             ]
-        except Exception:  # noqa: BLE001 - usage is informational
-            return []
+        except Exception as error:  # noqa: BLE001 - usage is informational
+            logger.warning("could not read LiveKit's usage summary: %s", error)
+        if self._ledger is not None and self._ledger.reports > 0:
+            entries.append(self._ledger.entry())
+        return entries
 
     # --- plan tools ------------------------------------------------------
 
