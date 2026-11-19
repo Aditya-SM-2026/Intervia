@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { DocumentText } from "@/components/ui/DocumentText";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { ApplicationField } from "@/lib/roles/application.types";
 
 const baseInputClasses =
@@ -29,10 +29,37 @@ const labelClasses = "mb-2 flex items-center gap-1 text-[13px] font-medium text-
 
 const MAX_RESUME_BYTES = 10 * 1024 * 1024;
 
+/** How long a server-issued submission slot stays usable. */
+const SLOT_GRACE_MS = 10 * 60_000;
+
+type SubmissionSlot = {
+  /** Slot time in server time, epoch milliseconds. */
+  at: number;
+  /** Signed proof to send back with the application. */
+  ticket: string;
+  /** Server clock minus this browser's clock at reservation time. */
+  offset: number;
+};
+
 function formatBytes(bytes: number): string {
   return bytes < 1024 * 1024
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`
     : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatCountdown(seconds: number): string {
+  if (seconds >= 3600) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${hours}h ${minutes}m`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** Read the clock through one helper so event handlers stay easy to scan. */
+function nowMs(): number {
+  return Date.now();
 }
 
 /** Turns a picked file into a readable row, or explains why it was refused. */
@@ -247,6 +274,18 @@ export function ApplicationForm({
     previousFileName: string | null;
     fileName: string | null;
   } | null>(null);
+  const [slot, setSlot] = useState<SubmissionSlot | null>(null);
+  const [clock, setClock] = useState(() => nowMs());
+  const [reserving, setReserving] = useState(false);
+
+  useEffect(() => {
+    if (!slot) return;
+    const id = window.setInterval(() => setClock(nowMs()), 1000);
+    return () => window.clearInterval(id);
+  }, [slot]);
+
+  const serverNow = clock + (slot?.offset ?? 0);
+  const secondsLeft = slot ? Math.max(0, Math.ceil((slot.at - serverNow) / 1000)) : 0;
 
   const byId = (id: string) => fields.find((field) => field.id === id && field.system);
   const nameField = byId("name");
@@ -361,8 +400,51 @@ export function ApplicationForm({
     setResume(file);
   }
 
+  /** Asks the server for the next submission slot and starts the countdown. */
+  async function reserveSlot(): Promise<SubmissionSlot | null> {
+    setReserving(true);
+    try {
+      const response = await fetch(`/api/apply/${encodeURIComponent(token)}/reserve`, {
+        method: "POST",
+        headers: { accept: "application/json" },
+      });
+      const data = (await response.json().catch(() => null)) as
+        | {
+            slotAt?: string;
+            ticket?: string;
+            serverNow?: string;
+            error?: { message?: string };
+          }
+        | null;
+      if (!response.ok || typeof data?.slotAt !== "string" || typeof data.ticket !== "string") {
+        throw new Error(
+          data?.error?.message ?? "Could not reserve a place in line. Please try again.",
+        );
+      }
+      const at = Date.parse(data.slotAt);
+      const serverNowMs = data.serverNow ? Date.parse(data.serverNow) : nowMs();
+      if (!Number.isFinite(at)) {
+        throw new Error("Could not reserve a place in line. Please try again.");
+      }
+      const next: SubmissionSlot = {
+        at,
+        ticket: data.ticket,
+        offset: Number.isFinite(serverNowMs) ? serverNowMs - nowMs() : 0,
+      };
+      setSlot(next);
+      setClock(nowMs());
+      setError(null);
+      return next;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not reserve a place in line.");
+      return null;
+    } finally {
+      setReserving(false);
+    }
+  }
+
   async function submitApplication() {
-    if (submitting) return;
+    if (submitting || reserving) return;
     setError(null);
 
     // Validate all fields at once
@@ -432,6 +514,20 @@ export function ApplicationForm({
       return;
     }
 
+    // A submission only goes through at its server-issued slot. If there is no
+    // slot yet, or the last one lapsed, reserve one now. When the queue is
+    // free this returns almost immediately; when it is busy the page shows a
+    // local countdown and makes no requests until it ends.
+    let activeSlot = slot;
+    if (!activeSlot || nowMs() + activeSlot.offset > activeSlot.at + SLOT_GRACE_MS) {
+      activeSlot = await reserveSlot();
+      if (!activeSlot) return;
+    }
+    if (activeSlot.at - (nowMs() + activeSlot.offset) > 1_500) {
+      setError(null);
+      return;
+    }
+
     const body = new FormData();
     body.set("name", name.trim());
     body.set("phone", phone.trim());
@@ -447,6 +543,7 @@ export function ApplicationForm({
     try {
       const response = await fetch(`/api/apply/${encodeURIComponent(token)}`, {
         method: "POST",
+        headers: { "x-apply-slot": activeSlot.ticket },
         body,
       });
       const data = (await response.json().catch(() => null)) as
@@ -455,10 +552,23 @@ export function ApplicationForm({
             updated?: boolean;
             previousFileName?: string | null;
             fileName?: string | null;
+            retryAfterSeconds?: number;
             error?: { message?: string };
           }
         | null;
       if (!response.ok) {
+        if (response.status === 425 || response.status === 428) {
+          const retry = Number(data?.retryAfterSeconds ?? 0);
+          if (response.status === 425 && activeSlot && retry > 0) {
+            setSlot({
+              ...activeSlot,
+              at: nowMs() + activeSlot.offset + retry * 1000,
+            });
+            setClock(nowMs());
+          } else {
+            setSlot(null);
+          }
+        }
         throw new Error(data?.error?.message ?? "Could not send your application. Please try again.");
       }
       if (typeof data?.resumeToken === "string" && data.resumeToken !== "") {
@@ -471,6 +581,7 @@ export function ApplicationForm({
         });
       }
       setSubmittedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+      setSlot(null);
       setDone(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not send your application.");
@@ -1149,18 +1260,43 @@ export function ApplicationForm({
               </div>
             )}
 
+            {slot && secondsLeft > 0 && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mt-5 flex items-start gap-2.5 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200"
+              >
+                <Clock className="mt-0.5 size-4 shrink-0" aria-hidden />
+                <div>
+                  <p className="font-medium">High demand right now</p>
+                  <p className="mt-0.5 text-xs leading-5">
+                    Your submission opens in{" "}
+                    <span className="font-semibold tabular-nums">
+                      {formatCountdown(secondsLeft)}
+                    </span>
+                    . Keep this page open, your answers stay filled in.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={submitting || preview}
+              disabled={submitting || reserving || secondsLeft > 0 || preview}
               className="group mt-7 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent text-[15px] font-medium text-white shadow-sm shadow-accent/20 transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
-              {submitting ? (
+              {submitting || reserving ? (
                 <>
                   <Loader2 className="size-4.5 animate-spin" aria-hidden />
-                  <span>Sending application…</span>
+                  <span>{reserving ? "Reserving your place…" : "Sending application…"}</span>
                 </>
               ) : preview ? (
                 "Preview only"
+              ) : secondsLeft > 0 ? (
+                <>
+                  <Clock className="size-4" aria-hidden />
+                  <span>Opens in {formatCountdown(secondsLeft)}</span>
+                </>
               ) : (
                 <>
                   <span>Send application</span>

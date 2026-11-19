@@ -11,21 +11,23 @@ import {
   submitApplication,
 } from "@/lib/roles/application.service";
 import { closedReasonMessage } from "@/lib/roles/form-link-status";
+import { checkApplySlot } from "@/lib/roles/apply-slot";
 
 type RouteContext = { params: Promise<{ token: string }> };
 
 /**
- * Limits for the public form. Counts are shared across every instance, so
- * these numbers are the real ceiling rather than a per-instance one.
+ * Limits for the public form. Counts live in Postgres, so these numbers hold
+ * across every instance rather than being multiplied by them.
  *
- * The per-address numbers are generous on purpose: a college lab, or a whole
- * office, can put a hundred candidates behind one public address. Duplicates
- * are stopped by the per-email limit instead.
+ * The queue is what paces a drive; these are flood backstops. A college lab or
+ * a whole office can put a thousand candidates behind one public address, so
+ * the per-address numbers have to sit above the size of the drive. Duplicates
+ * and spam are stopped by the per-email limit and the submission slot instead.
  */
-const FORM_LOADS_PER_MINUTE = 120;
-const SUBMISSIONS_PER_HOUR_PER_ADDRESS = 300;
+const FORM_LOADS_PER_MINUTE = 2_000;
+const SUBMISSIONS_PER_HOUR_PER_ADDRESS = 5_000;
 const SUBMISSIONS_PER_HOUR_PER_EMAIL = 10;
-const SUBMISSIONS_PER_HOUR_PER_LINK = 2000;
+const SUBMISSIONS_PER_HOUR_PER_LINK = 10_000;
 
 /** The last X-Forwarded-For entry: the address Google saw, not one the client chose. */
 function clientIp(request: NextRequest): string {
@@ -68,8 +70,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
 }
 
 /**
- * Public submission. No auth: the token stands for the role. Everything in
- * the multipart body is validated before it reaches the database.
+ * Public submission. No auth: the token stands for the role. The signed slot is
+ * checked before the body is read, so an early or missing ticket costs nothing.
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   const { token } = await context.params;
@@ -83,6 +85,35 @@ export async function POST(request: NextRequest, context: RouteContext) {
     },
   ]);
   if (addressLimit.limited) return rateLimited(addressLimit.retryAfterSeconds);
+
+  const slot = checkApplySlot(token, request.headers.get("x-apply-slot"));
+  if (!slot.ok) {
+    if (slot.reason === "early") {
+      const wait = slot.retryAfterSeconds ?? 1;
+      return NextResponse.json(
+        {
+          error: {
+            code: "WAIT",
+            message: "High demand right now. Please wait for your submission timer.",
+          },
+          retryAfterSeconds: wait,
+        },
+        { status: 425, headers: { "retry-after": String(wait) } },
+      );
+    }
+    return NextResponse.json(
+      {
+        error: {
+          code: slot.reason === "expired" ? "SLOT_EXPIRED" : "SLOT_REQUIRED",
+          message:
+            slot.reason === "expired"
+              ? "Your place in line expired. Reserve a new place to send your application."
+              : "Reserve a place in line before sending your application.",
+        },
+      },
+      { status: 428 },
+    );
+  }
 
   const form = await request.formData().catch(() => null);
   if (!form) {

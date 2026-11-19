@@ -46,6 +46,7 @@ import {
   samePhone,
 } from "@/lib/roles/resume-update";
 import { enqueueJob } from "@/lib/jobs/queue";
+import { applicationSubmitRate, signApplySlot } from "@/lib/roles/apply-slot";
 
 /**
  * The shareable application form on top of the roles repository. All input
@@ -248,6 +249,62 @@ export type SubmitApplicationResult =
       previousFileName: string | null;
     }
   | { ok: false; code: "token" | "invalid" | "duplicate" | "closed"; message: string };
+
+export type ReserveApplicationSlotResult =
+  | {
+      ok: true;
+      /** When the server will accept this submission. */
+      slotAt: string;
+      waitSeconds: number;
+      /** Signed proof of the slot; send it back on the submission. */
+      ticket: string;
+      /** The server's clock at the moment of reserving, for a local countdown. */
+      serverNow: string;
+    }
+  | { ok: false; code: "token" | "closed"; message: string };
+
+/**
+ * Gives one candidate their place in line. Everybody can read and fill the
+ * form; only the submission is paced, so a burst of a thousand applicants does
+ * not become a thousand PDF extractions at once. The reservation is one atomic
+ * row update, so slots stay ordered across all Cloud Run instances.
+ */
+export async function reserveApplicationSlot(
+  token: string,
+): Promise<ReserveApplicationSlotResult> {
+  const state = await getPublicApplicationState(token);
+  if (!state.form) {
+    return {
+      ok: false,
+      code: state.closedReason ? "closed" : "token",
+      message: state.closedReason
+        ? closedReasonMessage(state.closedReason)
+        : "This application link is no longer open.",
+    };
+  }
+
+  const reserved = await repository().reserveSubmissionSlot(
+    token,
+    1 / applicationSubmitRate(),
+  );
+  if (!reserved) {
+    return {
+      ok: false,
+      code: "token",
+      message: "This application link is no longer open.",
+    };
+  }
+
+  const now = Date.now();
+  const slotMs = Math.max(now, Date.parse(reserved.slotAt));
+  return {
+    ok: true,
+    slotAt: new Date(slotMs).toISOString(),
+    waitSeconds: Math.max(0, Math.ceil((slotMs - now) / 1000)),
+    ticket: signApplySlot(token, slotMs),
+    serverNow: new Date(now).toISOString(),
+  };
+}
 
 /**
  * Handles one public submission: validates everything, stores the resume in

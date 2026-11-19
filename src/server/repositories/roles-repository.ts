@@ -267,6 +267,14 @@ export interface RoleRepository {
   rotateFormLink(roleId: string): Promise<RoleFormLink | null>;
   /** Applications received at or after a moment, for the link's own counter. */
   countApplicationsSince(roleId: string, since: string | null): Promise<number>;
+  /**
+   * Atomically reserves the next submission slot for an active form token,
+   * spaced `intervalSeconds` apart. Null when the token is not open.
+   */
+  reserveSubmissionSlot(
+    token: string,
+    intervalSeconds: number,
+  ): Promise<{ slotAt: string } | null>;
   /** The role a public token belongs to; only active links resolve. */
   getRoleByFormToken(token: string): Promise<Role | null>;
   /** Inserts an application; null when this email already applied to the role. */
@@ -380,6 +388,7 @@ CREATE TABLE IF NOT EXISTS role_form_links (
 ALTER TABLE role_form_links ADD COLUMN IF NOT EXISTS max_applications INT;
 ALTER TABLE role_form_links ADD COLUMN IF NOT EXISTS expires_after_hours INT;
 ALTER TABLE role_form_links ADD COLUMN IF NOT EXISTS round_started_at TIMESTAMPTZ;
+ALTER TABLE role_form_links ADD COLUMN IF NOT EXISTS next_submit_at TIMESTAMPTZ;
 UPDATE role_form_links SET round_started_at = created_at WHERE round_started_at IS NULL;
 ALTER TABLE role_form_links ALTER COLUMN round_started_at SET DEFAULT now();
 ALTER TABLE role_form_links ALTER COLUMN round_started_at SET NOT NULL;
@@ -1237,7 +1246,8 @@ export function getPostgresRolesRepository(): RoleRepository {
         try {
           const result = await getPool().query(
             `UPDATE role_form_links
-             SET token = $2, revoked_at = NULL, created_at = now(), round_started_at = now()
+             SET token = $2, revoked_at = NULL, created_at = now(), round_started_at = now(),
+                 next_submit_at = NULL
              WHERE role_id = $1
              RETURNING ${FORM_LINK_COLUMNS}`,
             [roleId, newFormToken()],
@@ -1264,6 +1274,26 @@ export function getPostgresRolesRepository(): RoleRepository {
             [roleId],
           );
       return Number((result.rows[0] as { total: number } | undefined)?.total ?? 0);
+    },
+
+    async reserveSubmissionSlot(
+      token: string,
+      intervalSeconds: number,
+    ): Promise<{ slotAt: string } | null> {
+      await ensureSchema();
+      const seconds = Math.min(30, Math.max(0.05, intervalSeconds));
+      // One statement, one row lock: concurrent reserves queue here and leave
+      // with strictly increasing slots, even across Cloud Run instances.
+      const result = await getPool().query(
+        `UPDATE role_form_links
+         SET next_submit_at = GREATEST(now(), COALESCE(next_submit_at, now()))
+                              + make_interval(secs => $2::double precision)
+         WHERE token = $1 AND revoked_at IS NULL
+         RETURNING (next_submit_at - make_interval(secs => $2::double precision)) AS slot_at`,
+        [token, seconds],
+      );
+      const row = result.rows[0] as { slot_at: Date } | undefined;
+      return row ? { slotAt: row.slot_at.toISOString() } : null;
     },
 
     async getRoleByFormToken(token: string): Promise<Role | null> {
@@ -1950,6 +1980,8 @@ interface InMemoryRoleStore {
     string,
     { status: string; interviewId: string | null; note: string | null; at: string }
   >;
+  /** Next free submission slot per role, in epoch milliseconds. */
+  submissionSlots: Map<string, number>;
 }
 
 const globalStore = globalThis as unknown as { __rolesStoreV2?: InMemoryRoleStore };
@@ -1966,6 +1998,7 @@ function getStore(): InMemoryRoleStore {
       autoFilterRules: new Map(),
       invitedScreenings: new Map(),
       autoInvites: new Map(),
+      submissionSlots: new Map(),
     };
   }
   return globalStore.__rolesStoreV2;
@@ -2367,7 +2400,24 @@ export function getInMemoryRolesRepository(): RoleRepository {
         roundStartedAt: now,
       };
       store.formLinks.set(roleId, updated);
+      store.submissionSlots.delete(roleId);
       return updated;
+    },
+
+    async reserveSubmissionSlot(
+      token: string,
+      intervalSeconds: number,
+    ): Promise<{ slotAt: string } | null> {
+      const store = getStore();
+      const link = [...store.formLinks.values()].find(
+        (entry) => entry.token === token && entry.revokedAt === null,
+      );
+      if (!link) return null;
+      const now = Date.now();
+      const slot = Math.max(now, store.submissionSlots.get(link.roleId) ?? now);
+      const seconds = Math.min(30, Math.max(0.05, intervalSeconds));
+      store.submissionSlots.set(link.roleId, slot + seconds * 1000);
+      return { slotAt: new Date(slot).toISOString() };
     },
 
     async countApplicationsSince(roleId: string, since: string | null): Promise<number> {
