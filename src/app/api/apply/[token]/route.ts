@@ -5,38 +5,20 @@ import {
   submitApplication,
 } from "@/lib/roles/application.service";
 import { closedReasonMessage } from "@/lib/roles/form-link-status";
+import { allowAttempt, clientIp } from "@/lib/roles/apply-rate-limit";
+import { checkApplySlot } from "@/lib/roles/apply-slot";
 
 type RouteContext = { params: Promise<{ token: string }> };
 
+const HOUR_MS = 60 * 60_000;
+
 /**
- * Simple in-memory guard against form spam; per instance, best effort. Kept
- * generous because a college lab or a whole office can share one public IP.
+ * A college or office shares one public IP, so these are flood backstops, not
+ * the meaningful limit. The real pacing is the per-candidate submission slot,
+ * and the real duplicate guard is the unique application row in Postgres.
  */
-const RATE_LIMIT_WINDOW_MS = 60 * 60_000;
-const RATE_LIMIT_MAX = 60;
-const submissionsByIp = new Map<string, number[]>();
-
-function overRateLimit(key: string): boolean {
-  const now = Date.now();
-  const recent = (submissionsByIp.get(key) ?? []).filter(
-    (at) => now - at < RATE_LIMIT_WINDOW_MS,
-  );
-  if (recent.length >= RATE_LIMIT_MAX) {
-    submissionsByIp.set(key, recent);
-    return true;
-  }
-  recent.push(now);
-  submissionsByIp.set(key, recent);
-  return false;
-}
-
-function clientIp(request: NextRequest): string {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    "unknown"
-  );
-}
+const SUBMIT_MAX_PER_IP = 5_000;
+const SUBMIT_MAX_PER_EMAIL = 10;
 
 /** What the public form needs: the role, its description and its questions. */
 export async function GET(_request: NextRequest, context: RouteContext) {
@@ -57,15 +39,50 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 }
 
 /**
- * Public submission. No auth: the token stands for the role. Everything in
- * the multipart body is validated before it reaches the database.
+ * Public submission. No auth: the token stands for the role. The signed slot is
+ * checked before the body is read, so an early or missing ticket costs nothing.
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   const { token } = await context.params;
-  if (overRateLimit(`${clientIp(request)}:${token}`)) {
+
+  if (!allowAttempt(`submit:${clientIp(request)}`, SUBMIT_MAX_PER_IP, HOUR_MS)) {
     return NextResponse.json(
-      { error: { code: "RATE_LIMITED", message: "Too many applications from this network. Try again later." } },
+      {
+        error: {
+          code: "RATE_LIMITED",
+          message: "Too many applications from this network. Please try again later.",
+        },
+      },
       { status: 429 },
+    );
+  }
+
+  const slot = checkApplySlot(token, request.headers.get("x-apply-slot"));
+  if (!slot.ok) {
+    if (slot.reason === "early") {
+      const wait = slot.retryAfterSeconds ?? 1;
+      return NextResponse.json(
+        {
+          error: {
+            code: "WAIT",
+            message: "High demand right now. Please wait for your submission timer.",
+          },
+          retryAfterSeconds: wait,
+        },
+        { status: 425, headers: { "retry-after": String(wait) } },
+      );
+    }
+    return NextResponse.json(
+      {
+        error: {
+          code: slot.reason === "expired" ? "SLOT_EXPIRED" : "SLOT_REQUIRED",
+          message:
+            slot.reason === "expired"
+              ? "Your place in line expired. Reserve a new place to send your application."
+              : "Reserve a place in line before sending your application.",
+        },
+      },
+      { status: 428 },
     );
   }
 
@@ -74,6 +91,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.json(
       { error: { code: "INVALID_INPUT", message: "Send the form as multipart/form-data." } },
       { status: 400 },
+    );
+  }
+
+  const rawEmail = form.get("email");
+  const submittedEmail = typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
+  if (
+    submittedEmail &&
+    !allowAttempt(`email:${token}:${submittedEmail}`, SUBMIT_MAX_PER_EMAIL, HOUR_MS)
+  ) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "RATE_LIMITED",
+          message:
+            "This email address has been submitted several times. Please wait a little, then try again.",
+        },
+      },
+      { status: 429 },
     );
   }
 
