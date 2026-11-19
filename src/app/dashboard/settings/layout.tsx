@@ -13,7 +13,7 @@ export default async function SettingsLayout({ children }: { children: React.Rea
       items: [
         { href: "/dashboard/settings", label: "Overview", icon: "overview" },
         { href: "/dashboard/settings/agent", label: "Behaviour", icon: "agent" },
-        { href: "/dashboard/settings/voice", label: "Voice and engine", icon: "voice" },
+        { href: "/dashboard/settings/voice", label: "Voice", icon: "voice" },
       ],
     },
     admin

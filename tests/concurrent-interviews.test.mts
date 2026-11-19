@@ -63,7 +63,6 @@ async function createRoom(cookie: string, opts: { email: string; role: string; c
   form.set("roleTitle", opts.role);
   form.set("durationMinutes", "10");
   form.set("difficulty", "medium");
-  form.set("voiceMode", "standard");
   form.set("jobDescriptionText", opts.jd);
   const response = await recruiterFetch(cookie, "/api/interviews", { method: "POST", body: form });
   const data = await response.json();
@@ -122,7 +121,6 @@ const dupForm = () => {
   form.set("roleTitle", "Race Probe Role");
   form.set("durationMinutes", "10");
   form.set("difficulty", "medium");
-  form.set("voiceMode", "standard");
   form.set("jobDescriptionText", "Probe job description.");
   return form;
 };

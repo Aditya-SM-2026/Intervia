@@ -13,8 +13,8 @@ import type {
   JobDescription,
   ResumeInfo,
   SessionOutcome,
-  VoiceMode,
 } from "./interview.types";
+import { NEW_INTERVIEW_VOICE_MODE } from "./interview.types";
 import { DuplicateInterviewError } from "./interview-errors";
 import { generateUploadToken } from "@/lib/uploads/resume-upload";
 import { generateInterviewPlan } from "./plan.service";
@@ -201,7 +201,7 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     roleId: input.roleId ?? null,
     difficulty: input.difficulty,
     durationMinutes: input.durationMinutes,
-    voiceMode: input.voiceMode,
+    voiceMode: NEW_INTERVIEW_VOICE_MODE,
     jobDescription: input.jobDescription,
     resume: input.resume,
     consent: null,

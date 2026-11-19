@@ -29,13 +29,16 @@ export type DifficultyLevel = "easy" | "medium" | "hard" | "extra-hard";
 
 /**
  * How the live voice model is run for an interview (see agent worker).
- * "standard": one model session for the whole interview.
- * "rolling": a fresh model session at each topic change and every minute or
- * two, carrying the conversation as text, so earlier audio is not re-billed.
+ * Every new interview is "rolling": a fresh model session at each topic change
+ * and every minute or two, carrying the conversation as text, so earlier audio
+ * is not re-billed. "standard" (one session for the whole interview) only
+ * appears on interviews created before it was removed; nothing can pick it now,
+ * and the agent runs those in rolling mode too.
  */
 export type VoiceMode = "standard" | "rolling";
 
-export const VOICE_MODES: readonly VoiceMode[] = ["standard", "rolling"];
+/** The one voice mode new interviews get. Set by the service, never by a caller. */
+export const NEW_INTERVIEW_VOICE_MODE: VoiceMode = "rolling";
 
 export interface Participant {
   id: string;
@@ -153,7 +156,7 @@ export interface InterviewRoom {
   difficulty: DifficultyLevel;
   /** Interview length in minutes (10-45); enforced by the agent's controller. */
   durationMinutes: number;
-  /** How the voice model is run; chosen by the recruiter (default: standard). */
+  /** How the voice model is run. Always "rolling" for new interviews. */
   voiceMode: VoiceMode;
   jobDescription: JobDescription | null;
   resume: ResumeInfo | null;
@@ -185,7 +188,6 @@ export interface CreateInterviewInput {
   durationMinutes: number;
   /** How hard the interviewer pushes (default: medium). */
   difficulty: DifficultyLevel;
-  voiceMode: VoiceMode;
   /** ISO 8601 scheduled moment, or null when the link may be used immediately. */
   scheduledAt?: string | null;
   jobDescription: JobDescription | null;

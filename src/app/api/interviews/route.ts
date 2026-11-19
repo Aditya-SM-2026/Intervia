@@ -12,7 +12,6 @@ import type { InterviewApiError, ResumeInfo } from "@/lib/interviews/interview.t
 import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
 import { requireRecruiter } from "@/lib/auth/guards";
 import { accountDisplayName } from "@/lib/auth/session";
-import { getAgentPersonality } from "@/lib/agent/personality.service";
 import { ensureRoleForTitle, getRoleForForm } from "@/lib/roles/role.service";
 import { describeRoleError } from "@/lib/roles/role-errors";
 import { storeResumeFile } from "@/lib/uploads/resume-storage";
@@ -75,7 +74,6 @@ export async function POST(request: NextRequest) {
     scheduledTime: text("scheduledTime"),
     durationMinutes: text("durationMinutes"),
     difficulty: text("difficulty"),
-    voiceMode: text("voiceMode"),
     jobDescriptionText: text("jobDescriptionText"),
     skillFocus: text("skillFocus"),
     projectShare: text("projectShare"),
@@ -160,16 +158,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // The voice engine is a settings choice now, not something the recruiter
-  // picks per interview. A failed read must not block scheduling.
-  let voiceMode = parsed.data.voiceMode;
-  try {
-    const personality = await getAgentPersonality();
-    if (personality.voiceMode) voiceMode = personality.voiceMode;
-  } catch (error) {
-    console.error(`[interviews] could not read the voice engine setting: ${(error as Error).message}`);
-  }
-
   let room;
   let applicationId: string | null = null;
   try {
@@ -210,7 +198,6 @@ export async function POST(request: NextRequest) {
 
     room = await createInterviewRoom({
       ...parsed.data,
-      voiceMode,
       roleTitle: requestedRole?.title ?? parsed.data.roleTitle,
       roleId: requestedRole?.id,
       scheduledAt: scheduled.value,

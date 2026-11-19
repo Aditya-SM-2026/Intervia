@@ -55,7 +55,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         candidateIds?: unknown;
         durationMinutes?: unknown;
         difficulty?: unknown;
-        voiceMode?: unknown;
         scheduledDate?: unknown;
         scheduledTime?: unknown;
         hrEmail?: unknown;
@@ -99,7 +98,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       roleId: role.id,
       durationMinutes: body.durationMinutes,
       difficulty: body.difficulty,
-      voiceMode: body.voiceMode,
       hrEmail: body.hrEmail,
       scheduledDate: body.scheduledDate,
       scheduledTime: body.scheduledTime,

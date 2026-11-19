@@ -17,8 +17,8 @@ export default async function AgentVoicePage() {
   return (
     <>
         <SettingsPageHeader
-          title="Voice and engine"
-          tip="Pick how the interviewer sounds and which engine runs the call. Listen to a sample, choose, then save. Every interview from then on uses both."
+          title="Voice"
+          tip="Pick how the interviewer sounds. Listen to a sample, choose, then save. Every interview from then on uses it."
         />
         {!available && (
           <p className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">

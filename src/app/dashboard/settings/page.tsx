@@ -49,8 +49,8 @@ export default async function SettingsPage() {
           <LinkRow
             href="/dashboard/settings/voice"
             icon={<Mic className="size-4" aria-hidden />}
-            label="Voice and engine"
-            value={`${voice.name} · ${personality.voiceMode === "rolling" ? "Lower cost engine" : "Standard engine"}`}
+            label="Voice"
+            value={voice.name}
           />
           {admin ? (
             <LinkRow

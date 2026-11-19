@@ -91,7 +91,7 @@ export const PREVIEW_DETAIL = {
     roleId: null,
     difficulty: "medium",
     durationMinutes: 30,
-    voiceMode: "standard",
+    voiceMode: "rolling",
     jobDescription: { source: "text", text: "AI Developer: LLM features, retrieval over company documents, REST APIs, React, Docker and AWS." },
     resume: { fileName: "resume.pdf", text: "Projects: SigmaGPT, Wanderlust, Sentiment analysis." },
     consent: null,

@@ -62,7 +62,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const personality = await saveAgentPersonality(parsed.data);
-    await logActivity({ action: "settings.agent_saved", summary: "Saved the interviewer's behaviour and voice", details: { voice: personality.voice, voiceMode: personality.voiceMode } });
+    await logActivity({ action: "settings.agent_saved", summary: "Saved the interviewer's behaviour and voice", details: { voice: personality.voice } });
     return NextResponse.json({ personality });
   } catch (error) {
     console.error(`[agent-settings] save failed: ${(error as Error).message}`);

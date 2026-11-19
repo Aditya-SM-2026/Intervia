@@ -218,7 +218,6 @@ export async function runAutoInvite(
           roleId: role.id,
           durationMinutes: settings.durationMinutes,
           difficulty: settings.difficulty as AutoInviteDifficulty,
-          voiceMode: "standard",
           scheduledAt: null,
           jobDescription: { source: "text", text: describeJob(role) },
           resume: resumeText
