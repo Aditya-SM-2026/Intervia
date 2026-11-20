@@ -182,6 +182,10 @@ export function getInMemoryInterviewRepository(): InterviewRepository {
             room.candidateEmail.toLowerCase().includes(email),
         );
       }
+      if (filter?.createdBy) {
+        const creator = filter.createdBy;
+        rooms = rooms.filter((room) => room.createdBy === creator);
+      }
       rooms.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
       const offset = filter?.offset && filter.offset > 0 ? Math.floor(filter.offset) : 0;
       if (offset > 0) rooms = rooms.slice(offset);

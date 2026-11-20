@@ -53,7 +53,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       parsed.data.note,
     );
     if (!result) return roleErrorResponse("ROLE_NOT_FOUND", "This role does not exist.");
-    await logActivity({ action: "decision.candidates", targetType: "role", targetId: roleId, summary: `Marked ${parsed.data.candidateIds.length} candidate${parsed.data.candidateIds.length === 1 ? "" : "s"} as ${parsed.data.decision}`, details: { candidates: parsed.data.candidateIds, note: parsed.data.note ?? null } });
+    const decisionWord = parsed.data.decision === "advance" ? "Selected" : parsed.data.decision === "hold" ? "On hold" : "Rejected";
+    await logActivity({ action: "decision.candidates", targetType: "role", targetId: roleId, summary: `Marked ${parsed.data.candidateIds.length} candidate${parsed.data.candidateIds.length === 1 ? "" : "s"} as ${decisionWord}`, details: { candidates: parsed.data.candidateIds, decision: parsed.data.decision, note: parsed.data.note ?? null } });
     return NextResponse.json(result);
   } catch (error) {
     console.error(`[roles] bulk decision failed: ${describeRoleError(error)}`);

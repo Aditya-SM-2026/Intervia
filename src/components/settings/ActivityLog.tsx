@@ -59,10 +59,10 @@ function dayLabel(iso: string): string {
 }
 
 /** Everything people did, newest first, with filters by person and kind. */
-export function ActivityLog({ people }: { people: Person[] }) {
+export function ActivityLog({ people, fixedPersonId }: { people: Person[]; fixedPersonId?: string }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [next, setNext] = useState<number | null>(null);
-  const [person, setPerson] = useState("");
+  const [person, setPerson] = useState(fixedPersonId ?? "");
   const [group, setGroup] = useState("");
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
 
@@ -121,13 +121,17 @@ export function ActivityLog({ people }: { people: Person[] }) {
   return (
     <section className="rounded-2xl border border-border bg-surface">
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
-        <label className="sr-only" htmlFor="activity-person">Person</label>
-        <select id="activity-person" className={selectClass} value={person} onChange={(e) => { setState("loading"); setPerson(e.target.value); }}>
-          <option value="">Everyone</option>
-          {people.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
+        {!fixedPersonId && (
+          <>
+            <label className="sr-only" htmlFor="activity-person">Person</label>
+            <select id="activity-person" className={selectClass} value={person} onChange={(e) => { setState("loading"); setPerson(e.target.value); }}>
+              <option value="">Everyone</option>
+              {people.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </>
+        )}
         <label className="sr-only" htmlFor="activity-group">Kind</label>
         <select id="activity-group" className={selectClass} value={group} onChange={(e) => { setState("loading"); setGroup(e.target.value); }}>
           <option value="">All activity</option>

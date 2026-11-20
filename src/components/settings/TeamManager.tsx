@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { Check, Copy, KeyRound, Power, RefreshCw, ShieldCheck, UserPlus } from "lucide-react";
+import { ArrowUpRight, Check, Copy, KeyRound, Power, RefreshCw, ShieldCheck, UserPlus } from "lucide-react";
+import { OWNER_ID } from "@/lib/auth/accounts.logic";
 import { Sheet } from "@/components/ui/Sheet";
 import { Toast, type ToastMessage } from "@/components/ui/Toast";
 import type { PublicMember } from "@/lib/team/public-member";
@@ -90,6 +92,10 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
               <p className="text-sm text-muted">Admin login. Its password is set on the server.</p>
             </div>
             <span className="rounded-full bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">Admin</span>
+            <Link href={`/dashboard/settings/team/${OWNER_ID}`} className={quietButton}>
+              <ArrowUpRight className="size-3.5" aria-hidden />
+              View activity
+            </Link>
           </li>
 
           {members.length === 0 && (
@@ -141,6 +147,10 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
                   </>
                 ) : (
                   <>
+                    <Link href={`/dashboard/settings/team/${member.id}`} className={quietButton}>
+                      <ArrowUpRight className="size-3.5" aria-hidden />
+                      View activity
+                    </Link>
                     {member.active && (
                       <button type="button" className={quietButton} onClick={() => setResetFor(member)}>
                         <KeyRound className="size-3.5" aria-hidden />

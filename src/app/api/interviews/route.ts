@@ -1,4 +1,5 @@
 import { getActor } from "@/lib/auth/actor";
+import { OWNER_ID } from "@/lib/auth/accounts.logic";
 import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
@@ -61,7 +62,9 @@ export async function POST(request: NextRequest) {
   };
 
   // Whoever is signed in arranged the interview.
-  const arrangedBy = (await getActor())?.name ?? accountDisplayName();
+  const actor = await getActor();
+  const arrangedBy = actor?.name ?? accountDisplayName();
+  const arrangedById = actor?.id ?? OWNER_ID;
   const parsed = createInterviewSchema.safeParse({
     title: text("title"),
     recruiterName: arrangedBy,
@@ -198,6 +201,7 @@ export async function POST(request: NextRequest) {
 
     room = await createInterviewRoom({
       ...parsed.data,
+      createdBy: arrangedById,
       roleTitle: requestedRole?.title ?? parsed.data.roleTitle,
       roleId: requestedRole?.id,
       scheduledAt: scheduled.value,

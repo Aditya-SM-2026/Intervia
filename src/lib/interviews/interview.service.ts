@@ -190,6 +190,7 @@ export async function createInterviewRoom(input: CreateInterviewInput): Promise<
     createdAt,
     expiresAt,
     recruiterName: input.recruiterName,
+    createdBy: input.createdBy ?? null,
     scheduledAt: input.scheduledAt ?? null,
     reminderSentAt: null,
     uploadToken: generateUploadToken(),

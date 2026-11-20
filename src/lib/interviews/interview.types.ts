@@ -136,6 +136,12 @@ export interface InterviewRoom {
   uploadUsedAt: string | null;
   /** Session fields (see docs/PRE_INTERVIEW_PLAN.md). */
   recruiterName: string | null;
+  /**
+   * The signed-in user who created the interview: a team member id, or
+   * "owner" for the admin login. Null for interviews made before it was
+   * recorded, and for interviews created by the agent or a cron.
+   */
+  createdBy?: string | null;
   /** The only email that may open this link; the join token is issued after it matches. */
   candidateEmail: string | null;
   /**
@@ -173,6 +179,8 @@ export interface CreateInterviewInput {
   /** Display title; defaults to the role title when omitted. */
   title?: string;
   recruiterName: string;
+  /** Signed-in user who created it: a member id or "owner". */
+  createdBy?: string | null;
   candidateName: string;
   candidateEmail: string;
   /** Optional HR email; when set, HR gets their own join link. */
@@ -250,6 +258,8 @@ export interface DashboardListFilter {
   email?: string;
   /** Keep only rooms whose raw status matches one of these. */
   status?: InterviewStatus[];
+  /** Keep only rooms this signed-in user created (member id or "owner"). */
+  createdBy?: string;
   limit?: number;
   offset?: number;
 }

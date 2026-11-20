@@ -1,4 +1,5 @@
 import { getActor } from "@/lib/auth/actor";
+import { OWNER_ID } from "@/lib/auth/accounts.logic";
 import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
@@ -89,7 +90,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (scheduled.error) return roleErrorResponse("INVALID_INPUT", scheduled.error);
 
     // Whoever is signed in arranged the interview.
-    const arrangedBy = (await getActor())?.name ?? accountDisplayName();
+    const actor = await getActor();
+    const arrangedBy = actor?.name ?? accountDisplayName();
+    const arrangedById = actor?.id ?? OWNER_ID;
     const settings = createInterviewSchema.safeParse({
       recruiterName: arrangedBy,
       candidateName: "placeholder",
@@ -160,6 +163,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const resumeText = interviewResume?.text?.trim() ?? "";
         const room = await createInterviewRoom({
           ...settings.data,
+          createdBy: arrangedById,
           candidateName: name,
           candidateEmail: email,
           roleTitle: role.title,
