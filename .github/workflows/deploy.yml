@@ -10,6 +10,7 @@ env:
   ZONE: asia-south1-a
   AR_REPO: asia-south1-docker.pkg.dev/siva-nikhil/meetingbot
   WEB_URL: https://meetingbot-web-199504026920.asia-south1.run.app
+  PUBLIC_URL: https://interview.medhasacademy.com
   # (gcloud projects describe siva-nikhil --format='value(projectNumber)' → 199504026920)
   WIF_PROVIDER: projects/199504026920/locations/global/workloadIdentityPools/github-intervia/providers/github
   SA: 199504026920-compute@developer.gserviceaccount.com
@@ -114,6 +115,6 @@ jobs:
             --execution-environment gen2 \
             --cpu 2 --memory 4Gi \
             --task-timeout 2h --max-retries 0 --tasks 1 \
-            --set-env-vars INTERVIA_ONE_SHOT=1,AGENT_NAME=intervia-interviewer,AGENT_TTS_PROVIDER=cloud,NEXT_PUBLIC_VOICE_PROVIDER=cascade,NODE_ENV=production,INTERVIA_WEB_URL=${{ env.WEB_URL }} \
+            --set-env-vars INTERVIA_ONE_SHOT=1,AGENT_NAME=intervia-interviewer,AGENT_TTS_PROVIDER=cloud,NEXT_PUBLIC_VOICE_PROVIDER=cascade,NODE_ENV=production,INTERVIA_WEB_URL=${{ env.PUBLIC_URL }} \
             --set-secrets AGENT_API_SECRET=meetingbot-agent-api-secret:latest,GEMINI_API_KEY=meetingbot-gemini-api-key:latest,OMINIBOT_API_KEY=meetingbot-ominibot-api-key:latest,LIVEKIT_URL=meetingbot-livekit-url:latest,LIVEKIT_API_KEY=meetingbot-livekit-api-key:latest,LIVEKIT_API_SECRET=meetingbot-livekit-api-secret:latest \
             --quiet
