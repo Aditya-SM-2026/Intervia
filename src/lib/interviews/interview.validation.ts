@@ -147,12 +147,6 @@ export const createInterviewSchema = z.object({
       })
       .default("medium"),
   ),
-  voiceMode: z.preprocess(
-    emptyToUndefined,
-    z
-      .enum(["standard", "rolling"], { message: "Voice mode must be one of: standard, rolling" })
-      .default("standard"),
-  ),
   jobDescriptionText: z.preprocess(
     emptyToUndefined,
     z

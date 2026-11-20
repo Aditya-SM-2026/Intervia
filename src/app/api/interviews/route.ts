@@ -12,7 +12,6 @@ import type { InterviewApiError, ResumeInfo } from "@/lib/interviews/interview.t
 import { extractPdfText, PdfExtractionError } from "@/lib/interviews/pdf-text";
 import { requireRecruiter } from "@/lib/auth/guards";
 import { accountDisplayName } from "@/lib/auth/session";
-import { getAgentPersonality } from "@/lib/agent/personality.service";
 import { ensureRoleForTitle, getRoleForForm } from "@/lib/roles/role.service";
 import { describeRoleError } from "@/lib/roles/role-errors";
 import { storeResumeFile } from "@/lib/uploads/resume-storage";
@@ -29,6 +28,10 @@ function invalidInput(message: string) {
   return NextResponse.json(body, { status: 400 });
 }
 
+function tooLarge(message: string) {
+  return NextResponse.json({ error: { code: "PAYLOAD_TOO_LARGE", message } }, { status: 413 });
+}
+
 /**
  * Creates an interview session (signed-in recruiters only). Accepts multipart
  * form data so the resume (PDF) and optionally the job description (PDF) can
@@ -38,6 +41,12 @@ function invalidInput(message: string) {
 export async function POST(request: NextRequest) {
   const denied = await requireRecruiter();
   if (denied) return denied;
+
+  // Same caps as the create form: 20 MB per file, 28 MB for the whole request.
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  if (contentLength > 28 * 1024 * 1024) {
+    return tooLarge("The resume and job description together must be under 28 MB. Compress them and try again.");
+  }
 
   let form: FormData;
   try {
@@ -65,7 +74,6 @@ export async function POST(request: NextRequest) {
     scheduledTime: text("scheduledTime"),
     durationMinutes: text("durationMinutes"),
     difficulty: text("difficulty"),
-    voiceMode: text("voiceMode"),
     jobDescriptionText: text("jobDescriptionText"),
     skillFocus: text("skillFocus"),
     projectShare: text("projectShare"),
@@ -109,6 +117,11 @@ export async function POST(request: NextRequest) {
   if (jdFile !== null && !(jdFile instanceof File)) {
     return invalidInput("Job description upload must be a file.");
   }
+  for (const file of [resumeFile, jdFile]) {
+    if (file instanceof File && file.size > 20 * 1024 * 1024) {
+      return tooLarge("Each file must be under 20 MB. Compress the PDF, or paste the job description as text.");
+    }
+  }
 
   let jobDescription: { source: "text" | "pdf"; text: string } | null = null;
   if (jdFile instanceof File && jdFile.size > 0) {
@@ -143,16 +156,6 @@ export async function POST(request: NextRequest) {
         throw error;
       }
     }
-  }
-
-  // The voice engine is a settings choice now, not something the recruiter
-  // picks per interview. A failed read must not block scheduling.
-  let voiceMode = parsed.data.voiceMode;
-  try {
-    const personality = await getAgentPersonality();
-    if (personality.voiceMode) voiceMode = personality.voiceMode;
-  } catch (error) {
-    console.error(`[interviews] could not read the voice engine setting: ${(error as Error).message}`);
   }
 
   let room;
@@ -195,7 +198,6 @@ export async function POST(request: NextRequest) {
 
     room = await createInterviewRoom({
       ...parsed.data,
-      voiceMode,
       roleTitle: requestedRole?.title ?? parsed.data.roleTitle,
       roleId: requestedRole?.id,
       scheduledAt: scheduled.value,

@@ -11,7 +11,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 DIFFICULTIES = ("easy", "medium", "hard", "extra-hard")
-VOICE_MODES = ("standard", "rolling")
+# Rolling is the only voice mode. The old "standard" mode (one session for the
+# whole interview) cost more and is gone; any stored value is ignored.
+VOICE_MODES = ("rolling",)
 
 
 @dataclass(frozen=True)
@@ -74,9 +76,9 @@ class InterviewContext:
     competencies: tuple[Competency, ...] = field(default_factory=tuple)
     # Recruiter-set custom scoring parameters (empty when none were set).
     skill_focus: tuple[SkillFocus, ...] = field(default_factory=tuple)
-    # "standard": one model session per interview. "rolling": a fresh session
-    # at each topic change and every minute or two (see worker.py).
-    voice_mode: str = "standard"
+    # Always "rolling": a fresh session at each topic change and every minute
+    # or two (see worker.py).
+    voice_mode: str = "rolling"
     personality: AgentPersonality = field(default_factory=AgentPersonality)
 
 
@@ -191,7 +193,6 @@ def parse_context(interview_id: str, payload: Any) -> InterviewContext:
 
     duration = interview.get("durationMinutes")
     difficulty = _text(interview.get("difficulty"), "medium")
-    voice_mode = _text(interview.get("voiceMode"), "standard")
 
     personality_raw = data.get("personality") if isinstance(data.get("personality"), dict) else {}
     styles_raw = (
@@ -219,6 +220,6 @@ def parse_context(interview_id: str, payload: Any) -> InterviewContext:
         candidate_summary=_text(plan.get("candidateSummary")),
         competencies=competencies or FALLBACK_COMPETENCIES,
         skill_focus=skill_focus,
-        voice_mode=voice_mode if voice_mode in VOICE_MODES else "standard",
+        voice_mode="rolling",
         personality=personality,
     )

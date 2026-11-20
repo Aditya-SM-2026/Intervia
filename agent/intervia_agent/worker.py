@@ -38,6 +38,7 @@ from livekit.agents import (
 from livekit.agents.voice import io
 from livekit.plugins import google, silero
 
+from . import usage_ledger
 from .audio_track import InterviewAudio, InterviewHrAudio
 from .backend import Backend, iso_from_epoch, iso_now
 from .config import (
@@ -94,6 +95,8 @@ ROLLING_SETTLE_SECONDS = 0.25
 STEP_ANSWER_GRACE_SECONDS = 25.0
 # The candidate's audio is never held back longer than this during a renewal.
 GATE_MAX_HOLD_SECONDS = 4.0
+# How long to wait for the closed model session to finish and report its usage.
+MODEL_STOP_WAIT_SECONDS = 3.0
 
 
 class GatedAudioInput(io.AudioInput):
@@ -138,6 +141,14 @@ class GatedAudioInput(io.AudioInput):
         if self._muted:
             return rtc.AudioFrame.create(frame.sample_rate, frame.num_channels, frame.samples_per_channel)
         return frame
+
+
+class FinishedAgent(Agent):
+    """Takes over once the interview is over. It has no model, so switching to
+    it closes the Gemini session: nothing more is generated, or billed."""
+
+    def __init__(self) -> None:
+        super().__init__(instructions="The interview is over. Say nothing.")
 
 
 class InterviewerAgent(Agent):
@@ -279,6 +290,7 @@ class InterviewRuntime:
         self._gate: GatedAudioInput | None = None
         self._session_started_at = time.monotonic()
         self._sessions_opened = 0
+        self._ledger: usage_ledger.UsageLedger | None = None
         # When the current plan step opened, and the candidate's latest answer:
         # start_next_topic is refused until the new step has been answered.
         self._step_opened_at = 0.0
@@ -294,6 +306,8 @@ class InterviewRuntime:
         self._last_interviewer_turn_at: float | None = None
         # Set once the system closing has begun (the last CLOSING_LEAD_SECONDS).
         self.closing = False
+        # Set once the Gemini session has been closed for good (see stop_model).
+        self._model_stopped = False
 
         # Two-sided audio recording fields (set when the session starts).
         self._audio: InterviewAudio | None = None
@@ -308,6 +322,8 @@ class InterviewRuntime:
         payload = await self.backend.fetch_context()
         self.context = parse_context(self.interview_id, payload)
         self.controller = InterviewController(self.context)
+        # Every Gemini usage report, thinking and tool tokens included, for cost.
+        self._ledger = usage_ledger.start(self.config.live_model)
         self.rolling = self.context.voice_mode == "rolling"
         self.fresh_sessions = self.config.topic_reset or self.rolling
         logger.info(
@@ -405,6 +421,9 @@ class InterviewRuntime:
         may continue speaking them.)
         """
         assert self.session is not None
+        if self._model_stopped:
+            # The interview is over and the model is closed: nothing to say.
+            return None
         return self.session.generate_reply(
             user_input=f"{SYSTEM_NOTE_PREFIX} {text}", allow_interruptions=allow_interruptions
         )
@@ -601,6 +620,7 @@ class InterviewRuntime:
         if self._finished:
             return
         self._finished = True
+        await self.stop_model()
         await self._record_outcome(reason)
         current = asyncio.current_task()
         for task in list(self._tasks):
@@ -613,6 +633,33 @@ class InterviewRuntime:
         except Exception as error:  # noqa: BLE001
             logger.warning("could not delete room: %s", error)
         self.ctx.shutdown(reason)
+
+    async def stop_model(self) -> None:
+        """Closes the Gemini session for good, then waits a moment for its last
+        usage reports, so the saved cost includes every reply it generated.
+
+        Gemini keeps generating a reply it has started even when nobody hears
+        it (its own interrupt only stops playback here), and bills it. Closing
+        the session is the only way to stop that.
+        """
+        if self._model_stopped or self.session is None:
+            return
+        self._model_stopped = True
+        try:
+            self.session.update_agent(FinishedAgent())
+        except Exception as error:  # noqa: BLE001 - the session may already be closing
+            logger.warning("could not close the model session: %s", error)
+            return
+        deadline = time.monotonic() + MODEL_STOP_WAIT_SECONDS
+        while time.monotonic() < deadline:
+            if isinstance(self.session.current_agent, FinishedAgent) and self.session.agent_state not in (
+                "thinking",
+                "speaking",
+            ):
+                break
+            await asyncio.sleep(0.1)
+        # The old session's final usage report arrives as it closes.
+        await asyncio.sleep(0.5)
 
     async def _record_outcome(self, reason: str) -> None:
         """Writes the completion record exactly once, whichever path ends the job."""
@@ -676,14 +723,22 @@ class InterviewRuntime:
         await self._record_outcome("candidate_left" if self._candidate_gone else "session_closed")
 
     def _usage(self) -> list[dict[str, Any]]:
+        """LiveKit's own usage summary, then the full count of Gemini's reports.
+
+        The web app prices the full count when it is there; LiveKit's summary
+        stays alongside it for comparison."""
+        entries: list[dict[str, Any]] = []
         try:
             assert self.session is not None
-            return [
+            entries = [
                 item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(vars(item))
                 for item in self.session.usage.model_usage
             ]
-        except Exception:  # noqa: BLE001 - usage is informational
-            return []
+        except Exception as error:  # noqa: BLE001 - usage is informational
+            logger.warning("could not read LiveKit's usage summary: %s", error)
+        if self._ledger is not None and self._ledger.reports > 0:
+            entries.append(self._ledger.entry())
+        return entries
 
     # --- plan tools ------------------------------------------------------
 
@@ -810,9 +865,11 @@ class InterviewRuntime:
             )
         except Exception as error:  # noqa: BLE001
             logger.warning("closing goodbye was not completed cleanly: %s", error)
-        # Nothing after the goodbye reaches the candidate.
+        # Nothing after the goodbye reaches the candidate, and the model may
+        # not generate anything more: an unheard reply is still billed.
         if self.session.output.audio is not None:
             self.session.output.set_audio_enabled(False)
+        await self.stop_model()
         # The call ends at the booked limit, not before.
         await asyncio.sleep(max(0.0, limit - time.monotonic()))
         await self.finish("time_up")

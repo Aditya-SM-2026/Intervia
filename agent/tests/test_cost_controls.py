@@ -98,9 +98,11 @@ def test_carry_over_without_a_summary_has_no_note():
 def test_voice_mode_comes_from_the_interview_and_defaults_to_standard():
     from intervia_agent.plan import parse_context
 
+    # Rolling is the only mode: a stored "standard" (or anything else) is ignored.
     assert parse_context("x", {"interview": {"voiceMode": "rolling"}}).voice_mode == "rolling"
-    assert parse_context("x", {"interview": {"voiceMode": "nonsense"}}).voice_mode == "standard"
-    assert parse_context("x", None).voice_mode == "standard"
+    assert parse_context("x", {"interview": {"voiceMode": "standard"}}).voice_mode == "rolling"
+    assert parse_context("x", {"interview": {"voiceMode": "nonsense"}}).voice_mode == "rolling"
+    assert parse_context("x", None).voice_mode == "rolling"
 
 
 def test_a_mid_topic_renewal_carries_more_of_the_conversation():

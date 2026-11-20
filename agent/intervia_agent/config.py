@@ -79,8 +79,8 @@ class AgentConfig:
             # closes the session, so the model decides for itself.
             thinking_budget=_optional_int(os.environ.get("GEMINI_THINKING_BUDGET", "")),
             # Cost controls. Gemini Live bills the whole remembered conversation
-            # again on every reply. The recruiter picks the voice mode per
-            # interview: "rolling" starts a fresh session at each topic change
+            # again on every reply. Every interview runs in rolling mode,
+            # which starts a fresh session at each topic change
             # and once a session is this many seconds old, carrying the earlier
             # conversation as text. INTERVIA_TOPIC_RESET=1 forces the per-topic
             # part on for every interview; the two token settings limit how

@@ -2,20 +2,31 @@ import type { SessionOutcome } from "./interview.types";
 
 /**
  * Estimated cost of the live voice model for one interview, from the token
- * usage the agent recorded. An estimate, not an invoice: it applies list
- * prices to reported tokens and leaves out plan generation and scoring.
+ * usage the agent recorded. It applies list prices to the tokens Gemini
+ * reported and leaves out plan generation and scoring.
  *
  * Gemini Live bills every token in the session's remembered context again on
  * each reply, so these totals already include that repetition.
+ *
+ * Newer interviews carry a "gemini_live_usage" entry: the agent's own count
+ * of every usage report Gemini sent, thinking and tool-use tokens included.
+ * When it is there it is the only entry priced. Older interviews only have
+ * LiveKit's summary, which leaves those tokens out and so reads low.
  */
 
-/** USD per one million tokens, Gemini 3.8 Live list prices (October 2026). */
+/**
+ * USD per one million tokens, Gemini 3.8 Live list prices (October 2026).
+ * Thinking tokens are billed as output; they are priced at the text rate.
+ */
 const RATES = {
   audioInput: 3.0,
   textInput: 0.75,
   audioOutput: 12.0,
   textOutput: 4.5,
 };
+
+/** The agent's complete count of Gemini usage reports (see the comment above). */
+const FULL_COUNT_TYPE = "gemini_live_usage";
 
 export interface VoiceCostEstimate {
   inputTokens: number;
@@ -36,14 +47,19 @@ export function estimateVoiceCost(outcome: SessionOutcome | null): VoiceCostEsti
   let inputTokens = 0;
   let outputTokens = 0;
   let usd = 0;
-  for (const raw of outcome.usage) {
-    if (typeof raw !== "object" || raw === null) continue;
-    const entry = raw as Record<string, unknown>;
+  const entries = outcome.usage.filter(
+    (raw): raw is Record<string, unknown> => typeof raw === "object" && raw !== null,
+  );
+  const full = entries.filter((entry) => entry.type === FULL_COUNT_TYPE);
+  for (const entry of full.length > 0 ? full : entries) {
     const audioIn = count(entry, "input_audio_tokens");
     const audioOut = count(entry, "output_audio_tokens");
-    // Anything not reported as audio is priced as text.
-    const textIn = Math.max(0, count(entry, "input_tokens") - audioIn);
-    const textOut = Math.max(0, count(entry, "output_tokens") - audioOut);
+    // Anything not reported as audio is priced as text. Tool-use prompts are
+    // input; thinking is output. Both are only in the agent's full count.
+    const textIn =
+      Math.max(0, count(entry, "input_tokens") - audioIn) + count(entry, "tool_use_prompt_tokens");
+    const textOut =
+      Math.max(0, count(entry, "output_tokens") - audioOut) + count(entry, "thoughts_tokens");
     inputTokens += audioIn + textIn;
     outputTokens += audioOut + textOut;
     usd +=

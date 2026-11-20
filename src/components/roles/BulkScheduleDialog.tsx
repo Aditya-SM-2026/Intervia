@@ -32,7 +32,6 @@ export function BulkScheduleDialog({
 }) {
   const [durationMinutes, setDurationMinutes] = useState(30);
   const [difficulty, setDifficulty] = useState("medium");
-  const [voiceMode, setVoiceMode] = useState("standard");
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
   const [hrEmail, setHrEmail] = useState("");
@@ -65,7 +64,6 @@ export function BulkScheduleDialog({
             candidateIds: chunk,
             durationMinutes,
             difficulty,
-            voiceMode,
             scheduledDate: scheduledDate || undefined,
             scheduledTime: scheduledTime || undefined,
             hrEmail: hrEmail || undefined,
@@ -143,17 +141,6 @@ export function BulkScheduleDialog({
                   <option value="medium">Medium</option>
                   <option value="hard">Hard</option>
                   <option value="extra-hard">Extra hard</option>
-                </select>
-              </label>
-              <label className="text-sm">
-                <span className="mb-1 block font-medium">Mode</span>
-                <select
-                  value={voiceMode}
-                  onChange={(event) => setVoiceMode(event.target.value)}
-                  className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm outline-none focus:border-accent"
-                >
-                  <option value="standard">Standard</option>
-                  <option value="rolling">Rolling</option>
                 </select>
               </label>
               <label className="text-sm">

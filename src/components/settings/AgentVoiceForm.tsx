@@ -10,15 +10,12 @@ import {
   VOICE_SAMPLE_TEXT,
   type AgentVoiceId,
 } from "@/lib/agent/agent-voices";
-import type { AgentPersonality, AgentVoiceEngine } from "@/lib/agent/personality.types";
+import type { AgentPersonality } from "@/lib/agent/personality.types";
 
 /** The voice picker: five options, each with a playable sample. */
 export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
   const [voice, setVoice] = useState<AgentVoiceId>(
     (initial.voice as AgentVoiceId | "") || DEFAULT_AGENT_VOICE_ID,
-  );
-  const [voiceMode, setVoiceMode] = useState<AgentVoiceEngine>(
-    initial.voiceMode === "rolling" ? "rolling" : "standard",
   );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
@@ -93,7 +90,7 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
       const response = await fetch("/api/settings/agent", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ voice, voiceMode }),
+        body: JSON.stringify({ voice }),
       });
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as
@@ -181,58 +178,6 @@ export function AgentVoiceForm({ initial }: { initial: AgentPersonality }) {
             {previewError}
           </p>
         )}
-      </div>
-
-      <div className="rounded-2xl border border-border bg-surface p-5">
-        <h2 className="text-lg font-semibold tracking-tight flex items-center gap-2">Voice engine<InfoTip text="How the live call is run. This applies to every interview from now on, and it is no longer chosen when an interview is created." /></h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {[
-            {
-              value: "standard" as AgentVoiceEngine,
-              title: "Standard",
-              short: "About $1.80 an hour",
-              hint: "One continuous session for the whole interview. The version tested most. About $1.80 an hour in a 3-minute test, and the rate rises as the interview gets longer.",
-            },
-            {
-              value: "rolling" as AgentVoiceEngine,
-              title: "Lower cost",
-              short: "About $1.10 an hour",
-              hint: "Same interviewer and voice, renewed at each topic and about every 90 seconds, carrying the conversation as text. About $1.10 an hour, and the rate stays flat.",
-            },
-          ].map((option) => {
-            const isSelected = voiceMode === option.value;
-            return (
-              <label
-                key={option.value}
-                className={`cursor-pointer rounded-xl border p-4 transition ${
-                  isSelected ? "border-accent bg-accent-soft" : "border-border hover:border-accent/40"
-                }`}
-              >
-                <span className="flex items-start gap-3">
-                  <input
-                    type="radio"
-                    name="voice-engine"
-                    value={option.value}
-                    checked={isSelected}
-                    onChange={() => {
-                      setVoiceMode(option.value);
-                      setSaved(null);
-                    }}
-                    style={{ accentColor: "var(--accent)" }}
-                    className="mt-1 size-4 shrink-0"
-                  />
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-1.5 font-semibold tracking-tight">
-                      {option.title}
-                      <InfoTip text={option.hint} />
-                    </span>
-                    <span className="mt-0.5 block text-xs text-muted">{option.short}</span>
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
       </div>
 
       {error && (

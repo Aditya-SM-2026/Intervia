@@ -27,7 +27,7 @@ const room: InterviewRoom = {
   roleTitle: "Backend Engineer",
   difficulty: "medium",
   durationMinutes: 15,
-  voiceMode: "standard",
+  voiceMode: "rolling",
   jobDescription: null,
   resume: null,
   consent: null,
