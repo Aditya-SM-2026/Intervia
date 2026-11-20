@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { requireRecruiter } from "@/lib/auth/guards";
+import { requireAdmin } from "@/lib/auth/guards";
 import { getGeminiTextConfig } from "@/lib/config/env";
 import { AGENT_VOICES, VOICE_SAMPLE_TEXT, type AgentVoiceOption } from "@/lib/agent/agent-voices";
 
@@ -13,7 +13,8 @@ import { AGENT_VOICES, VOICE_SAMPLE_TEXT, type AgentVoiceOption } from "@/lib/ag
  * between Live API and TTS"), then wrapped as a WAV for the browser. Results
  * are cached in memory: each voice is synthesized once per server process.
  *
- * Recruiter-only: the API key stays server-side.
+ * Admin-only: the API key stays server-side, and hearing a voice is part of
+ * the admin-only Voice page.
  */
 
 export const dynamic = "force-dynamic";
@@ -109,7 +110,7 @@ async function synthesize(voice: AgentVoiceOption, apiKey: string, model: string
 }
 
 export async function GET(request: NextRequest) {
-  const denied = await requireRecruiter();
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const requested = request.nextUrl.searchParams.get("voice") ?? "";

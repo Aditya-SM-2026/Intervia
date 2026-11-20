@@ -10,11 +10,15 @@ export default async function SettingsLayout({ children }: { children: React.Rea
   const groups: SettingsNavGroup[] = [
     {
       label: "Interviewer",
-      items: [
-        { href: "/dashboard/settings", label: "Overview", icon: "overview" },
-        { href: "/dashboard/settings/agent", label: "Behaviour", icon: "agent" },
-        { href: "/dashboard/settings/voice", label: "Voice", icon: "voice" },
-      ],
+      // Behaviour and Voice change how every interview runs, so they belong to
+      // the admin login. Team members work from the overview.
+      items: admin
+        ? [
+            { href: "/dashboard/settings", label: "Overview", icon: "overview" },
+            { href: "/dashboard/settings/agent", label: "Behaviour", icon: "agent" },
+            { href: "/dashboard/settings/voice", label: "Voice", icon: "voice" },
+          ]
+        : [{ href: "/dashboard/settings", label: "Overview", icon: "overview" }],
     },
     admin
       ? {

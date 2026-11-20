@@ -1,7 +1,7 @@
 import { logActivity } from "@/lib/activity/activity";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { requireRecruiter } from "@/lib/auth/guards";
+import { requireAdmin } from "@/lib/auth/guards";
 import {
   getAgentPersonality,
   resetAgentPersonality,
@@ -14,7 +14,8 @@ import { personalityInputSchema } from "@/lib/agent/personality.validation";
  * override (blank fields fall back to prompts.py); DELETE restores the basic
  * personality by clearing every override.
  *
- * Recruiter-only: this controls how a live interview behaves.
+ * Admin-only: this controls how every live interview behaves and sounds, so a
+ * team member cannot read or change it.
  */
 
 function failure(message: string, status: number) {
@@ -22,7 +23,7 @@ function failure(message: string, status: number) {
 }
 
 export async function GET() {
-  const denied = await requireRecruiter();
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   try {
@@ -34,7 +35,7 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
-  const denied = await requireRecruiter();
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   let body: unknown;
@@ -71,7 +72,7 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE() {
-  const denied = await requireRecruiter();
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   try {

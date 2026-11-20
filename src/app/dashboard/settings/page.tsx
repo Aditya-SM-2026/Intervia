@@ -40,18 +40,24 @@ export default async function SettingsPage() {
 
       <div className="grid gap-6">
         <section className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-          <LinkRow
-            href="/dashboard/settings/agent"
-            icon={<Bot className="size-4" aria-hidden />}
-            label="Behaviour"
-            value={basic ? "Built-in personality" : "Custom behaviour"}
-          />
-          <LinkRow
-            href="/dashboard/settings/voice"
-            icon={<Mic className="size-4" aria-hidden />}
-            label="Voice"
-            value={voice.name}
-          />
+          {/* Behaviour and Voice are admin-only, so a team member sees no link
+              that would lead them to a page they cannot use. */}
+          {admin && (
+            <LinkRow
+              href="/dashboard/settings/agent"
+              icon={<Bot className="size-4" aria-hidden />}
+              label="Behaviour"
+              value={basic ? "Built-in personality" : "Custom behaviour"}
+            />
+          )}
+          {admin && (
+            <LinkRow
+              href="/dashboard/settings/voice"
+              icon={<Mic className="size-4" aria-hidden />}
+              label="Voice"
+              value={voice.name}
+            />
+          )}
           {admin ? (
             <LinkRow
               href="/dashboard/settings/team"

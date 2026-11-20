@@ -58,6 +58,7 @@ export function TopNav() {
   const [analyticsError, setAnalyticsError] = useState(false);
   const [accountName, setAccountName] = useState("Admin");
   const [accountDetail, setAccountDetail] = useState("Medhas Academy");
+  const [accountAdmin, setAccountAdmin] = useState(false);
 
   // The signed-in account's name, shown on the avatar and in the user menu.
   useEffect(() => {
@@ -67,6 +68,7 @@ export function TopNav() {
       .then((data) => {
         if (cancelled || !data?.name) return;
         setAccountName(data.name);
+        setAccountAdmin(Boolean(data.admin));
         setAccountDetail(data.admin ? "Admin · Medhas Academy" : data.email ?? "Medhas Academy");
       })
       .catch(() => {});
@@ -118,7 +120,7 @@ export function TopNav() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-surface md:bg-surface/85 md:backdrop-blur-xl md:supports-[backdrop-filter]:bg-surface/75">
-      <CommandPalette key={paletteKey} open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <CommandPalette key={paletteKey} open={paletteOpen} onClose={() => setPaletteOpen(false)} admin={accountAdmin} />
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6">
         <div className="flex items-center gap-6">
           <BrandMark href="/dashboard" />

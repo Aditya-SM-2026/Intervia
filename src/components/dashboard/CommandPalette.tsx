@@ -45,7 +45,7 @@ const icon = "size-4";
  * start a new interview or role, or switch the theme, from the keyboard.
  * Typing two or more letters also searches candidates and roles.
  */
-export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CommandPalette({ open, onClose, admin }: { open: boolean; onClose: () => void; admin: boolean }) {
   const router = useRouter();
   const reduce = useReducedMotion();
   const { setPreference } = useTheme();
@@ -66,8 +66,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     [onClose, router],
   );
 
-  const fixed: Command[] = useMemo(
-    () => [
+  const fixed: Command[] = useMemo(() => {
+    const commands: Command[] = [
       { id: "new-interview", group: "Actions", label: "New interview", icon: <Plus className={icon} />, keywords: "create invite schedule", run: go("/recruiter") },
       { id: "new-role", group: "Actions", label: "New role", icon: <Plus className={icon} />, keywords: "create job opening", run: () => {
         if (window.location.pathname === "/dashboard/roles") {
@@ -87,9 +87,11 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       { id: "light", group: "Theme", label: "Light theme", icon: <Sun className={icon} />, keywords: "appearance", run: () => { setPreference("light"); onClose(); } },
       { id: "dark", group: "Theme", label: "Dark theme", icon: <Moon className={icon} />, keywords: "appearance", run: () => { setPreference("dark"); onClose(); } },
       { id: "system", group: "Theme", label: "Match the system theme", icon: <Monitor className={icon} />, keywords: "appearance auto", run: () => { setPreference("system"); onClose(); } },
-    ],
-    [go, onClose, setPreference],
-  );
+    ];
+    // Behaviour and Voice are admin-only settings pages, so a team member is
+    // not offered a jump that would only tell them the page is the admin's.
+    return admin ? commands : commands.filter((command) => command.id !== "behaviour" && command.id !== "voice");
+  }, [admin, go, onClose, setPreference]);
 
   // Candidates and roles matching the query, from the same endpoints the lists use.
   useEffect(() => {

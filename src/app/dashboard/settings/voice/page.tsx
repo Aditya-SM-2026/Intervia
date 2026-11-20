@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
-import { SettingsPageHeader } from "@/components/settings/SettingsPageHeader";
+import { AdminOnly, SettingsPageHeader } from "@/components/settings/SettingsPageHeader";
 import { AgentVoiceForm } from "@/components/settings/AgentVoiceForm";
 import { readAgentPersonalityForSettings } from "@/lib/agent/personality.service";
+import { isAdmin } from "@/lib/auth/accounts.logic";
+import { getActor } from "@/lib/auth/actor";
 
 export const metadata: Metadata = {
   title: "Agent voice",
@@ -10,8 +12,23 @@ export const metadata: Metadata = {
 // Reads the saved voice, so it must render per request, never at build.
 export const dynamic = "force-dynamic";
 
-/** The interviewer's voice: five options, each with a sample to hear first. */
+/**
+ * The interviewer's voice: five options, each with a sample to hear first.
+ * Admin only: it changes how every interview sounds.
+ */
 export default async function AgentVoicePage() {
+  if (!isAdmin(await getActor())) {
+    return (
+      <>
+        <SettingsPageHeader
+          title="Voice"
+          tip="Pick how the interviewer sounds. Listen to a sample, choose, then save. Every interview from then on uses it."
+        />
+        <AdminOnly />
+      </>
+    );
+  }
+
   const { personality, available } = await readAgentPersonalityForSettings();
 
   return (
