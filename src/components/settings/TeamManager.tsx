@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowUpRight, Check, Copy, KeyRound, Power, RefreshCw, ShieldCheck, UserPlus } from "lucide-react";
+import { ArrowUpRight, Check, Copy, KeyRound, Power, RefreshCw, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { OWNER_ID } from "@/lib/auth/accounts.logic";
 import { Sheet } from "@/components/ui/Sheet";
 import { Toast, type ToastMessage } from "@/components/ui/Toast";
@@ -49,6 +49,7 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
   const [adding, setAdding] = useState(false);
   const [resetFor, setResetFor] = useState<PublicMember | null>(null);
   const [confirmOff, setConfirmOff] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const replace = (member: PublicMember) => setMembers((list) => list.map((m) => (m.id === member.id ? member : m)));
@@ -67,6 +68,19 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
       tone: "success",
       message: data.member.active ? `${member.name} can sign in again.` : `${member.name} is turned off and signed out everywhere.`,
     });
+  }
+
+  async function remove(member: PublicMember) {
+    setBusy(member.id);
+    const { ok, data } = await send(`/api/team/${member.id}`, "DELETE", undefined);
+    setBusy(null);
+    setConfirmDelete(null);
+    if (!ok) {
+      setToast({ tone: "error", message: data.error?.message ?? "That did not delete. Try again." });
+      return;
+    }
+    setMembers((list) => list.filter((m) => m.id !== member.id));
+    setToast({ tone: "success", message: `${member.name} was deleted. Their interviews and history stay.` });
   }
 
   return (
@@ -135,7 +149,25 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
                 {member.active ? "Active" : "Off"}
               </span>
               <div className="flex flex-wrap items-center gap-2">
-                {confirmOff === member.id ? (
+                {confirmDelete === member.id ? (
+                  <>
+                    <span className="text-xs text-muted">
+                      Delete {member.name} for good? They lose access. Their interviews and history stay.
+                    </span>
+                    <button
+                      type="button"
+                      className={`${quietButton} border-red-500/40 text-red-600 dark:text-red-400`}
+                      disabled={busy === member.id}
+                      onClick={() => void remove(member)}
+                    >
+                      <Trash2 className="size-3.5" aria-hidden />
+                      Delete
+                    </button>
+                    <button type="button" className={quietButton} onClick={() => setConfirmDelete(null)}>
+                      Cancel
+                    </button>
+                  </>
+                ) : confirmOff === member.id ? (
                   <>
                     <span className="text-xs text-muted">Sign them out everywhere?</span>
                     <button type="button" className={`${quietButton} border-red-500/40 text-red-600 dark:text-red-400`} disabled={busy === member.id} onClick={() => void toggle(member)}>
@@ -165,6 +197,16 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
                     >
                       <Power className="size-3.5" aria-hidden />
                       {member.active ? "Turn off" : "Turn on"}
+                    </button>
+                    <button
+                      type="button"
+                      className={`${quietButton} border-red-500/30 text-red-600 hover:bg-red-500/[0.06] dark:text-red-400`}
+                      disabled={busy === member.id}
+                      onClick={() => setConfirmDelete(member.id)}
+                      aria-label={`Delete ${member.name}`}
+                    >
+                      <Trash2 className="size-3.5" aria-hidden />
+                      Delete
                     </button>
                   </>
                 )}

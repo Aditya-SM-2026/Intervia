@@ -7,6 +7,7 @@ import { requireAdmin } from "@/lib/auth/guards";
 import { hashPassword } from "@/lib/auth/password";
 import { getAccountsRepository } from "@/server/repositories/accounts-repository";
 import { publicMember } from "@/lib/team/public-member";
+import { OWNER_ID } from "@/lib/auth/accounts.logic";
 
 type RouteParams = { params: Promise<{ memberId: string }> };
 
@@ -57,4 +58,49 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
   }
   return NextResponse.json({ member: publicMember(member), sessionsEnded: signedOut });
+}
+
+/**
+ * Deletes one member's login (admin only). Their interviews, roles and past
+ * activity stay, because those are the company's hiring records; only the
+ * account and its sessions go. The admin login itself can never be deleted.
+ */
+export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  const { memberId } = await params;
+  if (memberId === OWNER_ID) {
+    return NextResponse.json(
+      { error: { code: "INVALID_INPUT", message: "The admin login cannot be deleted." } },
+      { status: 400 },
+    );
+  }
+
+  const repository = getAccountsRepository();
+  const before = await repository.getMember(memberId);
+  if (!before) {
+    return NextResponse.json(
+      { error: { code: "NOT_FOUND", message: "This person is not on the team." } },
+      { status: 404 },
+    );
+  }
+
+  const removed = await repository.deleteMember(memberId);
+  if (!removed) {
+    return NextResponse.json(
+      { error: { code: "NOT_FOUND", message: "This person is not on the team." } },
+      { status: 404 },
+    );
+  }
+
+  await logActivity({
+    action: "team.member_deleted",
+    targetType: "member",
+    targetId: memberId,
+    summary: `Deleted ${before.name} (${before.email})`,
+    details: { email: before.email },
+    actor: await getActor(),
+  });
+
+  return NextResponse.json({ deleted: true });
 }

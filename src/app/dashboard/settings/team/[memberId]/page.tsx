@@ -103,26 +103,52 @@ export default async function TeamMemberPage({ params }: RouteParams) {
   const { memberId } = await params;
   const accounts = getAccountsRepository();
 
-  const member =
+  interface MemberView {
+    id: string;
+    name: string;
+    email: string | null;
+    createdBy: string | null;
+    createdAt: string | null;
+    /** True when the login was deleted; the history below is what is left. */
+    removed?: boolean;
+  }
+
+  let member: MemberView | null =
     memberId === OWNER_ID
       ? {
           id: OWNER_ID,
           name: accountDisplayName(),
-          email: null as string | null,
-          createdBy: null as string | null,
-          createdAt: null as string | null,
+          email: null,
+          createdBy: null,
+          createdAt: null,
         }
       : await accounts.getMember(memberId).then((record) =>
           record
             ? {
                 id: record.id,
                 name: record.name,
-                email: record.email as string | null,
+                email: record.email,
                 createdBy: record.createdBy,
-                createdAt: record.createdAt as string | null,
+                createdAt: record.createdAt,
               }
             : null,
         );
+
+  // A deleted person still has a paper trail. Rather than a 404, show the name
+  // from their activity and mark the login as gone.
+  if (!member) {
+    const [lastEntry] = await accounts.listActivity({ actorId: memberId, limit: 1 });
+    if (lastEntry) {
+      member = {
+        id: memberId,
+        name: lastEntry.actorName,
+        email: lastEntry.actorEmail,
+        createdBy: null,
+        createdAt: null,
+        removed: true,
+      };
+    }
+  }
 
   if (!member) notFound();
 
@@ -182,9 +208,15 @@ export default async function TeamMemberPage({ params }: RouteParams) {
           <span className="text-muted">
             Email <span className="ml-1.5 font-medium text-foreground">{member.email ?? "the admin login"}</span>
           </span>
-          <span className="text-muted">
-            Added <span className="ml-1.5 font-medium text-foreground">{formatDay(member.createdAt)}</span>
-          </span>
+          {member.removed ? (
+            <span className="rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-semibold text-red-600 dark:text-red-400">
+              Login deleted; history kept
+            </span>
+          ) : (
+            <span className="text-muted">
+              Added <span className="ml-1.5 font-medium text-foreground">{formatDay(member.createdAt)}</span>
+            </span>
+          )}
           {addedBy && (
             <span className="text-muted">
               Added by <span className="ml-1.5 font-medium text-foreground">{addedBy}</span>

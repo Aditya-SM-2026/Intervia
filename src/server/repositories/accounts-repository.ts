@@ -57,6 +57,12 @@ export interface AccountsRepository {
   /** Null when the email is already taken. */
   createMember(input: { name: string; email: string; passwordHash: string; createdBy: string }): Promise<MemberRecord | null>;
   updateMember(id: string, patch: { name?: string; active?: boolean; passwordHash?: string }): Promise<MemberRecord | null>;
+  /**
+   * Removes a person's login for good, ending their sessions. Their interviews,
+   * roles and activity stay: those are the company's records, not the account.
+   * Returns false when the person was already gone.
+   */
+  deleteMember(id: string): Promise<boolean>;
   markSignedIn(id: string): Promise<void>;
 
   createSession(userId: string, expiresAt: Date): Promise<SessionRecord>;
@@ -234,6 +240,17 @@ const postgres: AccountsRepository = {
     const result = await pool().query(`UPDATE app_users SET ${sets.join(", ")} WHERE id = $1 RETURNING ${MEMBER_COLUMNS}`, values);
     return result.rows[0] ? toMember(result.rows[0]) : null;
   },
+  async deleteMember(id) {
+    await ensureSchema();
+    // End their sessions first, so a request already in flight cannot keep
+    // acting as a person who no longer exists.
+    await pool().query(
+      "UPDATE app_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+      [id],
+    );
+    const result = await pool().query("DELETE FROM app_users WHERE id = $1", [id]);
+    return (result.rowCount ?? 0) > 0;
+  },
   async markSignedIn(id) {
     await ensureSchema();
     await pool().query("UPDATE app_users SET last_sign_in_at = now() WHERE id = $1", [id]);
@@ -350,6 +367,14 @@ const memory: AccountsRepository = {
     if (!member) return null;
     Object.assign(member, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)));
     return member;
+  },
+  async deleteMember(id) {
+    const store = memoryStore();
+    const existed = store.members.delete(id);
+    for (const session of store.sessions.values()) {
+      if (session.userId === id && !session.revokedAt) session.revokedAt = new Date().toISOString();
+    }
+    return existed;
   },
   async markSignedIn(id) {
     const member = memoryStore().members.get(id);
