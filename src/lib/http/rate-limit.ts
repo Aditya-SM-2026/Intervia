@@ -1,4 +1,5 @@
 import "server-only";
+import { areRateLimitsDisabled } from "@/lib/config/env";
 import { hitRateLimit } from "@/server/repositories/rate-limit-repository";
 
 /**
@@ -7,7 +8,8 @@ import { hitRateLimit } from "@/server/repositories/rate-limit-repository";
  * Counts live in Postgres (see rate-limit-repository), so a limit holds across
  * every Cloud Run instance and survives cold starts. A broken counter must
  * never lock a real candidate out, so a failed check is treated as "allow" and
- * logged instead.
+ * logged instead. RATE_LIMIT_DISABLED turns every rule off at once, which is
+ * how predev runs without limits.
  */
 
 export type RateLimitRule = {
@@ -30,6 +32,7 @@ function secondsLeftInWindow(windowSeconds: number): number {
 }
 
 export async function overRateLimits(rules: RateLimitRule[]): Promise<RateLimitResult> {
+  if (areRateLimitsDisabled()) return ALLOWED;
   for (const rule of rules) {
     try {
       const hits = await hitRateLimit(rule.key, rule.windowSeconds);

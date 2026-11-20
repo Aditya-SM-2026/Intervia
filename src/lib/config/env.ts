@@ -84,3 +84,14 @@ export function getAgentApiSecret(): string | null {
 export function isProduction(): boolean {
   return process.env.NODE_ENV === "production";
 }
+
+/**
+ * The public apply limits can be switched off for an environment that exists
+ * for testing. Predev sets RATE_LIMIT_DISABLED so people on one college
+ * network are never throttled; production leaves it unset and keeps the
+ * Postgres limits on.
+ */
+export function areRateLimitsDisabled(): boolean {
+  const value = process.env.RATE_LIMIT_DISABLED?.trim().toLowerCase();
+  return value === "true" || value === "1";
+}
