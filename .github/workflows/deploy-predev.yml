@@ -93,7 +93,7 @@ jobs:
             --image ${{ env.AR_REPO }}/web:predev \
             --region ${{ env.REGION }} \
             --timeout 900 \
-            --update-env-vars APP_BASE_URL=${{ env.APP_BASE_URL }},AGENT_JOB_NAME=${{ env.AGENT_JOB }},AGENT_JOB_PROJECT=${{ env.PROJECT_ID }},AGENT_JOB_REGION=${{ env.REGION }},TASKS_JOBS_QUEUE=${{ env.JOBS_QUEUE }},CRON_MODE=external \
+            --update-env-vars APP_BASE_URL=${{ env.APP_BASE_URL }},AGENT_JOB_NAME=${{ env.AGENT_JOB }},AGENT_JOB_PROJECT=${{ env.PROJECT_ID }},AGENT_JOB_REGION=${{ env.REGION }},TASKS_JOBS_QUEUE=${{ env.JOBS_QUEUE }},CRON_MODE=external,RATE_LIMIT_DISABLED=true \
             --update-secrets INTERNAL_SECRET=predev-internal-secret:latest \
             --quiet
 
