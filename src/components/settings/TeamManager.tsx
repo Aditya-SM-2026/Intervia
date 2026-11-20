@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowUpRight, Check, Copy, KeyRound, Power, RefreshCw, ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import { ArrowUpRight, Check, Copy, KeyRound, LogOut, Power, RefreshCw, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { OWNER_ID } from "@/lib/auth/accounts.logic";
 import { Sheet } from "@/components/ui/Sheet";
 import { Toast, type ToastMessage } from "@/components/ui/Toast";
@@ -37,6 +37,7 @@ async function send(url: string, method: string, body: unknown) {
   const data = (await response.json().catch(() => ({}))) as {
     member?: PublicMember;
     sessionsEnded?: number;
+    signedOut?: number;
     error?: { message?: string; fields?: FieldErrors };
   };
   return { ok: response.ok, data };
@@ -48,25 +49,40 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [adding, setAdding] = useState(false);
   const [resetFor, setResetFor] = useState<PublicMember | null>(null);
-  const [confirmOff, setConfirmOff] = useState<string | null>(null);
+  const [confirmSignOut, setConfirmSignOut] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const replace = (member: PublicMember) => setMembers((list) => list.map((m) => (m.id === member.id ? member : m)));
 
-  async function toggle(member: PublicMember) {
+  async function turnOn(member: PublicMember) {
     setBusy(member.id);
-    const { ok, data } = await send(`/api/team/${member.id}`, "PATCH", { active: !member.active });
+    const { ok, data } = await send(`/api/team/${member.id}`, "PATCH", { active: true });
     setBusy(null);
-    setConfirmOff(null);
     if (!ok || !data.member) {
       setToast({ tone: "error", message: data.error?.message ?? "That did not save. Try again." });
       return;
     }
     replace(data.member);
+    setToast({ tone: "success", message: `${member.name} can sign in again.` });
+  }
+
+  async function signOut(member: PublicMember) {
+    setBusy(member.id);
+    const { ok, data } = await send(`/api/team/${member.id}`, "PATCH", { signOut: true });
+    setBusy(null);
+    setConfirmSignOut(null);
+    if (!ok) {
+      setToast({ tone: "error", message: data.error?.message ?? "That did not work. Try again." });
+      return;
+    }
+    const ended = data.signedOut ?? 0;
     setToast({
       tone: "success",
-      message: data.member.active ? `${member.name} can sign in again.` : `${member.name} is turned off and signed out everywhere.`,
+      message:
+        ended > 0
+          ? `${member.name} is signed out on every device. They can sign back in with the same password.`
+          : `${member.name} had no open session, so nothing changed.`,
     });
   }
 
@@ -141,13 +157,6 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
                 <dd suppressHydrationWarning className="tabular-nums">{formatDate(member.lastSignInAt)}</dd>
                 <dd suppressHydrationWarning className="tabular-nums">{formatDate(member.createdAt).replace(/, \d+:\d+ [AP]M$/, "")}</dd>
               </dl>
-              <span
-                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                  member.active ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-foreground/[0.06] text-muted"
-                }`}
-              >
-                {member.active ? "Active" : "Off"}
-              </span>
               <div className="flex flex-wrap items-center gap-2">
                 {confirmDelete === member.id ? (
                   <>
@@ -167,13 +176,20 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
                       Cancel
                     </button>
                   </>
-                ) : confirmOff === member.id ? (
+                ) : confirmSignOut === member.id ? (
                   <>
-                    <span className="text-xs text-muted">Sign them out everywhere?</span>
-                    <button type="button" className={`${quietButton} border-red-500/40 text-red-600 dark:text-red-400`} disabled={busy === member.id} onClick={() => void toggle(member)}>
-                      Turn off
+                    <span className="text-xs text-muted">
+                      Sign {member.name} out on every device? They can sign back in.
+                    </span>
+                    <button
+                      type="button"
+                      className={quietButton}
+                      disabled={busy === member.id}
+                      onClick={() => void signOut(member)}
+                    >
+                      Sign out
                     </button>
-                    <button type="button" className={quietButton} onClick={() => setConfirmOff(null)}>
+                    <button type="button" className={quietButton} onClick={() => setConfirmSignOut(null)}>
                       Cancel
                     </button>
                   </>
@@ -189,15 +205,27 @@ export function TeamManager({ initial, ownerName }: { initial: PublicMember[]; o
                         Reset password
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className={quietButton}
-                      disabled={busy === member.id}
-                      onClick={() => (member.active ? setConfirmOff(member.id) : void toggle(member))}
-                    >
-                      <Power className="size-3.5" aria-hidden />
-                      {member.active ? "Turn off" : "Turn on"}
-                    </button>
+                    {member.active ? (
+                      <button
+                        type="button"
+                        className={quietButton}
+                        disabled={busy === member.id}
+                        onClick={() => setConfirmSignOut(member.id)}
+                      >
+                        <LogOut className="size-3.5" aria-hidden />
+                        Sign out
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className={quietButton}
+                        disabled={busy === member.id}
+                        onClick={() => void turnOn(member)}
+                      >
+                        <Power className="size-3.5" aria-hidden />
+                        Turn on
+                      </button>
+                    )}
                     <button
                       type="button"
                       className={`${quietButton} border-red-500/30 text-red-600 hover:bg-red-500/[0.06] dark:text-red-400`}

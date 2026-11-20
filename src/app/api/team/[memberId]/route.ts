@@ -24,7 +24,23 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const before = await repository.getMember(memberId);
   if (!before) return NextResponse.json({ error: { code: "NOT_FOUND", message: "This person is not on the team." } }, { status: 404 });
 
-  const body = (await request.json().catch(() => ({}))) as { name?: unknown; active?: unknown; password?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { name?: unknown; active?: unknown; password?: unknown; signOut?: unknown };
+
+  // Signing someone out ends every session they have, but leaves the account
+  // on: they can sign in again with the same password whenever they need to.
+  if (body.signOut === true) {
+    const ended = await repository.revokeSessionsFor(memberId);
+    await logActivity({
+      action: "team.signed_out",
+      targetType: "member",
+      targetId: memberId,
+      summary: `Signed ${before.name} out on every device`,
+      details: { sessionsEnded: ended },
+      actor: await getActor(),
+    });
+    return NextResponse.json({ signedOut: ended });
+  }
+
   const patch: { name?: string; active?: boolean; passwordHash?: string } = {};
   const changes: string[] = [];
   if (typeof body.name === "string") {
