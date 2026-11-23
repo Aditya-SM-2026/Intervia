@@ -8,6 +8,8 @@ import {
   attachApplicationResume,
   verifyCandidateEmail,
 } from "@/lib/interviews/interview.service";
+import type { InterviewRoom } from "@/lib/interviews/interview.types";
+import { sendHrInvitation } from "@/lib/emails/email.service";
 import {
   roomIdSchema,
   verifyEmailSchema,
@@ -182,7 +184,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       dispatchInterviewId: roomId,
       dispatchAgent: !jobConfig,
     });
-    await activateRoom(roomId);
+    // The first join starts the interview; that is the moment the HR contact
+    // gets their link, while there is still time to sit in.
+    const joinedRoom = await activateRoom(roomId);
+    if (joinedRoom) await alertHrOfJoin(request, joinedRoom);
     return NextResponse.json({
       ...credentials,
       identity,
@@ -205,4 +210,50 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       "The interview room is not available right now. Please try again shortly.",
     );
   }
+}
+
+/**
+ * Tells the HR contact the candidate has joined, with the link to sit in.
+ * Only interviews created with an HR address carry a token, so the rest send
+ * nothing. The send reports its own status and never throws.
+ */
+async function alertHrOfJoin(request: NextRequest, room: InterviewRoom): Promise<void> {
+  if (!room.hrEmail || !room.hrToken) return;
+  const hrUrl = new URL(
+    `/interview/${room.id}/hr?token=${room.hrToken}`,
+    publicOrigin(request),
+  ).toString();
+  await sendHrInvitation({
+    to: room.hrEmail,
+    candidateName: room.candidateName ?? "the candidate",
+    roleTitle: room.roleTitle || room.title,
+    recruiterName: room.recruiterName,
+    hrUrl,
+    scheduledAt: room.scheduledAt,
+    durationMinutes: room.durationMinutes,
+    joinedNow: true,
+  });
+}
+
+/**
+ * The externally visible origin. Behind a proxy (Cloud Run, tunnels) the
+ * Next.js request URL reflects the internal listener, so the forwarded
+ * headers take precedence when present.
+ */
+function publicOrigin(request: NextRequest): string {
+  // An explicitly configured origin wins: behind Cloud Run the forwarded
+  // headers are usually right, but a pinned value can never drift.
+  const configured = process.env.INTERVIA_PUBLIC_ORIGIN?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+  const forwardedProto = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim();
+  const proto =
+    forwardedProto === "https" || forwardedProto === "http"
+      ? forwardedProto
+      : request.nextUrl.protocol.replace(":", "");
+  const host = request.headers.get("host") ?? request.nextUrl.host;
+  const safeHost = /^[a-zA-Z0-9.\-:]+$/.test(host) ? host : "localhost";
+  return `${proto}://${safeHost}`;
 }

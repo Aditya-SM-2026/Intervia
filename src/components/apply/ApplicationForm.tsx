@@ -101,8 +101,9 @@ function FieldShell({
 }
 
 /**
- * The role's story, set on a dark panel beside the form. Long descriptions
- * scroll inside the panel on desktop so the form stays the focus.
+ * The role's story, set on a dark panel beside the form. On desktop the panel
+ * takes the form's height, so the two columns end level with each other; a
+ * description longer than that space scrolls inside the panel, never the page.
  */
 function RolePanel({
   roleTitle,
@@ -114,83 +115,92 @@ function RolePanel({
   preview: boolean;
 }) {
   return (
-    <aside
-      className={`relative isolate overflow-hidden rounded-[28px] bg-[#081a3d] text-white shadow-[0_24px_80px_-40px_rgba(8,26,61,0.65)] ring-1 ring-white/10 ${
-        preview ? "" : "lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain"
-      }`}
-    >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-90"
-        style={{
-          backgroundImage:
-            "radial-gradient(120% 80% at 100% 0%, rgba(64,112,255,0.32) 0%, rgba(8,26,61,0) 55%), radial-gradient(90% 70% at 0% 100%, rgba(64,112,255,0.18) 0%, rgba(8,26,61,0) 60%)",
-        }}
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.06]"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(255,255,255,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.7) 1px, transparent 1px)",
-          backgroundSize: "44px 44px",
-          maskImage: "linear-gradient(to bottom, black, transparent 75%)",
-          WebkitMaskImage: "linear-gradient(to bottom, black, transparent 75%)",
-        }}
-      />
-
-      <div
-        className={`relative flex flex-col px-6 py-7 sm:px-8 sm:py-9 ${
-          preview
-            ? ""
-            : "lg:px-9 lg:pt-10 lg:pb-10"
+    // On desktop the panel is taken out of flow so it can never stretch the
+    // page: the form beside it sets the row height and the panel fills exactly
+    // that, scrolling its description when the role's story is longer.
+    <div className={preview ? "" : "lg:relative lg:h-full"}>
+      <aside
+        className={`relative isolate flex flex-col overflow-hidden rounded-[28px] bg-[#081a3d] text-white shadow-[0_24px_80px_-40px_rgba(8,26,61,0.65)] ring-1 ring-white/10 ${
+          preview ? "" : "lg:absolute lg:inset-0 lg:min-h-0"
         }`}
       >
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium tracking-[0.14em] text-white/80 uppercase backdrop-blur-sm">
-            <span aria-hidden className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,0.15)]" />
-            Open role
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-white/70 backdrop-blur-sm">
-            <Clock className="size-3 text-white/60" aria-hidden />
-            <span>~2 mins</span>
-          </span>
-        </div>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-90"
+          style={{
+            backgroundImage:
+              "radial-gradient(120% 80% at 100% 0%, rgba(64,112,255,0.32) 0%, rgba(8,26,61,0) 55%), radial-gradient(90% 70% at 0% 100%, rgba(64,112,255,0.18) 0%, rgba(8,26,61,0) 60%)",
+          }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.06]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.7) 1px, transparent 1px)",
+            backgroundSize: "44px 44px",
+            maskImage: "linear-gradient(to bottom, black, transparent 75%)",
+            WebkitMaskImage: "linear-gradient(to bottom, black, transparent 75%)",
+          }}
+        />
 
-        <h1 className="mt-5 text-balance break-words text-[2rem] leading-[1.08] font-semibold tracking-[-0.035em] sm:text-[2.45rem]">
-          {roleTitle}
-        </h1>
-
-        {/* Phones show the description first; one tap reaches the form. */}
-        {!preview && (
-          <a
-            href="#application-form"
-            className="mt-5 inline-flex w-fit items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#081a3d] transition hover:bg-white/90 lg:hidden"
-          >
-            Apply now
-            <ArrowRight className="size-4" aria-hidden />
-          </a>
-        )}
-
-        {roleDescription.trim() !== "" && (
-          <div className="mt-8 border-t border-white/10 pt-7">
-            <DocumentText text={roleDescription} onDark />
+        <div
+          className={`relative flex min-h-0 flex-1 flex-col px-6 py-7 sm:px-8 sm:py-9 ${
+            preview
+              ? ""
+              : "lg:px-9 lg:pt-10 lg:pb-10"
+          }`}
+        >
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium tracking-[0.14em] text-white/80 uppercase backdrop-blur-sm">
+              <span aria-hidden className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,0.15)]" />
+              Open role
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-white/70 backdrop-blur-sm">
+              <Clock className="size-3 text-white/60" aria-hidden />
+              <span>~2 mins</span>
+            </span>
           </div>
-        )}
 
-        <div className="mt-8 pt-4">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur-sm">
-            <div className="flex items-center gap-2 text-sm font-medium text-white">
-              <ShieldCheck className="size-4 text-emerald-400" aria-hidden />
-              Your application stays private
-              <InfoTip text="It is shared only with the hiring team for this role." />
+          <h1 className="mt-5 shrink-0 text-balance break-words text-[2rem] leading-[1.08] font-semibold tracking-[-0.035em] sm:text-[2.45rem]">
+            {roleTitle}
+          </h1>
+
+          {/* Phones show the description first; one tap reaches the form. */}
+          {!preview && (
+            <a
+              href="#application-form"
+              className="mt-5 inline-flex w-fit shrink-0 items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#081a3d] transition hover:bg-white/90 lg:hidden"
+            >
+              Apply now
+              <ArrowRight className="size-4" aria-hidden />
+            </a>
+          )}
+
+          {roleDescription.trim() !== "" && (
+            <div
+              className={`mt-8 border-t border-white/10 pt-7 ${
+                preview
+                  ? ""
+                  : "lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain lg:pr-2 lg:[scrollbar-color:rgba(255,255,255,0.22)_transparent] lg:[scrollbar-width:thin]"
+              }`}
+            >
+              <DocumentText text={roleDescription} onDark />
+            </div>
+          )}
+
+          <div className={`shrink-0 pt-4 ${preview ? "mt-8" : "mt-8 lg:mt-auto"}`}>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur-sm">
+              <div className="flex items-center gap-2 text-sm font-medium text-white">
+                <ShieldCheck className="size-4 text-emerald-400" aria-hidden />
+                Your application stays private
+                <InfoTip text="It is shared only with the hiring team for this role." />
+              </div>
             </div>
           </div>
         </div>
-      </div>
-      {/* On wide screens the description scrolls inside the panel; the fade
-          shows there is more below instead of looking cut off. */}
-    </aside>
+      </aside>
+    </div>
   );
 }
 
@@ -480,7 +490,7 @@ export function ApplicationForm({
   return (
     <div
       className={`grid items-start gap-5 ${
-        preview ? "" : "lg:items-start lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-6"
+        preview ? "" : "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-stretch lg:gap-6"
       }`}
     >
       <RolePanel roleTitle={roleTitle} roleDescription={roleDescription} preview={preview} />

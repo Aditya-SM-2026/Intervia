@@ -50,6 +50,7 @@ import {
   Eye,
   FileText,
   Gauge,
+  Headphones,
   Maximize2,
   Mic,
   MessageSquare,
@@ -834,7 +835,7 @@ function CandidateHeader({
               PDF
             </a>
           )}
-          {(session.status === "expired" || session.status === "completed") && (
+          {(session.status === "active" || session.status === "expired" || session.status === "completed") && (
           <Menu
               label="More actions"
               align="end"
@@ -844,6 +845,19 @@ function CandidateHeader({
                 </button>
               }
               items={[
+                ...(session.status === "active" && session.hrToken
+                  ? [{
+                      id: "join-hr",
+                      label: "Join as HR",
+                      icon: <Headphones className="size-4" aria-hidden />,
+                      onSelect: () =>
+                        window.open(
+                          `/interview/${roomId}/hr?token=${encodeURIComponent(session.hrToken!)}`,
+                          "_blank",
+                          "noopener,noreferrer",
+                        ),
+                    }]
+                  : []),
                 ...(session.status === "expired"
                   ? [{ id: "edit", label: "Edit interview", icon: <Pencil className="size-4" aria-hidden />, onSelect: () => router.push(`/dashboard/${roomId}/edit`) }]
                   : []),

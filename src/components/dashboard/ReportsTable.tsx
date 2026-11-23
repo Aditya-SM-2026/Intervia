@@ -2,7 +2,7 @@
 // Reports table: shows the 0-100 overall score; thin-transcript reports carry a cost-savings note.
 
 import { useEffect, useRef } from "react";
-import { ArrowDown, ArrowUp, ArrowUpRight, Download, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, Download, Headphones, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import type { DashboardInterviewSummary } from "@/lib/dashboard/dashboard.types";
 import type { InterviewStatus } from "@/lib/interviews/interview.types";
 import { ScorePill } from "@/components/ui/ScorePill";
@@ -165,8 +165,24 @@ export function ReportsTable({
 function rowMenuItems(summary: DashboardInterviewSummary, onAction: ReportsTableProps["onAction"]) {
   const { room, scorecard } = summary;
   const status = room.status as InterviewStatus;
+  // Joining as HR only makes sense while the interview is running, and only
+  // when the interview was given an HR address (the token comes with one).
+  const hrToken = status === "active" ? room.hrToken : null;
   return [
     { id: "open", label: scorecard ? "Open report" : "Open", icon: <ArrowUpRight className="size-4" aria-hidden />, onSelect: () => onAction("view", room.id) },
+    ...(hrToken
+      ? [{
+          id: "join-hr",
+          label: "Join as HR",
+          icon: <Headphones className="size-4" aria-hidden />,
+          onSelect: () =>
+            window.open(
+              `/interview/${room.id}/hr?token=${encodeURIComponent(hrToken)}`,
+              "_blank",
+              "noopener,noreferrer",
+            ),
+        }]
+      : []),
     ...(scorecard
       ? [{ id: "download", label: "Download PDF", icon: <Download className="size-4" aria-hidden />, onSelect: () => onAction("download", room.id) }]
       : []),

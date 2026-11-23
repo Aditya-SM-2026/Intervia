@@ -227,6 +227,11 @@ export interface HrInvitationEmailInput {
   hrUrl: string;
   scheduledAt: string | null;
   durationMinutes: number;
+  /**
+   * True for the alert sent the moment the candidate joins. It carries the same
+   * link, but reads as "it has started" rather than "you are invited".
+   */
+  joinedNow?: boolean;
 }
 
 /**
@@ -238,14 +243,20 @@ export function buildHrInvitationEmail(input: HrInvitationEmailInput): Invitatio
   const whenLine = input.scheduledAt
     ? formatMoment(input.scheduledAt)
     : "any time";
-  const subject = `HR link: ${input.roleTitle} interview`;
+  const subject = input.joinedNow
+    ? `Starting now: ${input.roleTitle} interview`
+    : `HR link: ${input.roleTitle} interview`;
+  const opening = input.joinedNow
+    ? `${input.candidateName} has just joined the AI-led interview for ${input.roleTitle}. Join now to listen in.`
+    : `You are invited to sit in on the AI-led interview for ${input.candidateName} (${input.roleTitle}).`;
+  const whenShown = input.joinedNow ? "now, the interview is running" : whenLine;
 
   const text = [
     `Hi,`,
     "",
-    `You are invited to sit in on the AI-led interview for ${input.candidateName} (${input.roleTitle}).`,
+    opening,
     "",
-    `When: ${whenLine}`,
+    `When: ${whenShown}`,
     `Duration: about ${input.durationMinutes} minutes`,
     ...(input.recruiterName ? [`Interviewer: ${input.recruiterName}`] : []),
     "",
@@ -264,12 +275,10 @@ export function buildHrInvitationEmail(input: HrInvitationEmailInput): Invitatio
     <div style="background:#ffffff;border-radius:12px;padding:28px">
       <p style="margin:0 0 16px;font-size:16px">Hi,</p>
       <p style="margin:0 0 16px;font-size:15px">
-        You are invited to sit in on the AI-led interview for
-        <strong>${escapeHtml(input.candidateName)}</strong>
-        for the <strong>${escapeHtml(input.roleTitle)}</strong> role.
+        ${escapeHtml(opening)}
       </p>
       <div style="background:#f4f5f7;border-radius:8px;padding:14px 16px;margin:0 0 20px;font-size:15px;line-height:1.7">
-        <p style="margin:0 0 4px">When: <strong>${escapeHtml(whenLine)}</strong></p>
+        <p style="margin:0 0 4px">When: <strong>${escapeHtml(whenShown)}</strong></p>
         <p style="margin:0 0 4px">Duration: about <strong>${input.durationMinutes}</strong> minutes</p>
         ${input.recruiterName ? `<p style="margin:0 0 4px">Organised by: <strong>${escapeHtml(input.recruiterName)}</strong></p>` : ""}
       </div>

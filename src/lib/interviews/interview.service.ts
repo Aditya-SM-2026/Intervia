@@ -277,15 +277,20 @@ export async function validateRoomAccess(roomId: string): Promise<RoomAccessResu
 
 /**
  * Marks a room `active` once join credentials are issued for it. Silently
- * ignores unknown rooms (access validation already reported them).
+ * ignores unknown rooms (access validation already reported them). Returns the
+ * room only when this call is the one that started it, so callers can do
+ * first-join work once (the HR alert) without repeating it on a reconnect.
  */
-export async function activateRoom(roomId: string): Promise<void> {
+export async function activateRoom(roomId: string): Promise<InterviewRoom | null> {
   const repository = getInterviewRepository();
   const room = await applyExpiry(repository, roomId);
 
   if (room && isActiveStatus(room.status) && room.status !== "active") {
-    await repository.save({ ...room, status: "active" });
+    const active: InterviewRoom = { ...room, status: "active" };
+    await repository.save(active);
+    return active;
   }
+  return null;
 }
 
 export type EmailVerifyResult =

@@ -25,6 +25,8 @@ export interface DashboardRow {
     status: string;
     createdAt: string;
     completedAt: string | null;
+    /** Set when the interview was created with an HR address; the HR link key. */
+    hrToken: string | null;
     /** Why this completed interview cannot have a report, when it cannot. */
     noReportReason: string | null;
   };
@@ -90,6 +92,7 @@ function rowToDashboardRow(row: {
   created_at: Date;
   completed_at: Date | null;
   has_scorecard: boolean;
+  hr_token?: string | null;
   no_report_reason?: string | null;
 }): DashboardRow {
   return {
@@ -103,6 +106,7 @@ function rowToDashboardRow(row: {
       status: row.status,
       createdAt: row.created_at.toISOString(),
       completedAt: row.completed_at ? row.completed_at.toISOString() : null,
+      hrToken: row.hr_token ?? null,
       noReportReason: row.no_report_reason ?? null,
     },
     hasScorecard: row.has_scorecard,
@@ -110,7 +114,7 @@ function rowToDashboardRow(row: {
 }
 
 const ROW_SELECT = `i.id, i.title, i.candidate_name, i.candidate_email, i.recruiter_name,
-  i.role_title, i.status, i.created_at, i.completed_at,
+  i.role_title, i.status, i.created_at, i.completed_at, i.hr_token,
   i.outcome->>'noReportReason' AS no_report_reason,
   (s.room_id IS NOT NULL) AS has_scorecard`;
 
@@ -326,6 +330,7 @@ export function getInMemoryDashboardRepository(): DashboardRepository {
             status: room.status,
             createdAt: room.createdAt,
             completedAt: room.completedAt,
+            hrToken: room.hrToken ?? null,
             noReportReason: room.outcome?.noReportReason ?? null,
           },
           hasScorecard: store.scorecards.has(room.id),
