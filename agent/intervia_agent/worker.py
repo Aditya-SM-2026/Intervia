@@ -97,6 +97,17 @@ STEP_ANSWER_GRACE_SECONDS = 25.0
 GATE_MAX_HOLD_SECONDS = 4.0
 # How long to wait for the closed model session to finish and report its usage.
 MODEL_STOP_WAIT_SECONDS = 3.0
+# A Gemini connection that fails for good mid-interview is replaced by a fresh
+# one instead of ending the call (Nov 25: a Google-side 1006, then a refused
+# resume, ended a 30-minute interview at 10 minutes). Bounded, so a setup that
+# can never connect still ends instead of looping.
+MAX_SESSION_RECOVERIES = 3
+RECOVERY_NOTE = (
+    "The connection to the candidate dropped for a moment and is back now. In one short "
+    "sentence, say sorry, the line dropped for a second. Then briefly restate your last "
+    "question and ask them to carry on from where they were. Do not greet them again, do not "
+    "introduce yourself and do not start the interview over."
+)
 
 
 class GatedAudioInput(io.AudioInput):
@@ -296,6 +307,8 @@ class InterviewRuntime:
         self._step_opened_at = 0.0
         self._last_candidate_turn_at = 0.0
         self._renewing = False
+        # Fresh sessions opened because the model connection failed for good.
+        self._recoveries = 0
 
         # Speech timing, from session state changes (epoch seconds).
         self._agent_speaking_since: float | None = None
@@ -572,6 +585,77 @@ class InterviewRuntime:
             logger.error("could not renew the model session: %s", error)
             if self._gate is not None:
                 self._gate.release()
+        finally:
+            self._renewing = False
+
+    def should_recover(self, error: Any) -> bool:
+        """True for a model connection that failed for good while the interview
+        still has time left: that is replaced, not treated as the end."""
+        return (
+            isinstance(error, llm.RealtimeModelError)
+            and not error.recoverable
+            and self.controller is not None
+            and self._started_at_iso is not None
+            and not self._finished
+            and not self.closing
+            and not self._model_stopped
+            and not self._candidate_gone
+            and self._recoveries < MAX_SESSION_RECOVERIES
+        )
+
+    async def _recover_session(self, error: str) -> None:
+        """Continues the interview in a fresh model session after the current
+        one's connection failed (the 2-minute renewal, done at once)."""
+        assert self.session is not None and self.controller is not None
+        # A renewal already in flight is replacing the session anyway; wait for
+        # it so the two never swap the model at the same moment.
+        for _ in range(40):
+            if not self._renewing:
+                break
+            await asyncio.sleep(0.05)
+        if self._finished or self.closing:
+            return
+        self._renewing = True
+        try:
+            previous = self.session.current_agent.chat_ctx
+            self._interrupt_speech()
+            self._clear_output_buffer()
+            if self._gate is not None:
+                self._gate.hold()
+            quiet = self._hr_muted or self._paused
+            self.session.update_agent(
+                InterviewerAgent(
+                    self,
+                    self.instructions_for_current_step() + continuation_note(previous),
+                    chat_ctx=carry_over_context(
+                        previous, self.controller.summary_so_far(), turns=ROLLING_CARRY_OVER_TURNS
+                    ),
+                    # While HR has the floor or the candidate is paused, the
+                    # new session waits quietly like the old one would have.
+                    entering_note=None if quiet else RECOVERY_NOTE,
+                )
+            )
+            self._session_started_at = time.monotonic()
+            logger.warning(
+                "model connection failed; continuing in a fresh session (%d of %d)",
+                self._recoveries,
+                MAX_SESSION_RECOVERIES,
+            )
+            self.backend.add_event(
+                "voice_session_renewed",
+                {
+                    **self.controller.state_snapshot(),
+                    "why": "recovery",
+                    "attempt": self._recoveries,
+                    "error": error,
+                },
+            )
+        except Exception as failure:  # noqa: BLE001
+            logger.error("could not recover the model session: %s", failure)
+            if self._gate is not None:
+                self._gate.release()
+            if not self._finished:
+                await self.finish("session_closed")
         finally:
             self._renewing = False
 
@@ -929,6 +1013,13 @@ class InterviewRuntime:
         def _error(event: Any) -> None:
             logger.error("session error: %s", event.error)
             self.backend.add_event("agent_error", {"error": str(event.error)[:500]})
+            # This handler runs before the framework decides to close the
+            # session, so marking the error recoverable keeps the call open
+            # while a fresh model session takes over.
+            if self.should_recover(event.error):
+                event.error.recoverable = True
+                self._recoveries += 1
+                self._spawn(self._recover_session(str(event.error.error)[:300]))
 
         @session.on("close")
         def _close(event: Any) -> None:

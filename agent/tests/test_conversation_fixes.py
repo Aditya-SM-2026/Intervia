@@ -84,3 +84,50 @@ def test_captions_drop_markers_split_across_pieces() -> None:
         return "".join([p async for p in agent.transcription_node(pieces(), None)])
 
     assert asyncio.run(run()) == "Got it.  Next question?"
+
+
+def _recovery_runtime():  # type: ignore[no-untyped-def]
+    from intervia_agent.worker import InterviewRuntime
+
+    runtime = InterviewRuntime.__new__(InterviewRuntime)
+    runtime.controller = object()  # type: ignore[assignment]
+    runtime._started_at_iso = "2026-11-25T13:26:33Z"
+    runtime._finished = False
+    runtime.closing = False
+    runtime._model_stopped = False
+    runtime._candidate_gone = False
+    runtime._recoveries = 0
+    return runtime
+
+
+def _model_error(recoverable: bool) -> llm.RealtimeModelError:
+    return llm.RealtimeModelError(
+        timestamp=0.0,
+        label="livekit.plugins.google.realtime.realtime_api.RealtimeModel",
+        error=Exception("1008 BidiGenerateContent session is already connected to an existing client"),
+        recoverable=recoverable,
+    )
+
+
+def test_a_dead_model_connection_mid_interview_is_replaced_not_the_end() -> None:
+    runtime = _recovery_runtime()
+    assert runtime.should_recover(_model_error(recoverable=False))
+    # A recoverable error is left to the plugin's own reconnect.
+    assert not runtime.should_recover(_model_error(recoverable=True))
+
+
+def test_no_recovery_before_the_start_after_the_end_or_past_the_limit() -> None:
+    from intervia_agent.worker import MAX_SESSION_RECOVERIES
+
+    error = _model_error(recoverable=False)
+    for field, value in (
+        ("_started_at_iso", None),
+        ("_finished", True),
+        ("closing", True),
+        ("_model_stopped", True),
+        ("_candidate_gone", True),
+        ("_recoveries", MAX_SESSION_RECOVERIES),
+    ):
+        runtime = _recovery_runtime()
+        setattr(runtime, field, value)
+        assert not runtime.should_recover(error), field
