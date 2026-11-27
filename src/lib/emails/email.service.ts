@@ -29,6 +29,8 @@ export interface InvitationEmailMessage {
   subject: string;
   text: string;
   html: string;
+  /** Optional Reply-To (env EMAIL_REPLY_TO), so replies reach the company inbox. */
+  replyTo?: string;
 }
 
 /** Rendering timezone for the email's date and time (env EMAIL_TIMEZONE). */
@@ -42,6 +44,14 @@ function fromAddress(): string {
     process.env.SMTP_USER?.trim() ||
     "interviews@intervia.ai"
   );
+}
+
+/**
+ * Replies should land in the company mailbox even when the mail is sent from
+ * a relay account (env EMAIL_REPLY_TO). Empty means nodemailer adds no header.
+ */
+function replyToAddress(): string | undefined {
+  return process.env.EMAIL_REPLY_TO?.trim() || undefined;
 }
 
 function formatMoment(iso: string): string {
@@ -124,7 +134,7 @@ export function buildInvitationEmail(input: InvitationEmailInput): InvitationEma
   </div>
 </body></html>`;
 
-  return { from: fromAddress(), to: input.to, subject, text, html };
+  return { from: fromAddress(), to: input.to, subject, text, html, replyTo: replyToAddress() };
 }
 
 function escapeHtml(value: string): string {
@@ -299,7 +309,7 @@ export function buildHrInvitationEmail(input: HrInvitationEmailInput): Invitatio
     <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by ${ORGANIZATION_NAME} Interviews. Please do not reply to this email.</p>
   </div>
 </body></html>`;
-  return { from: fromAddress(), to: input.to, subject, text, html };
+  return { from: fromAddress(), to: input.to, subject, text, html, replyTo: replyToAddress() };
 }
 
 /** Sends the HR invitation. Like the others, it never throws. */
@@ -424,7 +434,7 @@ export function buildInterviewUpdateEmail(
   </div>
 </body></html>`;
 
-  return { from: fromAddress(), to: input.to, subject, text, html };
+  return { from: fromAddress(), to: input.to, subject, text, html, replyTo: replyToAddress() };
 }
 
 /** Sends the update email. Like the invitation, it never throws. */
@@ -467,6 +477,7 @@ export interface ReminderEmailMessage {
   subject: string;
   text: string;
   html: string;
+  replyTo?: string;
 }
 
 /** Builds the 30-minute reminder; exported so tests can inspect it. */
@@ -518,7 +529,7 @@ export function buildReminderEmail(
     <p style="margin:16px 0 0;text-align:center;font-size:12px;color:#999">Sent by ${ORGANIZATION_NAME} Interviews. Please do not reply to this email.</p>
   </div>
 </body></html>`;
-  return { from: invite.from, to: input.to, subject, text, html };
+  return { from: invite.from, to: input.to, subject, text, html, replyTo: invite.replyTo };
 }
 
 /**
